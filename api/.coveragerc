@@ -1,0 +1,21 @@
+[run]
+source =
+    apps
+    config
+
+omit =
+    tests/*
+    */migrations/*
+    manage.py
+    config/wsgi.py
+    config/asgi.py
+
+concurrency = multiprocessing
+
+branch = True
+
+[report]
+show_missing = True
+precision = 3
+skip_covered = True
+fail_under = 100
