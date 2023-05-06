@@ -32,6 +32,7 @@ ALLOWED_HOSTS: list[str] = []
 # Application definition
 
 INSTALLED_APPS = [
+    "apps.exercises",
     "apps.foods",
     "apps.goals",
     "apps.measurements",

@@ -17,16 +17,16 @@ class FoodFactory(DjangoModelFactory):
 
     brand = "Ocado"
     name = "Chicken Breast"
-    serving_size = Decimal(100)
+    serving_size = Decimal("100")
     serving_unit = "g"
     calories = 106
     protein_g = 25
-    fat_g = Decimal(0.5)
+    fat_g = Decimal("0.5")
     saturated_fat_g = 0
     polyunsaturated_fat_g = 0
     monosaturated_fat_g = 0
     trans_fat_g = 0
-    carbs_g = Decimal(0.3)
+    carbs_g = Decimal("0.3")
     fiber_carbs_g = 0
     sugar_carbs_g = 0
     sodium_mg = 0
@@ -74,5 +74,5 @@ class RecipeIngredientFactory(DjangoModelFactory):
 
     recipe = SubFactory(RecipeFactory)
     food = SubFactory(FoodFactory)
-    serving_size = Decimal(100)
+    serving_size = Decimal("100")
     serving_unit = "g"

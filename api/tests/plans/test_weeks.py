@@ -25,9 +25,7 @@ def test_calorie_intake(db, day_food, yesterday):
 
 def test_calorie_expenditure(db, day_food):
     """Calculate calorie expenditure correctly."""
-    assert day_food.day.plan.calorie_expenditure == Decimal(
-        "1979.135200000000057367799400"
-    )
+    assert day_food.day.plan.calorie_expenditure == Decimal("2177.04872")
 
 
 def test_calorie_expenditure_yesterday(db, day_food, yesterday):
@@ -42,9 +40,7 @@ def test_protein_intake_g(db, day_food):
 
 def test_remaining_protein_intake_g_day(db, day_food, yesterday):
     """Calculate remaining protein intake in grams correctly."""
-    assert day_food.day.plan.remaining_protein_g_day == Decimal(
-        "235.7499999999999928945726424"
-    )
+    assert day_food.day.plan.remaining_protein_g_day == Decimal("235.75")
 
 
 @pytest.fixture
