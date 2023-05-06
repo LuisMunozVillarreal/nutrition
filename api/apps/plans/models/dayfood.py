@@ -1,6 +1,8 @@
 """DayFood models module."""
 
 
+import datetime
+
 from django.db import models
 
 from apps.foods.models.proportion import NutrientsProportion
@@ -18,6 +20,10 @@ class DayFood(NutrientsProportion):
     food = models.ForeignKey(
         "foods.Food",
         on_delete=models.CASCADE,
+    )
+
+    time = models.TimeField(
+        default=datetime.time(0, 0),
     )
 
     MEAL_BREAKFAST = "breakfast"
@@ -57,3 +63,12 @@ class DayFood(NutrientsProportion):
             f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
             f" {self.serving_size} ({self.serving_unit})"
         )
+
+    @property
+    def day_time(self) -> datetime.datetime:
+        """Get day and time.
+
+        Returns:
+            datetime: day and time.
+        """
+        return datetime.datetime.combine(self.day.day, self.time).astimezone()
