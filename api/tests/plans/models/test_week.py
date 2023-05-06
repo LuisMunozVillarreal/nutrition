@@ -29,7 +29,7 @@ def before_start(mocker):
         "apps.plans.models.week.datetime",
         wraps=datetime,
     )
-    mock.date.today.return_value = datetime.date(2019, 3, 8)
+    mock.datetime.now.return_value = datetime.datetime(2019, 3, 8, 12, 0)
     return mock
 
 
@@ -40,7 +40,7 @@ def test_no_days(db, week_plan, before_start):
 
     # Then
     assert result == week_plan.twee_target
-    assert not before_start.called
+    assert before_start.datetime.now.called
 
 
 def test_before_start_with_one_day(db, day_tracking, before_start):
@@ -53,25 +53,18 @@ def test_before_start_with_one_day(db, day_tracking, before_start):
 
     # Then
     assert result == plan.twee_target
-    assert before_start.date.today.called
+    assert before_start.datetime.now.called
 
 
 @pytest.fixture
 def after_start(mocker):
     """Date in the future mock."""
-    mock1 = mocker.patch(
+    mock = mocker.patch(
         "apps.plans.models.week.datetime",
         wraps=datetime,
     )
-    mock1.date.today.return_value = datetime.date(2023, 1, 12)
-
-    mock2 = mocker.patch(
-        "apps.plans.models.daytracking.datetime",
-        wraps=datetime,
-    )
-    mock2.date.today.return_value = datetime.date(2023, 1, 12)
-
-    return mock1, mock2
+    mock.datetime.now.return_value = datetime.datetime(2023, 1, 12, 12, 0)
+    return mock
 
 
 def test_after_start_with_one_past_deficit_day(
@@ -86,8 +79,7 @@ def test_after_start_with_one_past_deficit_day(
 
     # Then
     assert result == plan.twee_target - 3 * plan.tdee_target
-    assert after_start[0].date.today.called
-    assert not after_start[1].date.today.called
+    assert after_start.datetime.now.called
 
 
 def test_after_start_with_one_past_excess_day(db, day_food, after_start):
@@ -105,8 +97,7 @@ def test_after_start_with_one_past_excess_day(db, day_food, after_start):
         plan.twee_target - 3 * plan.tdee_target - day_food.day.calorie_surplus
     )
     assert result == expected
-    assert after_start[0].date.today.called
-    assert not after_start[1].date.today.called
+    assert after_start.datetime.now.called
 
 
 def test_after_start_with_one_future_day(db, day_food, after_start):
@@ -121,8 +112,42 @@ def test_after_start_with_one_future_day(db, day_food, after_start):
 
     #  Then
     assert result == plan.twee_target - 3 * plan.tdee_target
-    assert after_start[0].date.today.called
-    assert not after_start[1].date.today.called
+    assert after_start.datetime.now.called
+
+
+def test_after_start_with_non_finished_day(db, day_food, after_start):
+    """Non finished day is taken into account for the total."""
+    # Given
+    day_food.day.day = datetime.date(2023, 1, 12)
+    day_food.day.save()
+    plan = day_food.day.plan
+
+    # When
+    result = plan.remaining_kcals()
+
+    #  Then
+    assert (
+        result == plan.twee_target - 3 * plan.tdee_target - day_food.calories
+    )
+    assert after_start.datetime.now.called
+
+
+def test_future_food_same_day(db, day_food, after_start):
+    """Food in the future on the same day isn't taken into account."""
+    # Given
+    day_food.day.day = datetime.date(2023, 1, 12)
+    day_food.day.save()
+    day_food.time = datetime.time(20, 0)
+    day_food.save()
+    plan = day_food.day.plan
+
+    # When
+    result = plan.remaining_kcals()
+
+    #  Then
+    expected = plan.twee_target - 3 * plan.tdee_target
+    assert result == expected
+    assert after_start.datetime.now.called
 
 
 @pytest.fixture
@@ -148,8 +173,7 @@ def test_after_start_with_two_days_after_today_three(
     # Then
     assert result <= plan.twee_target
     assert result == plan.twee_target - 3 * plan.tdee_target
-    assert after_start[0].date.today.called
-    assert not after_start[1].date.today.called
+    assert after_start.datetime.now.called
 
 
 @pytest.fixture
@@ -172,8 +196,23 @@ def test_after_start_with_three_days_after_today_three(
     # Then
     assert result <= plan.twee_target
     assert result == plan.twee_target - 3 * plan.tdee_target
-    assert after_start[0].date.today.called
-    assert not after_start[1].date.today.called
+    assert after_start.datetime.now.called
+
+
+@pytest.fixture
+def next_week(mocker):
+    """Week in the future mock."""
+    mock = mocker.patch(
+        "apps.plans.models.week.datetime",
+        wraps=datetime,
+    )
+    mock.datetime.now.return_value = datetime.datetime(2023, 1, 22, 12, 0)
+    return mock
+
+
+def test_protein_no_remaining_days(db, day_food):
+    """No protein remaining when there is no remaining days."""
+    assert day_food.day.plan.remaining_protein_g_day == 0
 
 
 #
@@ -207,5 +246,4 @@ def test_past_day(plan_three_days, after_start):
 
     # Then
     assert result == plan.tdee_target
-    assert not after_start[0].date.today.called
-    assert after_start[1].date.today.called
+    assert not after_start.datetime.now.called

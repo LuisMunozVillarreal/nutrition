@@ -84,6 +84,8 @@ class DayFoodAdmin(admin.ModelAdmin):
 
     list_display = [
         "id",
+        "day",
+        "time",
         "food",
         "meal",
         "serving_size",
@@ -94,6 +96,7 @@ class DayFoodAdmin(admin.ModelAdmin):
 
     fields = [
         "day",
+        "time",
         "food",
         "meal",
         "serving_size",
