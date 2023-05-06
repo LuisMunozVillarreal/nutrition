@@ -11,7 +11,7 @@ from django.db import models
 from apps.libs.basemodel import BaseModel
 
 PLAN_LENGTH_DAYS = 7
-EXERCISE_RATE = Decimal(1.375)
+EXERCISE_RATE = Decimal("1.375")
 
 
 class WeekPlan(BaseModel):
@@ -119,6 +119,9 @@ class WeekPlan(BaseModel):
         if days_till_end > PLAN_LENGTH_DAYS:
             return PLAN_LENGTH_DAYS
 
+        if days_till_end < 0:
+            return 0
+
         return days_till_end
 
     # Calories
@@ -129,7 +132,7 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: TDEE target.
         """
-        return self.measurement.bmr * EXERCISE_RATE
+        return (self.measurement.bmr * EXERCISE_RATE).normalize()
 
     @property
     def twee_target(self) -> Decimal:
@@ -147,7 +150,7 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: calorie intake.
         """
-        kcals = Decimal(0)
+        kcals = Decimal("0")
         for day in self.days.all():
             if day.day < datetime.date.today():
                 kcals += day.calorie_intake
@@ -160,7 +163,7 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: calorie expenditure.
         """
-        kcals = Decimal(0)
+        kcals = Decimal("0")
         for day in self.days.all():
             if day.day < datetime.date.today():
                 kcals += day.tdee
@@ -187,10 +190,12 @@ class WeekPlan(BaseModel):
     def remaining_kcals(self, today: datetime.date | None = None) -> Decimal:
         """Get remaining kcals.
 
-        Days that surpass the target intake is taken into account to reduce
-        the remaining calories. However, for days where the intake is less than
-        the target, the calorie intake is considered as the target. This way
-        the deficit would be bigger.
+        Days that surpass the TDEE intake for that day is taken into account
+        to reduce the remaining calories. However, for days where the intake
+        is less than the TDEE for that day, the calorie intake is considered
+        as the TDEE for that day. This way the deficit will be bigger.
+
+        Today is not taking into account since the intake can still change.
 
         Args:
             today (date): day to consider as current day.
@@ -201,12 +206,12 @@ class WeekPlan(BaseModel):
         if not today:
             today = datetime.date.today()
 
-        kcals = Decimal(0)
+        kcals = Decimal("0")
 
         # Check days
         for day in self.days.all():
-            if day.day < today and day.calorie_intake > self.tdee_target:
-                kcals -= day.calorie_intake - self.tdee_target
+            if day.day < today and day.calorie_surplus:
+                kcals -= day.calorie_surplus
 
         # Add remaining days
         kcals += self.tdee_target * self.remaining_days(today)
@@ -221,7 +226,7 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: protein intake in grams.
         """
-        grams = Decimal(0)
+        grams = Decimal("0")
         for day in self.days.all():
             if day.day < datetime.date.today():
                 grams += day.protein_intake_g

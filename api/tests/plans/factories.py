@@ -23,7 +23,7 @@ class WeekPlanFactory(DjangoModelFactory):
     user = SubFactory(UserFactory)
     measurement = SubFactory(MeasurementFactory)
     start_date = datetime.date(2023, 1, 9)
-    protein_kg = Decimal(2.5)
+    protein_kg = Decimal("2.5")
     fat_perc = 25
 
 
