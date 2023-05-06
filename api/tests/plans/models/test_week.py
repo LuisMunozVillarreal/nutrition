@@ -9,12 +9,12 @@ import pytest
 
 def test_tdee_target(db, week_plan):
     """Calculate TDEE target correctly."""
-    assert round(week_plan.tdee_target, 2) == Decimal("2721.31")
+    assert week_plan.tdee_target == Decimal("2721.3109")
 
 
 def test_twee_target(db, week_plan):
     """Calculate TWEE target correctly."""
-    assert round(week_plan.twee_target, 2) == Decimal("19049.18")
+    assert week_plan.twee_target == Decimal("19049.1763")
 
 
 #
@@ -74,7 +74,9 @@ def after_start(mocker):
     return mock1, mock2
 
 
-def test_after_start_with_one_past_deficit_day(db, day_food, after_start):
+def test_after_start_with_one_past_deficit_day(
+    db, day_food, after_start, exercise, day_steps
+):
     """Past deficit day doesn't count for the total."""
     # Given
     plan = day_food.day.plan
@@ -100,9 +102,9 @@ def test_after_start_with_one_past_excess_day(db, day_food, after_start):
 
     #  Then
     expected = (
-        plan.twee_target - 2 * plan.tdee_target - day_food.day.calorie_intake
+        plan.twee_target - 3 * plan.tdee_target - day_food.day.calorie_surplus
     )
-    assert round(result, 2) == round(expected, 2)
+    assert result == expected
     assert after_start[0].date.today.called
     assert not after_start[1].date.today.called
 
@@ -204,6 +206,6 @@ def test_past_day(plan_three_days, after_start):
     result = day.calorie_goal
 
     # Then
-    assert round(result, 2) == round(plan.tdee_target, 2)
+    assert result == plan.tdee_target
     assert not after_start[0].date.today.called
     assert after_start[1].date.today.called
