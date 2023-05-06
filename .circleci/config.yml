@@ -3,7 +3,7 @@ version: 2.1
 executors:
   python:
     docker:
-      - image: "python:3.11.3-slim-bullseye"
+      - image: "python:3.12.0a7-slim-bullseye"
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
 
