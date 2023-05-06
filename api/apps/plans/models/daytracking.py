@@ -42,22 +42,29 @@ class DayTracking(BaseModel, Nutrients):
         return self.foods.count()
 
     @property
-    def neat(self) -> int:
+    def neat(self) -> Decimal:
         """Get Non-Exercise Activity Thermogenesis.
 
         Returns:
-            int: Non-Exercise Activity Thermogenesis.
+            Decimal: Non-Exercise Activity Thermogenesis.
         """
-        return 0
+        day_steps = self.plan.user.steps.filter(day=self.day)
+        if day_steps.exists():
+            return day_steps.first().kcals
+
+        return Decimal("0")
 
     @property
-    def tef(self) -> int:
+    def tef(self) -> Decimal:
         """Get Thermic Effect of Food.
 
+        There is non easy way to calculate this. Literature indicates that a
+        good rule of thumb is to consider it the 10% of the BMR.
+
         Returns:
-            int: Thermic Effect of Food.
+            Decimal: Thermic Effect of Food.
         """
-        return 0
+        return self.plan.measurement.bmr * Decimal("0.1")
 
     @property
     def eat(self) -> int:
@@ -66,7 +73,12 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
             int: Exercise Activity Thermogenesis.
         """
-        return 0
+        res = self.plan.user.exercises.filter(
+            date_time__year=self.day.year,
+            date_time__month=self.day.month,
+            date_time__day=self.day.day,
+        ).aggregate(total_kcals=models.Sum("kcals"))
+        return res["total_kcals"] or 0
 
     @property
     def tdee(self) -> Decimal:
@@ -92,7 +104,7 @@ class DayTracking(BaseModel, Nutrients):
             Decimal: calorie goal.
         """
         if not self.day:
-            return Decimal(0)
+            return Decimal("0")
 
         today = None
         if self.day < datetime.date.today():
@@ -109,7 +121,7 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
              Decimal: calorie intake.
         """
-        kcals = Decimal(0)
+        kcals = Decimal("0")
         for food in self.foods.all():
             kcals += food.calories
         return kcals
@@ -130,7 +142,24 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
              Decimal: calorie deficit.
         """
-        return self.tdee - self.calorie_intake
+        deficit = self.tdee - self.calorie_intake
+        if deficit > 0:
+            return deficit
+
+        return Decimal("0")
+
+    @property
+    def calorie_surplus(self) -> Decimal:
+        """Get calorie surplus.
+
+        Returns:
+             Decimal: calorie surplus.
+        """
+        surplus = self.calorie_intake - self.tdee
+        if surplus > 0:
+            return surplus
+
+        return Decimal("0")
 
     @property
     def protein_intake_g(self) -> Decimal:
@@ -139,7 +168,7 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
             Decimal: protein intake in grams.
         """
-        grams = Decimal(0)
+        grams = Decimal("0")
         for food in self.foods.all():
             grams += food.protein_g
         return grams

@@ -5,18 +5,16 @@ from decimal import Decimal
 
 from django.db import models
 
+from apps.libs.basemodel import BaseModel
 
-class Measurement(models.Model):
+
+class Measurement(BaseModel):
     """Measuremnt class."""
 
     user = models.ForeignKey(
         "users.User",
         on_delete=models.CASCADE,
         related_name="measurements",
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
     )
 
     fat_perc = models.DecimalField(
@@ -54,10 +52,10 @@ class Measurement(models.Model):
             Decimal: base metabolic rate using KMA formula.
         """
         if not self.weight:
-            return Decimal(0)
+            return Decimal("0")
 
         return 370 + (
-            Decimal(21.6) * ((self.weight * (100 - self.fat_perc) / 100))
+            Decimal("21.6") * ((self.weight * (100 - self.fat_perc) / 100))
         )
 
     @property
