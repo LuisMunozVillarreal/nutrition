@@ -34,12 +34,7 @@ class DayTrackingFactory(DjangoModelFactory):
         model = DayTracking
 
     plan = SubFactory(WeekPlanFactory)
-    day = datetime.datetime(
-        2023,
-        1,
-        9,
-        tzinfo=datetime.timezone.utc,
-    )
+    day = datetime.date(2023, 1, 9)
 
 
 class DayFoodFactory(DjangoModelFactory):
@@ -50,6 +45,7 @@ class DayFoodFactory(DjangoModelFactory):
 
     day = SubFactory(DayTrackingFactory)
     food = SubFactory(FoodFactory)
+    time = datetime.time(12, 0)
     meal = DayFood.MEAL_BREAKFAST
     meal_order = 0
     serving_size = 100

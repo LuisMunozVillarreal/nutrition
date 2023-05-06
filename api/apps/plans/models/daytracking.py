@@ -106,13 +106,12 @@ class DayTracking(BaseModel, Nutrients):
         if not self.day:
             return Decimal("0")
 
-        today = None
-        if self.day < datetime.date.today():
-            today = self.day
+        now = datetime.datetime.combine(
+            self.day, datetime.time(0, 0)
+        ).astimezone()
+        today = now.date()
 
-        return self.plan.remaining_kcals(today) / self.plan.remaining_days(
-            today
-        )
+        return self.plan.remaining_kcals(now) / self.plan.remaining_days(today)
 
     @property
     def calorie_intake(self) -> Decimal:
