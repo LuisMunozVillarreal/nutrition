@@ -187,7 +187,7 @@ class WeekPlan(BaseModel):
         """
         return self.calorie_expenditure - self.calorie_intake
 
-    def remaining_kcals(self, today: datetime.date | None = None) -> Decimal:
+    def remaining_kcals(self, now: datetime.datetime | None = None) -> Decimal:
         """Get remaining kcals.
 
         Days that surpass the TDEE intake for that day is taken into account
@@ -195,26 +195,30 @@ class WeekPlan(BaseModel):
         is less than the TDEE for that day, the calorie intake is considered
         as the TDEE for that day. This way the deficit will be bigger.
 
-        Today is not taking into account since the intake can still change.
+        Today's foods already consumed are also taken into account.
 
         Args:
-            today (date): day to consider as current day.
+            now (datetime): time to be considered as the current one.
 
         Returns:
             Decimal: remaining kcals.
         """
-        if not today:
-            today = datetime.date.today()
+        if not now:
+            now = datetime.datetime.now().astimezone()
 
         kcals = Decimal("0")
 
         # Check days
         for day in self.days.all():
-            if day.day < today and day.calorie_surplus:
+            if day.day < now.date() and day.calorie_surplus:
                 kcals -= day.calorie_surplus
+            elif day.day == now.date():
+                for food in day.foods.all():
+                    if food.day_time <= now:
+                        kcals -= food.calories
 
         # Add remaining days
-        kcals += self.tdee_target * self.remaining_days(today)
+        kcals += self.tdee_target * self.remaining_days(now.date())
 
         return kcals
 
@@ -257,4 +261,8 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: remaining protein in grams per day.
         """
-        return self.remaining_protein_g / self.remaining_days()
+        remaining_days = self.remaining_days()
+        if not remaining_days:
+            return Decimal("0")
+
+        return self.remaining_protein_g / remaining_days
