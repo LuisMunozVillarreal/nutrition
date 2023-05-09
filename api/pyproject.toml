@@ -25,7 +25,7 @@ django-compressor = "4.3.1"
 django-cors-headers = "3.14.0"
 django-extensions = "3.2.1"
 django-nested-inline = "0.4.6"
-django = "4.2"
+django = "4.2.1"
 pint = "0.20.1"
 
 [tool.poetry.group.dev.dependencies]
