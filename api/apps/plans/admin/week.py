@@ -6,36 +6,37 @@ import copy
 from django.contrib import admin
 from nested_inline.admin import NestedModelAdmin, NestedTabularInline
 
-from ..models import DayFood, DayTracking, WeekPlan
-from .tracking import DayFoodAdmin, DayTrackingAdmin
+from ..models import Day, Intake, WeekPlan
+from .day import DayAdmin
+from .intake import IntakeAdmin
 
 
-class DayFoodInline(NestedTabularInline):
-    """DayFood inline class."""
+class IntakeInline(NestedTabularInline):
+    """Intake inline class."""
 
-    model = DayFood
+    model = Intake
     extra = 0
     show_change_link = True
 
-    ordering = copy.deepcopy(DayFoodAdmin.ordering)
-    fields = copy.deepcopy(DayFoodAdmin.fields)
-    readonly_fields = copy.deepcopy(DayFoodAdmin.readonly_fields)
+    ordering = copy.deepcopy(IntakeAdmin.ordering)
+    fields = copy.deepcopy(IntakeAdmin.fields)
+    readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
 
 
-class DayTrackingInline(NestedTabularInline):
-    """DayTracking inline class."""
+class DayInline(NestedTabularInline):
+    """Day inline class."""
 
-    model = DayTracking
+    model = Day
     extra = 0
     show_change_link = True
 
     inlines = [
-        DayFoodInline,
+        IntakeInline,
     ]
 
-    fields = copy.deepcopy(DayTrackingAdmin.fields)
+    fields = copy.deepcopy(DayAdmin.fields)
 
-    readonly_fields = copy.deepcopy(DayTrackingAdmin.readonly_fields)
+    readonly_fields = copy.deepcopy(DayAdmin.readonly_fields)
 
 
 @admin.register(WeekPlan)
@@ -43,7 +44,7 @@ class WeekPlanAdmin(NestedModelAdmin):
     """WeekPLan admin class."""
 
     inlines = [
-        DayTrackingInline,
+        DayInline,
     ]
 
     list_display = [

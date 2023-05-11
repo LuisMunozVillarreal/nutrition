@@ -1,4 +1,4 @@
-"""Weekly model module."""
+"""Week model module."""
 
 
 import datetime

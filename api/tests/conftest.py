@@ -12,19 +12,15 @@ from .foods.factories import (
 )
 from .goals.factories import FatPercGoalFactory
 from .measurements.factories import MeasurementFactory
-from .plans.factories import (
-    DayFoodFactory,
-    DayTrackingFactory,
-    WeekPlanFactory,
-)
+from .plans.factories import DayFactory, IntakeFactory, WeekPlanFactory
 from .users.factories import UserFactory
 
-register(DayFoodFactory)
-register(DayTrackingFactory)
+register(DayFactory)
 register(DayStepsFactory)
 register(ExerciseFactory)
 register(FatPercGoalFactory)
 register(FoodFactory)
+register(IntakeFactory)
 register(MeasurementFactory)
 register(RecipeFactory)
 register(RecipeIngredientFactory)

@@ -2,6 +2,6 @@
 
 
 # flake8: noqa: F401
-from .dayfood import DayFood
-from .daytracking import DayTracking
+from .intake import Intake
+from .day import Day
 from .week import WeekPlan
