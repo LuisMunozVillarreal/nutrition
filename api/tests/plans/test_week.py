@@ -18,29 +18,29 @@ def yesterday(mocker):
     return mock
 
 
-def test_calorie_intake(db, day_food, yesterday):
+def test_calorie_intake(db, intake, yesterday):
     """Calculate calorie intake correctly."""
-    assert day_food.day.plan.calorie_intake == 0
+    assert intake.day.plan.calorie_intake == 0
 
 
-def test_calorie_expenditure(db, day_food):
+def test_calorie_expenditure(db, intake):
     """Calculate calorie expenditure correctly."""
-    assert day_food.day.plan.calorie_expenditure == Decimal("2077.04872")
+    assert intake.day.plan.calorie_expenditure == Decimal("2077.04872")
 
 
-def test_calorie_expenditure_yesterday(db, day_food, yesterday):
+def test_calorie_expenditure_yesterday(db, intake, yesterday):
     """Calculate calorie expenditure yesterday correctly."""
-    assert day_food.day.plan.calorie_expenditure == 0
+    assert intake.day.plan.calorie_expenditure == 0
 
 
-def test_protein_intake_g(db, day_food):
+def test_protein_intake_g(db, intake):
     """Calculate protein intake in grams correctly."""
-    assert day_food.day.plan.protein_intake_g == 25
+    assert intake.day.plan.protein_intake_g == 25
 
 
-def test_remaining_protein_intake_g_day(db, day_food, yesterday):
+def test_remaining_protein_intake_g_day(db, intake, yesterday):
     """Calculate remaining protein intake in grams correctly."""
-    assert day_food.day.plan.remaining_protein_g_day == Decimal("235.75")
+    assert intake.day.plan.remaining_protein_g_day == Decimal("235.75")
 
 
 @pytest.fixture
@@ -54,6 +54,6 @@ def today(mocker):
     return mock
 
 
-def test_calorie_intake_after_today(db, day_food, today):
+def test_calorie_intake_after_today(db, intake, today):
     """Calculate calorie intake after today correctly."""
-    assert day_food.day.plan.calorie_intake == 106
+    assert intake.day.plan.calorie_intake == 106

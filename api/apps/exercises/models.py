@@ -13,7 +13,7 @@ class Exercise(BaseModel):
     """Exercise model class."""
 
     day = models.ForeignKey(
-        "plans.DayTracking",
+        "plans.Day",
         on_delete=models.CASCADE,
         related_name="exercises",
     )
@@ -75,7 +75,7 @@ class DaySteps(BaseModel):
     """DaySteps model class."""
 
     day = models.OneToOneField(
-        "plans.DayTracking",
+        "plans.Day",
         on_delete=models.CASCADE,
         related_name="steps",
     )

@@ -2,5 +2,6 @@
 
 
 # flake8: noqa: F401
-from .tracking import DayFoodAdmin, DayTrackingAdmin
+from .day import DayAdmin
+from .intake import IntakeAdmin
 from .week import WeekPlanAdmin

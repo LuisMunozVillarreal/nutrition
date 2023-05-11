@@ -7,20 +7,20 @@ from django.db.models.signals import pre_delete, pre_save
 from django.dispatch import receiver
 
 from apps.foods.models.nutrients import NUTRIENT_LIST
-from apps.plans.models import DayFood
+from apps.plans.models import Intake
 
 
-@receiver(pre_save, sender=DayFood)
-def increase_day_tracking_nutrients(
-    sender: DayFood,  # pylint: disable=unused-argument
-    instance: DayFood,
+@receiver(pre_save, sender=Intake)
+def increase_day_nutrients(
+    sender: Intake,  # pylint: disable=unused-argument
+    instance: Intake,
     **kwargs: dict[Any, Any],
 ) -> None:
-    """Increase day tracking nutrients.
+    """Increase day nutrients.
 
     Args:
-        sender (DayFood): signal sender.
-        instance (DayFood): instance to be saved.
+        sender (Intake): signal sender.
+        instance (Intake): instance to be saved.
         kwargs (dict[Any, Any]): keyword arguments.
     """
     created = instance.id is None
@@ -34,7 +34,7 @@ def increase_day_tracking_nutrients(
             continue
 
         if not created:
-            db_food = DayFood.objects.get(id=instance.id)
+            db_food = Intake.objects.get(id=instance.id)
             old_food_value = getattr(db_food, nutrient)
 
         diff = new_food_value - old_food_value
@@ -44,17 +44,17 @@ def increase_day_tracking_nutrients(
     day.save()
 
 
-@receiver(pre_delete, sender=DayFood)
-def decrease_day_tracking_nutrients(
-    sender: DayFood,  # pylint: disable=unused-argument
-    instance: DayFood,
+@receiver(pre_delete, sender=Intake)
+def decrease_day_nutrients(
+    sender: Intake,  # pylint: disable=unused-argument
+    instance: Intake,
     **kwargs: dict[Any, Any],
 ) -> None:
-    """Decrease day tracking nutrients.
+    """Decrease day nutrients.
 
     Args:
-        sender (DayFood): signal sender.
-        instance (DayFood): instance to be saved.
+        sender (Intake): signal sender.
+        instance (Intake): instance to be saved.
         kwargs (dict[Any, Any]): keyword arguments.
     """
     food = instance
