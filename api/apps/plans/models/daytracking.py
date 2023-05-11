@@ -7,10 +7,9 @@ from decimal import Decimal
 from django.db import models
 
 from apps.foods.models.nutrients import Nutrients
-from apps.libs.basemodel import BaseModel
 
 
-class DayTracking(BaseModel, Nutrients):
+class DayTracking(Nutrients):
     """DayTracking model class."""
 
     class Meta:
@@ -48,9 +47,8 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
             Decimal: Non-Exercise Activity Thermogenesis.
         """
-        day_steps = self.plan.user.steps.filter(day=self.day)
-        if day_steps.exists():
-            return day_steps.first().kcals
+        if hasattr(self, "steps"):
+            return self.steps.kcals
 
         return Decimal("0")
 
@@ -73,11 +71,7 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
             int: Exercise Activity Thermogenesis.
         """
-        res = self.plan.user.exercises.filter(
-            date_time__year=self.day.year,
-            date_time__month=self.day.month,
-            date_time__day=self.day.day,
-        ).aggregate(total_kcals=models.Sum("kcals"))
+        res = self.exercises.aggregate(total_kcals=models.Sum("kcals"))
         return res["total_kcals"] or 0
 
     @property
@@ -94,14 +88,20 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
             Decimal: tdee.
         """
-        return self.plan.measurement.bmr + self.neat + self.tef + self.eat
+        return (
+            self.plan.measurement.bmr
+            + self.neat
+            + self.tef
+            + self.eat
+            - self.plan.deficit
+        )
 
     @property
-    def calorie_goal(self) -> Decimal:
-        """Get calorie goal.
+    def estimated_calorie_goal(self) -> Decimal:
+        """Get estimated calorie goal.
 
         Returns:
-            Decimal: calorie goal.
+            Decimal: estimated calorie goal.
         """
         if not self.day:
             return Decimal("0")
@@ -132,7 +132,7 @@ class DayTracking(BaseModel, Nutrients):
         Returns:
              Decimal: calorie intake percentage.
         """
-        return self.calorie_intake * 100 / self.tdee
+        return round(self.calorie_intake * 100 / self.tdee, 2)
 
     @property
     def calorie_deficit(self) -> Decimal:

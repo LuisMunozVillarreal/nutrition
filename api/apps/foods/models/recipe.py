@@ -3,13 +3,11 @@
 
 from django.db import models
 
-from apps.libs.basemodel import BaseModel
-
 from .nutrients import Nutrients
 from .proportion import NutrientsProportion
 
 
-class Recipe(BaseModel, Nutrients):  # type: ignore
+class Recipe(Nutrients):
     """Recipe models class."""
 
     name = models.CharField(

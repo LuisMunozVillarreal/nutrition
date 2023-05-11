@@ -25,7 +25,7 @@ def test_calorie_intake(db, day_food, yesterday):
 
 def test_calorie_expenditure(db, day_food):
     """Calculate calorie expenditure correctly."""
-    assert day_food.day.plan.calorie_expenditure == Decimal("2177.04872")
+    assert day_food.day.plan.calorie_expenditure == Decimal("2077.04872")
 
 
 def test_calorie_expenditure_yesterday(db, day_food, yesterday):

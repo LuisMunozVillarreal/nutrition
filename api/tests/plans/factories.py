@@ -25,6 +25,7 @@ class WeekPlanFactory(DjangoModelFactory):
     start_date = datetime.date(2023, 1, 9)
     protein_kg = Decimal("2.5")
     fat_perc = 25
+    deficit = 100
 
 
 class DayTrackingFactory(DjangoModelFactory):
