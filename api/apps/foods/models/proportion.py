@@ -1,4 +1,4 @@
-"""NutrientsProportion model module."""
+"""FoodProportion model module."""
 
 
 from abc import abstractmethod
@@ -12,8 +12,8 @@ from .nutrients import NUTRIENT_LIST
 from .quantity import FoodQuantity
 
 
-class NutrientsProportion(FoodQuantity):
-    """NutrientsProportion model class."""
+class FoodProportion(FoodQuantity):
+    """FoodProportion model class."""
 
     class Meta:
         abstract = True
