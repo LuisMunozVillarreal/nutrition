@@ -4,7 +4,7 @@
 from django.db import models
 
 from .nutrients import Nutrients
-from .proportion import NutrientsProportion
+from .proportion import FoodProportion
 
 
 class Recipe(Nutrients):
@@ -47,7 +47,7 @@ class Recipe(Nutrients):
         return self.name
 
 
-class RecipeIngredient(NutrientsProportion):
+class RecipeIngredient(FoodProportion):
     """RecipeIngredient models class."""
 
     recipe = models.ForeignKey(
