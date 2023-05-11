@@ -9,7 +9,7 @@ from factory.django import DjangoModelFactory
 
 from apps.exercises.models import DaySteps, Exercise
 
-from ..users.factories import UserFactory
+from ..plans.factories import DayTrackingFactory
 
 
 class ExerciseFactory(DjangoModelFactory):
@@ -18,8 +18,8 @@ class ExerciseFactory(DjangoModelFactory):
     class Meta:
         model = Exercise
 
-    user = SubFactory(UserFactory)
-    date_time = datetime.datetime(2023, 1, 9, 20, 26).astimezone()
+    day = SubFactory(DayTrackingFactory)
+    time = datetime.time(20, 26)
     type = "walk"
     kcals = 100
     duration = datetime.timedelta(minutes=30)
@@ -32,6 +32,5 @@ class DayStepsFactory(DjangoModelFactory):
     class Meta:
         model = DaySteps
 
-    user = SubFactory(UserFactory)
-    day = datetime.date(2023, 1, 9)
+    day = SubFactory(DayTrackingFactory)
     steps = 1000

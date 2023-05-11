@@ -3,6 +3,8 @@
 
 from django.contrib import admin
 
+from apps.exercises.models import DaySteps, Exercise
+
 from ..models import DayFood, DayTracking
 
 
@@ -34,12 +36,44 @@ class DayFoodInline(admin.TabularInline):
     ]
 
 
+class ExerciseInline(admin.TabularInline):
+    """Exercise inline class."""
+
+    model = Exercise
+    show_change_link = True
+
+    fields = [
+        "type",
+        "kcals",
+        "duration",
+        "distance",
+    ]
+
+
+class DayStepsInline(admin.TabularInline):
+    """DaySteps inline class."""
+
+    model = DaySteps
+    show_change_link = True
+
+    fields = [
+        "steps",
+        "kcals",
+    ]
+
+    readonly_fields = [
+        "kcals",
+    ]
+
+
 @admin.register(DayTracking)
 class DayTrackingAdmin(admin.ModelAdmin):
     """DayTracking admin class."""
 
     inlines = [
         DayFoodInline,
+        ExerciseInline,
+        DayStepsInline,
     ]
 
     list_display = [
@@ -48,7 +82,7 @@ class DayTrackingAdmin(admin.ModelAdmin):
         "day",
         "num_foods",
         "tdee",
-        "calorie_goal",
+        "estimated_calorie_goal",
         "calorie_intake",
         "protein_intake_g",
     ]
@@ -58,7 +92,7 @@ class DayTrackingAdmin(admin.ModelAdmin):
         "day",
         "num_foods",
         "tdee",
-        "calorie_goal",
+        "estimated_calorie_goal",
         "calorie_intake_perc",
         "calorie_deficit",
         "protein_intake_g",
@@ -67,7 +101,7 @@ class DayTrackingAdmin(admin.ModelAdmin):
     readonly_fields = [
         "num_foods",
         "tdee",
-        "calorie_goal",
+        "estimated_calorie_goal",
         "calorie_intake_perc",
         "calorie_deficit",
         "protein_intake_g",

@@ -43,6 +43,11 @@ class WeekPlan(BaseModel):
         decimal_places=1,
     )
 
+    deficit = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Deficit (kcals/day)",
+    )
+
     # Daily intake
     protein_g_goal_day = models.DecimalField(
         max_digits=10,
@@ -90,11 +95,11 @@ class WeekPlan(BaseModel):
         )
         self.protein_g_goal_week = self.protein_g_goal_day * PLAN_LENGTH_DAYS
 
-        fat_goal_kcals_day = self.tdee_target * self.fat_perc / 100
+        fat_goal_kcals_day = self.estimated_tdee * self.fat_perc / 100
         self.fat_g_goal_day = fat_goal_kcals_day / settings.FAT_KCAL_GRAM
 
         carbs_goal_kcals_day = (
-            self.tdee_target - protein_goal_kcals_day - fat_goal_kcals_day
+            self.estimated_tdee - protein_goal_kcals_day - fat_goal_kcals_day
         )
         self.carbs_g_goal_day = carbs_goal_kcals_day / settings.CARB_KCAL_GRAM
 
@@ -126,22 +131,24 @@ class WeekPlan(BaseModel):
 
     # Calories
     @property
-    def tdee_target(self) -> Decimal:
-        """Get TDEE target.
+    def estimated_tdee(self) -> Decimal:
+        """Get estimated TDEE.
 
         Returns:
-            Decimal: TDEE target.
+            Decimal: estimated TDEE.
         """
-        return (self.measurement.bmr * EXERCISE_RATE).normalize()
+        return (
+            self.measurement.bmr * EXERCISE_RATE - self.deficit
+        ).normalize()
 
     @property
-    def twee_target(self) -> Decimal:
-        """Get TWEE target.
+    def estimated_twee(self) -> Decimal:
+        """Get estimated TWEE.
 
         Returns:
-            Decimal: TWEE target.
+            Decimal: estimated TWEE.
         """
-        return self.tdee_target * PLAN_LENGTH_DAYS
+        return self.estimated_tdee * PLAN_LENGTH_DAYS
 
     @property
     def calorie_intake(self) -> Decimal:
@@ -176,7 +183,7 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: calorie intake percentage.
         """
-        return self.calorie_intake * 100 / self.twee_target
+        return round(self.calorie_intake * 10000 / self.estimated_twee, 2)
 
     @property
     def calorie_deficit(self) -> Decimal:
@@ -218,7 +225,7 @@ class WeekPlan(BaseModel):
                         kcals -= food.calories
 
         # Add remaining days
-        kcals += self.tdee_target * self.remaining_days(now.date())
+        kcals += self.estimated_tdee * self.remaining_days(now.date())
 
         return kcals
 
@@ -243,7 +250,9 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: protein intake percentage.
         """
-        return self.protein_intake_g * 100 / self.protein_g_goal_week
+        return round(
+            self.protein_intake_g * 10000 / self.protein_g_goal_week, 2
+        )
 
     @property
     def remaining_protein_g(self) -> Decimal:
