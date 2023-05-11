@@ -7,7 +7,7 @@ from decimal import Decimal
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 
-from apps.plans.models import DayFood, DayTracking, WeekPlan
+from apps.plans.models import Day, Intake, WeekPlan
 
 from ..foods.factories import FoodFactory
 from ..measurements.factories import MeasurementFactory
@@ -28,26 +28,26 @@ class WeekPlanFactory(DjangoModelFactory):
     deficit = 100
 
 
-class DayTrackingFactory(DjangoModelFactory):
-    """DayTrackingFactory class."""
+class DayFactory(DjangoModelFactory):
+    """DayFactory class."""
 
     class Meta:
-        model = DayTracking
+        model = Day
 
     plan = SubFactory(WeekPlanFactory)
     day = datetime.date(2023, 1, 9)
 
 
-class DayFoodFactory(DjangoModelFactory):
-    """DayFoodFactory class."""
+class IntakeFactory(DjangoModelFactory):
+    """IntakeFactory class."""
 
     class Meta:
-        model = DayFood
+        model = Intake
 
-    day = SubFactory(DayTrackingFactory)
+    day = SubFactory(DayFactory)
     food = SubFactory(FoodFactory)
     time = datetime.time(12, 0)
-    meal = DayFood.MEAL_BREAKFAST
+    meal = Intake.MEAL_BREAKFAST
     meal_order = 0
     serving_size = 100
     serving_unit = "g"

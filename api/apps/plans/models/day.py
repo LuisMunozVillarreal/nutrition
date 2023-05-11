@@ -1,4 +1,4 @@
-"""DayTracking model module."""
+"""Day model module."""
 
 
 import datetime
@@ -9,8 +9,8 @@ from django.db import models
 from apps.foods.models.nutrients import Nutrients
 
 
-class DayTracking(Nutrients):
-    """DayTracking model class."""
+class Day(Nutrients):
+    """Day model class."""
 
     class Meta:
         ordering = ["plan", "-day"]

@@ -43,10 +43,10 @@ def test_no_days(db, week_plan, before_start):
     assert before_start.datetime.now.called
 
 
-def test_before_start_with_one_day(db, day_tracking, before_start):
+def test_before_start_with_one_day(db, day, before_start):
     """Day before the plan start doesn't take into account the day."""
     # Given
-    plan = day_tracking.plan
+    plan = day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -68,11 +68,11 @@ def after_start(mocker):
 
 
 def test_after_start_with_one_past_deficit_day(
-    db, day_food, after_start, exercise, day_steps
+    db, intake, after_start, exercise, day_steps
 ):
     """Past deficit day doesn't count for the total."""
     # Given
-    plan = day_food.day.plan
+    plan = intake.day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -82,12 +82,12 @@ def test_after_start_with_one_past_deficit_day(
     assert after_start.datetime.now.called
 
 
-def test_after_start_with_one_past_excess_day(db, day_food, after_start):
+def test_after_start_with_one_past_excess_day(db, intake, after_start):
     """Past excess day is taken into account for the total."""
     # Given
-    day_food.serving_size = 10000
-    day_food.save()
-    plan = day_food.day.plan
+    intake.serving_size = 10000
+    intake.save()
+    plan = intake.day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -96,18 +96,18 @@ def test_after_start_with_one_past_excess_day(db, day_food, after_start):
     expected = (
         plan.estimated_twee
         - 3 * plan.estimated_tdee
-        - day_food.day.calorie_surplus
+        - intake.day.calorie_surplus
     )
     assert result == expected
     assert after_start.datetime.now.called
 
 
-def test_after_start_with_one_future_day(db, day_food, after_start):
+def test_after_start_with_one_future_day(db, intake, after_start):
     """Future day doesn't count for the total."""
     # Given
-    day_food.day.day = datetime.date(2023, 1, 13)
-    day_food.day.save()
-    plan = day_food.day.plan
+    intake.day.day = datetime.date(2023, 1, 13)
+    intake.day.save()
+    plan = intake.day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -117,12 +117,12 @@ def test_after_start_with_one_future_day(db, day_food, after_start):
     assert after_start.datetime.now.called
 
 
-def test_after_start_with_non_finished_day(db, day_food, after_start):
+def test_after_start_with_non_finished_day(db, intake, after_start):
     """Non finished day is taken into account for the total."""
     # Given
-    day_food.day.day = datetime.date(2023, 1, 12)
-    day_food.day.save()
-    plan = day_food.day.plan
+    intake.day.day = datetime.date(2023, 1, 12)
+    intake.day.save()
+    plan = intake.day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -130,19 +130,19 @@ def test_after_start_with_non_finished_day(db, day_food, after_start):
     #  Then
     assert (
         result
-        == plan.estimated_twee - 3 * plan.estimated_tdee - day_food.calories
+        == plan.estimated_twee - 3 * plan.estimated_tdee - intake.calories
     )
     assert after_start.datetime.now.called
 
 
-def test_future_food_same_day(db, day_food, after_start):
+def test_future_food_same_day(db, intake, after_start):
     """Food in the future on the same day isn't taken into account."""
     # Given
-    day_food.day.day = datetime.date(2023, 1, 12)
-    day_food.day.save()
-    day_food.time = datetime.time(20, 0)
-    day_food.save()
-    plan = day_food.day.plan
+    intake.day.day = datetime.date(2023, 1, 12)
+    intake.day.save()
+    intake.time = datetime.time(20, 0)
+    intake.save()
+    plan = intake.day.plan
 
     # When
     result = plan.remaining_kcals()
@@ -154,13 +154,11 @@ def test_future_food_same_day(db, day_food, after_start):
 
 
 @pytest.fixture
-def plan_two_days(db, day_tracking, day_tracking_factory, day_food_factory):
+def plan_two_days(db, day, day_factory, intake_factory):
     """Plan with two days added."""
-    second_day_tracking = day_tracking_factory(
-        plan=day_tracking.plan, day=datetime.date(2023, 1, 10)
-    )
-    day_food_factory(day=second_day_tracking, serving_size=1000)
-    return day_tracking.plan
+    second_day = day_factory(plan=day.plan, day=datetime.date(2023, 1, 10))
+    intake_factory(day=second_day, serving_size=1000)
+    return day.plan
 
 
 def test_after_start_with_two_days_after_today_three(
@@ -180,9 +178,9 @@ def test_after_start_with_two_days_after_today_three(
 
 
 @pytest.fixture
-def plan_three_days(plan_two_days, day_tracking_factory, day_food_factory):
+def plan_three_days(plan_two_days, day_factory, intake_factory):
     """Plan with two days added."""
-    day_tracking_factory(plan=plan_two_days, day=datetime.date(2023, 1, 15))
+    day_factory(plan=plan_two_days, day=datetime.date(2023, 1, 15))
     return plan_two_days
 
 
@@ -213,9 +211,9 @@ def next_week(mocker):
     return mock
 
 
-def test_protein_no_remaining_days(db, day_food):
+def test_protein_no_remaining_days(db, intake):
     """No protein remaining when there is no remaining days."""
-    assert day_food.day.plan.remaining_protein_g_day == 0
+    assert intake.day.plan.remaining_protein_g_day == 0
 
 
 #

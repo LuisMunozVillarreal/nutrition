@@ -1,4 +1,4 @@
-"""DayFood models module."""
+"""Intake models module."""
 
 
 import datetime
@@ -9,11 +9,11 @@ from django.db import models
 from apps.foods.models.proportion import FoodProportion
 
 
-class DayFood(FoodProportion):
-    """DayFood models class."""
+class Intake(FoodProportion):
+    """Intake models class."""
 
     day = models.ForeignKey(
-        "plans.DayTracking",
+        "plans.Day",
         on_delete=models.CASCADE,
         related_name="foods",
     )

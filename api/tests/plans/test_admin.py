@@ -4,21 +4,19 @@
 import pytest
 
 
-def test_search_renders_dayfood(logged_in_admin_client, day_food):
+def test_search_renders_intake(logged_in_admin_client, intake):
     """Admin search renders."""
     # When
-    result = logged_in_admin_client.get("/admin/plans/dayfood/?q=something")
+    result = logged_in_admin_client.get("/admin/plans/intake/?q=something")
 
     # Then
     assert result.status_code == 200
 
 
-def test_search_renders_daytracking(logged_in_admin_client, day_tracking):
+def test_search_renders_day(logged_in_admin_client, day):
     """Admin search renders."""
     # When
-    result = logged_in_admin_client.get(
-        "/admin/plans/daytracking/?q=something"
-    )
+    result = logged_in_admin_client.get("/admin/plans/day/?q=something")
 
     # Then
     assert result.status_code == 200
@@ -33,7 +31,7 @@ def test_search_renders_weekplan(logged_in_admin_client, week_plan):
     assert result.status_code == 200
 
 
-@pytest.mark.parametrize("model", ["dayfood", "daytracking", "weekplan"])
+@pytest.mark.parametrize("model", ["intake", "day", "weekplan"])
 def test_add_new_renders(logged_in_admin_client, model):
     """Admin add renders."""
     # When
@@ -43,19 +41,19 @@ def test_add_new_renders(logged_in_admin_client, model):
     assert result.status_code == 200
 
 
-def test_edit_day_food_renders(logged_in_admin_client, day_food):
+def test_edit_intake_renders(logged_in_admin_client, intake):
     """Admin edit day food renders."""
     # When
-    result = logged_in_admin_client.get("/admin/plans/dayfood/1/change/")
+    result = logged_in_admin_client.get("/admin/plans/intake/1/change/")
 
     # Then
     assert result.status_code == 200
 
 
-def test_edit_day_tracking_renders(logged_in_admin_client, day_tracking):
-    """Admin edit day tracking renders."""
+def test_edit_day_renders(logged_in_admin_client, day):
+    """Admin edit day renders."""
     # When
-    result = logged_in_admin_client.get("/admin/plans/daytracking/1/change/")
+    result = logged_in_admin_client.get("/admin/plans/day/1/change/")
 
     # Then
     assert result.status_code == 200

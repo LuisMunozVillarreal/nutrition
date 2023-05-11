@@ -1,17 +1,17 @@
-"""tracking admin config module."""
+"""Day admin config module."""
 
 
 from django.contrib import admin
 
 from apps.exercises.models import DaySteps, Exercise
 
-from ..models import DayFood, DayTracking
+from ..models import Day, Intake
 
 
-class DayFoodInline(admin.TabularInline):
-    """DayFood inline class."""
+class IntakeInline(admin.TabularInline):
+    """Intake inline class."""
 
-    model = DayFood
+    model = Intake
     show_change_link = True
     ordering = [
         "meal_order",
@@ -66,12 +66,12 @@ class DayStepsInline(admin.TabularInline):
     ]
 
 
-@admin.register(DayTracking)
-class DayTrackingAdmin(admin.ModelAdmin):
-    """DayTracking admin class."""
+@admin.register(Day)
+class DayAdmin(admin.ModelAdmin):
+    """Day admin class."""
 
     inlines = [
-        DayFoodInline,
+        IntakeInline,
         ExerciseInline,
         DayStepsInline,
     ]
@@ -105,41 +105,4 @@ class DayTrackingAdmin(admin.ModelAdmin):
         "calorie_intake_perc",
         "calorie_deficit",
         "protein_intake_g",
-    ]
-
-
-@admin.register(DayFood)
-class DayFoodAdmin(admin.ModelAdmin):
-    """DayFood admin class."""
-
-    ordering = [
-        "meal_order",
-    ]
-
-    list_display = [
-        "id",
-        "day",
-        "time",
-        "food",
-        "meal",
-        "serving_size",
-        "serving_unit",
-        "calories",
-        "protein_g",
-    ]
-
-    fields = [
-        "day",
-        "time",
-        "food",
-        "meal",
-        "serving_size",
-        "serving_unit",
-        "calories",
-        "protein_g",
-    ]
-
-    readonly_fields = [
-        "calories",
-        "protein_g",
     ]
