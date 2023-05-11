@@ -12,8 +12,7 @@ class ExerciseAdmin(admin.ModelAdmin):
 
     list_display = [
         "id",
-        "user",
-        "date_time",
+        "day_time",
         "type",
         "kcals",
         "duration",
@@ -27,7 +26,6 @@ class DayStepsAdmin(admin.ModelAdmin):
 
     list_display = [
         "id",
-        "user",
         "day",
         "steps",
     ]

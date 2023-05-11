@@ -1,6 +1,7 @@
 """Exercise model module."""
 
 
+import datetime
 from decimal import Decimal
 
 from django.db import models
@@ -11,13 +12,15 @@ from apps.libs.basemodel import BaseModel
 class Exercise(BaseModel):
     """Exercise model class."""
 
-    user = models.ForeignKey(
-        "users.User",
+    day = models.ForeignKey(
+        "plans.DayTracking",
         on_delete=models.CASCADE,
         related_name="exercises",
     )
 
-    date_time = models.DateTimeField()
+    time = models.TimeField(
+        default=datetime.time(0, 0),
+    )
 
     EXERCISE_WALK = "walk"
     EXERCISE_RUN = "run"
@@ -56,19 +59,26 @@ class Exercise(BaseModel):
         Returns:
             str: string representation.
         """
-        return f"{self.user} - {self.type.title()} - {self.kcals}kcals"
+        return f"{self.day} - {self.type.title()} - {self.kcals}kcals"
+
+    @property
+    def day_time(self) -> datetime.datetime:
+        """Get day and time.
+
+        Returns:
+            datetime: day and time.
+        """
+        return datetime.datetime.combine(self.day.day, self.time).astimezone()
 
 
 class DaySteps(BaseModel):
     """DaySteps model class."""
 
-    user = models.ForeignKey(
-        "users.User",
+    day = models.OneToOneField(
+        "plans.DayTracking",
         on_delete=models.CASCADE,
         related_name="steps",
     )
-
-    day = models.DateField()
 
     steps = models.PositiveIntegerField()
 
@@ -79,4 +89,7 @@ class DaySteps(BaseModel):
         Returns:
             Decimal: kcals.
         """
+        if not self.steps:
+            return Decimal("0")
+
         return self.steps * Decimal("0.03")

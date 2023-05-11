@@ -3,8 +3,10 @@
 
 from django.db import models
 
+from apps.libs.basemodel import BaseModel
 
-class Nutrients(models.Model):
+
+class Nutrients(BaseModel):
     """Nutriens model class."""
 
     class Meta:
@@ -117,4 +119,8 @@ class Nutrients(models.Model):
     )
 
 
-NUTRIENT_LIST = [i for i in Nutrients.__dict__ if i[:1] not in ["_", "M"]]
+NUTRIENT_LIST = [
+    i
+    for i in Nutrients.__dict__
+    if i[:1] not in ["_", "M"] and i not in BaseModel.__dict__
+]

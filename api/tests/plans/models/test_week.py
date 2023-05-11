@@ -7,14 +7,14 @@ from decimal import Decimal
 import pytest
 
 
-def test_tdee_target(db, week_plan):
+def test_estimated_tdee(db, week_plan):
     """Calculate TDEE target correctly."""
-    assert week_plan.tdee_target == Decimal("2721.3109")
+    assert week_plan.estimated_tdee == Decimal("2621.3109")
 
 
-def test_twee_target(db, week_plan):
+def test_estimated_twee(db, week_plan):
     """Calculate TWEE target correctly."""
-    assert week_plan.twee_target == Decimal("19049.1763")
+    assert week_plan.estimated_twee == Decimal("18349.1763")
 
 
 #
@@ -39,7 +39,7 @@ def test_no_days(db, week_plan, before_start):
     result = week_plan.remaining_kcals()
 
     # Then
-    assert result == week_plan.twee_target
+    assert result == week_plan.estimated_twee
     assert before_start.datetime.now.called
 
 
@@ -52,7 +52,7 @@ def test_before_start_with_one_day(db, day_tracking, before_start):
     result = plan.remaining_kcals()
 
     # Then
-    assert result == plan.twee_target
+    assert result == plan.estimated_twee
     assert before_start.datetime.now.called
 
 
@@ -78,7 +78,7 @@ def test_after_start_with_one_past_deficit_day(
     result = plan.remaining_kcals()
 
     # Then
-    assert result == plan.twee_target - 3 * plan.tdee_target
+    assert result == plan.estimated_twee - 3 * plan.estimated_tdee
     assert after_start.datetime.now.called
 
 
@@ -94,7 +94,9 @@ def test_after_start_with_one_past_excess_day(db, day_food, after_start):
 
     #  Then
     expected = (
-        plan.twee_target - 3 * plan.tdee_target - day_food.day.calorie_surplus
+        plan.estimated_twee
+        - 3 * plan.estimated_tdee
+        - day_food.day.calorie_surplus
     )
     assert result == expected
     assert after_start.datetime.now.called
@@ -111,7 +113,7 @@ def test_after_start_with_one_future_day(db, day_food, after_start):
     result = plan.remaining_kcals()
 
     #  Then
-    assert result == plan.twee_target - 3 * plan.tdee_target
+    assert result == plan.estimated_twee - 3 * plan.estimated_tdee
     assert after_start.datetime.now.called
 
 
@@ -127,7 +129,8 @@ def test_after_start_with_non_finished_day(db, day_food, after_start):
 
     #  Then
     assert (
-        result == plan.twee_target - 3 * plan.tdee_target - day_food.calories
+        result
+        == plan.estimated_twee - 3 * plan.estimated_tdee - day_food.calories
     )
     assert after_start.datetime.now.called
 
@@ -145,7 +148,7 @@ def test_future_food_same_day(db, day_food, after_start):
     result = plan.remaining_kcals()
 
     #  Then
-    expected = plan.twee_target - 3 * plan.tdee_target
+    expected = plan.estimated_twee - 3 * plan.estimated_tdee
     assert result == expected
     assert after_start.datetime.now.called
 
@@ -171,8 +174,8 @@ def test_after_start_with_two_days_after_today_three(
     result = plan.remaining_kcals()
 
     # Then
-    assert result <= plan.twee_target
-    assert result == plan.twee_target - 3 * plan.tdee_target
+    assert result <= plan.estimated_twee
+    assert result == plan.estimated_twee - 3 * plan.estimated_tdee
     assert after_start.datetime.now.called
 
 
@@ -194,8 +197,8 @@ def test_after_start_with_three_days_after_today_three(
     result = plan.remaining_kcals()
 
     # Then
-    assert result <= plan.twee_target
-    assert result == plan.twee_target - 3 * plan.tdee_target
+    assert result <= plan.estimated_twee
+    assert result == plan.estimated_twee - 3 * plan.estimated_tdee
     assert after_start.datetime.now.called
 
 
@@ -216,7 +219,7 @@ def test_protein_no_remaining_days(db, day_food):
 
 
 #
-# calorie_goal tests
+# estimated_calorie_goal tests
 #
 
 
@@ -228,10 +231,10 @@ def test_future_day(plan_three_days, after_start):
     assert day.day == datetime.date(2023, 1, 15)
 
     # When
-    result = day.calorie_goal
+    result = day.estimated_calorie_goal
 
     # Then
-    assert result == plan.tdee_target
+    assert result == plan.estimated_tdee
 
 
 def test_past_day(plan_three_days, after_start):
@@ -242,8 +245,8 @@ def test_past_day(plan_three_days, after_start):
     assert day.day == datetime.date(2023, 1, 9)
 
     # When
-    result = day.calorie_goal
+    result = day.estimated_calorie_goal
 
     # Then
-    assert result == plan.tdee_target
+    assert result == plan.estimated_tdee
     assert not after_start.datetime.now.called
