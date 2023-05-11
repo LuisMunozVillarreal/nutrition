@@ -6,10 +6,10 @@ from typing import Any
 
 from django.db import models
 
-from apps.foods.models.proportion import NutrientsProportion
+from apps.foods.models.proportion import FoodProportion
 
 
-class DayFood(NutrientsProportion):
+class DayFood(FoodProportion):
     """DayFood models class."""
 
     day = models.ForeignKey(
