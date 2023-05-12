@@ -6,7 +6,7 @@ from pytest_factoryboy import register
 
 from .exercises.factories import DayStepsFactory, ExerciseFactory
 from .foods.factories import (
-    FoodFactory,
+    FoodProductFactory,
     RecipeFactory,
     RecipeIngredientFactory,
 )
@@ -19,7 +19,7 @@ register(DayFactory)
 register(DayStepsFactory)
 register(ExerciseFactory)
 register(FatPercGoalFactory)
-register(FoodFactory)
+register(FoodProductFactory)
 register(IntakeFactory)
 register(MeasurementFactory)
 register(RecipeFactory)

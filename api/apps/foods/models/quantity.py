@@ -3,10 +3,8 @@
 
 from django.db import models
 
-from .nutrients import Nutrients
 
-
-class FoodQuantity(Nutrients):
+class FoodQuantity(models.Model):
     """FoodQuantity model class."""
 
     class Meta:

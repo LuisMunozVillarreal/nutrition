@@ -3,12 +3,12 @@
 
 from django.contrib import admin
 
-from .models import Food, Recipe, RecipeIngredient
+from .models import FoodProduct, Recipe, RecipeIngredient
 
 
-@admin.register(Food)
-class FoodAdmin(admin.ModelAdmin):
-    """FoodAdmin class."""
+@admin.register(FoodProduct)
+class FoodProductAdmin(admin.ModelAdmin):
+    """FoodProductAdmin class."""
 
     list_display = [
         "id",

@@ -38,7 +38,7 @@ class Day(Nutrients):
         Returns:
             int: number of foods.
         """
-        return self.foods.count()
+        return self.intake.count()
 
     @property
     def neat(self) -> Decimal:
@@ -121,7 +121,7 @@ class Day(Nutrients):
              Decimal: calorie intake.
         """
         kcals = Decimal("0")
-        for food in self.foods.all():
+        for food in self.intake.all():
             kcals += food.calories
         return kcals
 
@@ -168,6 +168,6 @@ class Day(Nutrients):
             Decimal: protein intake in grams.
         """
         grams = Decimal("0")
-        for food in self.foods.all():
+        for food in self.intake.all():
             grams += food.protein_g
         return grams
