@@ -220,7 +220,7 @@ class WeekPlan(BaseModel):
             if day.day < now.date() and day.calorie_surplus:
                 kcals -= day.calorie_surplus
             elif day.day == now.date():
-                for food in day.foods.all():
+                for food in day.intake.all():
                     if food.day_time <= now:
                         kcals -= food.calories
 

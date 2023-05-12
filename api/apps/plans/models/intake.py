@@ -15,10 +15,10 @@ class Intake(FoodProportion):
     day = models.ForeignKey(
         "plans.Day",
         on_delete=models.CASCADE,
-        related_name="foods",
+        related_name="intake",
     )
 
-    time = models.TimeField(
+    planned_time = models.TimeField(
         default=datetime.time(0, 0),
     )
 
@@ -72,7 +72,9 @@ class Intake(FoodProportion):
         Returns:
             datetime: day and time.
         """
-        return datetime.datetime.combine(self.day.day, self.time).astimezone()
+        return datetime.datetime.combine(
+            self.day.day, self.planned_time
+        ).astimezone()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.

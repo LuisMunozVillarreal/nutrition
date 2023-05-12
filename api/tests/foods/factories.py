@@ -6,14 +6,14 @@ from decimal import Decimal
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 
-from apps.foods.models import Food, Recipe, RecipeIngredient
+from apps.foods.models import FoodProduct, Recipe, RecipeIngredient
 
 
-class FoodFactory(DjangoModelFactory):
+class FoodProductFactory(DjangoModelFactory):
     """FoddFactory class."""
 
     class Meta:
-        model = Food
+        model = FoodProduct
 
     brand = "Ocado"
     name = "Chicken Breast"
@@ -73,6 +73,6 @@ class RecipeIngredientFactory(DjangoModelFactory):
         model = RecipeIngredient
 
     recipe = SubFactory(RecipeFactory)
-    food = SubFactory(FoodFactory)
+    food = SubFactory(FoodProductFactory)
     serving_size = Decimal("100")
     serving_unit = "g"
