@@ -7,12 +7,12 @@ from typing import Any
 
 from pint import UnitRegistry
 
-from .food import Food
-from .nutrients import NUTRIENT_LIST
+from .nutrients import NUTRIENT_LIST, Nutrients
+from .product import FoodProduct
 from .quantity import FoodQuantity
 
 
-class FoodProportion(FoodQuantity):
+class FoodProportion(Nutrients, FoodQuantity):
     """FoodProportion model class."""
 
     class Meta:
@@ -22,14 +22,14 @@ class FoodProportion(FoodQuantity):
 
     @property
     @abstractmethod
-    def food(self) -> Food:
+    def food(self) -> FoodProduct:
         """Get food abstract method."""
 
-    def get_portion_for(self, food: Food, nutrient: str) -> Decimal:
+    def get_portion_for(self, food: FoodProduct, nutrient: str) -> Decimal:
         """Get portion of nutrient for the given food.
 
         Args:
-            food (Food): food to get the nutrient from.
+            food (FoodProduct): food to get the nutrient from.
             nutrient (str): nutrient name.
 
         Returns:

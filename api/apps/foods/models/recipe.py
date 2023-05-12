@@ -3,16 +3,12 @@
 
 from django.db import models
 
-from .nutrients import Nutrients
+from .food import Food
 from .proportion import FoodProportion
 
 
-class Recipe(Nutrients):
+class Recipe(Food):
     """Recipe models class."""
-
-    name = models.CharField(
-        max_length=255,
-    )
 
     description = models.TextField(
         blank=True,
@@ -38,14 +34,6 @@ class Recipe(Nutrients):
         """
         return self.ingredients.count()
 
-    def __str__(self) -> str:
-        """Get string representation of the object.
-
-        Returns:
-            str: string representation of the object.
-        """
-        return self.name
-
 
 class RecipeIngredient(FoodProportion):
     """RecipeIngredient models class."""
@@ -57,7 +45,7 @@ class RecipeIngredient(FoodProportion):
     )
 
     food = models.ForeignKey(
-        "foods.Food",
+        "foods.FoodProduct",
         on_delete=models.CASCADE,
         related_name="recipes",
     )

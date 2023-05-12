@@ -2,14 +2,16 @@
 
 
 #
-# Food
+# FoodProduct
 #
 
 
-def test_search_renders_food(logged_in_admin_client, food):
+def test_search_renders_food(logged_in_admin_client, food_product):
     """Admin search renders."""
     # When
-    result = logged_in_admin_client.get("/admin/foods/food/?q=something")
+    result = logged_in_admin_client.get(
+        "/admin/foods/foodproduct/?q=something"
+    )
 
     # Then
     assert result.status_code == 200
@@ -18,16 +20,16 @@ def test_search_renders_food(logged_in_admin_client, food):
 def test_add_new_renders_food(logged_in_admin_client):
     """Admin new renders."""
     # When
-    result = logged_in_admin_client.get("/admin/foods/food/add/")
+    result = logged_in_admin_client.get("/admin/foods/foodproduct/add/")
 
     # Then
     assert result.status_code == 200
 
 
-def test_edit_renders_food(logged_in_admin_client, food):
+def test_edit_renders_food(logged_in_admin_client, food_product):
     """Admin edit renders."""
     # When
-    result = logged_in_admin_client.get("/admin/foods/food/1/change/")
+    result = logged_in_admin_client.get("/admin/foods/foodproduct/1/change/")
 
     # Then
     assert result.status_code == 200

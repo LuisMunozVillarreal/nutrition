@@ -135,12 +135,12 @@ def test_after_start_with_non_finished_day(db, intake, after_start):
     assert after_start.datetime.now.called
 
 
-def test_future_food_same_day(db, intake, after_start):
-    """Food in the future on the same day isn't taken into account."""
+def test_future_intake_same_day(db, intake, after_start):
+    """Intake in the future on the same day isn't taken into account."""
     # Given
     intake.day.day = datetime.date(2023, 1, 12)
     intake.day.save()
-    intake.time = datetime.time(20, 0)
+    intake.planned_time = datetime.time(20, 0)
     intake.save()
     plan = intake.day.plan
 
@@ -149,7 +149,7 @@ def test_future_food_same_day(db, intake, after_start):
 
     #  Then
     expected = plan.estimated_twee - 3 * plan.estimated_tdee
-    assert result == expected
+    assert result == expected, result - expected
     assert after_start.datetime.now.called
 
 

@@ -15,23 +15,20 @@ class Nutrients(BaseModel):
     calories = models.DecimalField(
         max_digits=10,
         decimal_places=1,
-        blank=True,
-        null=True,
+        default=0,
     )
 
     protein_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
-        blank=True,
-        null=True,
+        default=0,
     )
 
     fat_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         verbose_name="Total Fat (g)",
-        blank=True,
-        null=True,
+        default=0,
     )
 
     saturated_fat_g = models.DecimalField(
@@ -66,8 +63,7 @@ class Nutrients(BaseModel):
         max_digits=10,
         decimal_places=1,
         verbose_name="Total Carbs (g)",
-        blank=True,
-        null=True,
+        default=0,
     )
 
     fiber_carbs_g = models.DecimalField(

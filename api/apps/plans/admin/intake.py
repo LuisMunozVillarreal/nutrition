@@ -17,7 +17,7 @@ class IntakeAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "day",
-        "time",
+        "planned_time",
         "food",
         "meal",
         "serving_size",
@@ -28,7 +28,7 @@ class IntakeAdmin(admin.ModelAdmin):
 
     fields = [
         "day",
-        "time",
+        "planned_time",
         "food",
         "meal",
         "serving_size",
