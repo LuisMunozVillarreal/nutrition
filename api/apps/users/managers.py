@@ -4,10 +4,11 @@
 from typing import Any
 
 from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 
 
-class UserManager(BaseUserManager):
+class UserManager(BaseUserManager[AbstractUser]):
     """Custom user model manager.
 
     Email is the unique identifiers for authentication instead of usernames.
@@ -15,7 +16,7 @@ class UserManager(BaseUserManager):
 
     def __create_user(
         self, email: str, password: str, **extra_fields: Any
-    ) -> object:
+    ) -> AbstractUser:
         """Create and save a User with the given parameters.
 
         Args:
@@ -38,7 +39,7 @@ class UserManager(BaseUserManager):
 
     def create_user(
         self, email: str, password: str = "", **extra_fields: Any
-    ) -> object:
+    ) -> AbstractUser:
         """Create and save a User with the given email and password.
 
         Args:
@@ -55,7 +56,7 @@ class UserManager(BaseUserManager):
 
     def create_superuser(
         self, email: str, password: str, **extra_fields: Any
-    ) -> object:
+    ) -> AbstractUser:
         """Create and save a SuperUser with the given email and password.
 
         Args:

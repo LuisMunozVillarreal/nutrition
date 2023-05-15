@@ -14,7 +14,7 @@ from .managers import UserManager
 class User(AbstractUser, BaseModel):
     """User model."""
 
-    objects = UserManager()
+    objects = UserManager()  # type: ignore
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = [
@@ -27,7 +27,7 @@ class User(AbstractUser, BaseModel):
         )
     ]
 
-    username = None
+    username = None  # type: ignore
 
     email = models.EmailField(
         unique=True,
@@ -61,7 +61,7 @@ class User(AbstractUser, BaseModel):
 
         return self.first_name
 
-    def save(self, *args: list, **kwargs: dict[Any, Any]) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Save user attributes.
 
         Args:
@@ -73,8 +73,9 @@ class User(AbstractUser, BaseModel):
             self.email = self.email.lower()
             self.set_password(self.password)
         else:
-            if self._password is None and not self.check_password(
-                self.password
+            if (
+                self._password is None  # type: ignore
+                and not self.check_password(self.password)
             ):
                 self.set_password(self.password)
 

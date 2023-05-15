@@ -22,7 +22,7 @@ class FoodProportion(Nutrients, FoodQuantity):
 
     @property
     @abstractmethod
-    def food(self) -> FoodProduct:
+    def food(self) -> Any:
         """Get food abstract method."""
 
     def get_portion_for(self, food: FoodProduct, nutrient: str) -> Decimal:
@@ -35,18 +35,20 @@ class FoodProportion(Nutrients, FoodQuantity):
         Returns:
             Decimal: proportion.
         """
-        size = food.serving_size
+        size = Decimal(food.serving_size)
 
         if self.serving_unit != food.serving_unit:
-            size = Decimal(food.serving_size) * self.UREG(food.serving_unit)
-            size = size.to(self.serving_unit).m
+            new_size = self.UREG.Quantity(
+                Decimal(str(food.serving_size))
+            ) * self.UREG(food.serving_unit)
+            new_size = new_size.to(self.serving_unit).m
+            size = Decimal(new_size)
 
-        size = Decimal(size)
         value = getattr(food, nutrient)
 
         return value * self.serving_size / size
 
-    def save(self, *args: list, **kwargs: dict[Any, Any]) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
 
         Args:
@@ -56,7 +58,8 @@ class FoodProportion(Nutrients, FoodQuantity):
         for nutrient in NUTRIENT_LIST:
             value = getattr(self.food, nutrient)
             if value:
-                value = self.get_portion_for(self.food, nutrient)
+                food = FoodProduct.objects.get(id=self.food.id)
+                value = self.get_portion_for(food, nutrient)
                 setattr(self, nutrient, value)
 
         super().save(*args, **kwargs)

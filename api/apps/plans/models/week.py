@@ -82,7 +82,7 @@ class WeekPlan(BaseModel):
         """
         return f"Week {self.start_date.isocalendar().week}"
 
-    def save(self, *args: list, **kwargs: dict[Any, Any]) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance.
 
         Args:

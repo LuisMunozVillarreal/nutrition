@@ -36,10 +36,13 @@ class FatPercGoal(BaseModel):
         Returns:
             Decimal: weeks to goal.
         """
-        # pylint: disable=no-member
-        fat_perc = self.user.measurements.last().fat_perc
-        fat_kg = self.user.measurements.last().fat_kg
-        # pylint: enable=no-member
+        # pylint: disable-next=no-member
+        measurement = self.user.measurements.last()
+        if not measurement:
+            return Decimal("0")
+
+        fat_perc = measurement.fat_perc
+        fat_kg = measurement.fat_kg
 
         fat_kg_goal = self.fat_perc * fat_kg / fat_perc
         fat_kcal_to_cut = fat_kg_goal * settings.KCAL_KG

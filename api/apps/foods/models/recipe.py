@@ -34,6 +34,14 @@ class Recipe(Food):
         """
         return self.ingredients.count()
 
+    def __str__(self) -> str:
+        """Get string representation of the object.
+
+        Returns:
+            str: string representation of the object.
+        """
+        return self.name
+
 
 class RecipeIngredient(FoodProportion):
     """RecipeIngredient models class."""
