@@ -7,6 +7,12 @@ match = ".*\\.py"
 match-dir = "(?!migrations).*"
 add-ignore = "D107,D104,D106"
 
+[tool.mypy]
+plugins = "mypy_django_plugin.main"
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
+
 [tool.poetry]
 name = "nutrition"
 version = "0.1.0"
@@ -30,6 +36,7 @@ pint = "0.20.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "23.3.0"
+django-stubs = "4.2.0"
 flake8 = "6.0.0"
 flake8-isort = "6.0.0"
 ipython = "8.12.0"
