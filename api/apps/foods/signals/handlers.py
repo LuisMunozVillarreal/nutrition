@@ -1,6 +1,7 @@
 """food app signal handlers module."""
 
 
+from decimal import Decimal
 from typing import Any
 
 from django.db.models.signals import pre_delete, pre_save
@@ -14,7 +15,7 @@ from apps.foods.models.nutrients import NUTRIENT_LIST
 def increase_recipe_nutrients(
     sender: RecipeIngredient,  # pylint: disable=unused-argument
     instance: RecipeIngredient,
-    **kwargs: dict[Any, Any],
+    **kwargs: Any,
 ) -> None:
     """Increase the recipe nutrients.
 
@@ -51,7 +52,7 @@ def increase_recipe_nutrients(
 def decrease_recipe_nutrients(
     sender: RecipeIngredient,  # pylint: disable=unused-argument
     instance: RecipeIngredient,
-    **kwargs: dict[Any, Any],
+    **kwargs: Any,
 ) -> None:
     """Decrease the recipe nutrients.
 
@@ -79,7 +80,7 @@ def decrease_recipe_nutrients(
 def calculate_recipe_nutrients(
     sender: Recipe,  # pylint: disable=unused-argument
     instance: Recipe,
-    **kwargs: dict[Any, Any],
+    **kwargs: Any,
 ) -> None:
     """Calculate recipe nutrients.
 
@@ -100,7 +101,7 @@ def calculate_recipe_nutrients(
         return
 
     for nutrient in NUTRIENT_LIST:
-        recipe_value = 0
+        recipe_value = Decimal("0")
         for ingredient in recipe.ingredients.all():
             value = ingredient.get_portion_for(ingredient.food, nutrient)
             if not value:
