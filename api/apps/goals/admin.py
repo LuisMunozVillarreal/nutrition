@@ -16,7 +16,7 @@ class FatPercGoalAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "user",
-        "fat_perc",
+        "body_fat_perc",
         "weeks_to_goal_at_2500kcals",
         "months_to_goal_at_2500kcals",
         "years_to_goal_at_2500kcals",

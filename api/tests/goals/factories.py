@@ -16,4 +16,4 @@ class FatPercGoalFactory(DjangoModelFactory):
         model = FatPercGoal
 
     user = SubFactory(UserFactory)
-    fat_perc = 14
+    body_fat_perc = 14

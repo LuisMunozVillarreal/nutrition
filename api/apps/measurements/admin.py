@@ -14,7 +14,7 @@ class MeasurementAdmin(admin.ModelAdmin):
         "id",
         "user",
         "created_at",
-        "fat_perc",
+        "body_fat_perc",
         "weight",
         "bmr",
     ]
@@ -22,7 +22,7 @@ class MeasurementAdmin(admin.ModelAdmin):
     fields = [
         "user",
         "created_at",
-        "fat_perc",
+        "body_fat_perc",
         "weight",
         "bmr",
     ]

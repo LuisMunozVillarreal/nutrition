@@ -34,6 +34,12 @@ register(
     is_superuser=True,
 )
 
+register(
+    DayFactory,
+    "tracked_day",
+    tracked=True,
+)
+
 
 @pytest.fixture
 def logged_in_admin_client(db, client, admin_user):

@@ -1,7 +1,6 @@
 """Intake models module."""
 
 
-import datetime
 from typing import Any
 
 from django.db import models
@@ -16,10 +15,6 @@ class Intake(FoodProportion):
         "plans.Day",
         on_delete=models.CASCADE,
         related_name="intake",
-    )
-
-    planned_time = models.TimeField(
-        default=datetime.time(0, 0),
     )
 
     food = models.ForeignKey(
@@ -64,17 +59,6 @@ class Intake(FoodProportion):
             f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
             f" {self.serving_size} ({self.serving_unit})"
         )
-
-    @property
-    def day_time(self) -> datetime.datetime:
-        """Get day and time.
-
-        Returns:
-            datetime: day and time.
-        """
-        return datetime.datetime.combine(
-            self.day.day, self.planned_time
-        ).astimezone()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.

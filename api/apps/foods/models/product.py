@@ -4,19 +4,14 @@
 from django.db import models
 
 from .food import Food
-from .quantity import FoodQuantity
 
 
-class FoodProduct(Food, FoodQuantity):
+class FoodProduct(Food):
     """FoodProduct model class."""
 
     barcode = models.PositiveIntegerField(
         blank=True,
         null=True,
-    )
-
-    brand = models.CharField(
-        max_length=255,
     )
 
     def __str__(self) -> str:

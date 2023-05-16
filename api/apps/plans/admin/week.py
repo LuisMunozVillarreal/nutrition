@@ -4,7 +4,10 @@
 import copy
 
 from django.contrib import admin
-from nested_inline.admin import NestedModelAdmin, NestedTabularInline
+from nested_inline.admin import (  # typing: ignore
+    NestedModelAdmin,
+    NestedTabularInline,
+)
 
 from ..models import Day, Intake, WeekPlan
 from .day import DayAdmin
@@ -35,7 +38,6 @@ class DayInline(NestedTabularInline):
     ]
 
     fields = copy.deepcopy(DayAdmin.fields)
-
     readonly_fields = copy.deepcopy(DayAdmin.readonly_fields)
 
 
@@ -51,43 +53,34 @@ class WeekPlanAdmin(NestedModelAdmin):
         "id",
         "user",
         "start_date",
-        "protein_kg",
+        "protein_g_kg",
         "fat_perc",
         "deficit",
-        "estimated_twee",
-        "protein_g_goal_week",
-        "estimated_tdee",
-        "protein_g_goal_day",
-        "remaining_days",
-        "calorie_deficit",
+        "twee",
+        "calorie_goal",
+        "calories",
         "calorie_intake_perc",
-        "protein_intake_perc",
+        "calorie_deficit",
     ]
 
     fields = [
         "user",
         "measurement",
         "start_date",
-        "protein_kg",
+        "protein_g_kg",
         "fat_perc",
         "deficit",
-        "estimated_twee",
-        "protein_g_goal_week",
-        "estimated_tdee",
-        "protein_g_goal_day",
-        "remaining_days",
-        "calorie_deficit",
+        "twee",
+        "calorie_goal",
+        "calories",
         "calorie_intake_perc",
-        "protein_intake_perc",
+        "calorie_deficit",
     ]
 
     readonly_fields = [
-        "estimated_twee",
-        "protein_g_goal_week",
-        "estimated_tdee",
-        "protein_g_goal_day",
-        "remaining_days",
-        "calorie_deficit",
+        "twee",
+        "calorie_goal",
+        "calories",
         "calorie_intake_perc",
-        "protein_intake_perc",
+        "calorie_deficit",
     ]

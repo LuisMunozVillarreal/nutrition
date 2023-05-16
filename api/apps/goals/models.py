@@ -22,7 +22,7 @@ class FatPercGoal(BaseModel):
         related_name="fat_perc_goals",
     )
 
-    fat_perc = models.DecimalField(
+    body_fat_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
     )
@@ -41,10 +41,10 @@ class FatPercGoal(BaseModel):
         if not measurement:
             return Decimal("0")
 
-        fat_perc = measurement.fat_perc
+        body_fat_perc = measurement.body_fat_perc
         fat_kg = measurement.fat_kg
 
-        fat_kg_goal = self.fat_perc * fat_kg / fat_perc
+        fat_kg_goal = self.body_fat_perc * fat_kg / body_fat_perc
         fat_kcal_to_cut = fat_kg_goal * settings.KCAL_KG
 
         return fat_kcal_to_cut / cutting_kcals_week

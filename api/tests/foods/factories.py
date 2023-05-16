@@ -19,7 +19,8 @@ class FoodProductFactory(DjangoModelFactory):
     name = "Chicken Breast"
     serving_size = Decimal("100")
     serving_unit = "g"
-    calories = 106
+    url = "http://food.link"
+    calories = Decimal("106")
     protein_g = 25
     fat_g = Decimal("0.5")
     saturated_fat_g = 0
@@ -45,10 +46,11 @@ class RecipeFactory(DjangoModelFactory):
 
     name = "Cooked Chicken Breast"
     description = "Best recipe"
-    number_of_servings = 3
-    link = "http://recipe.link"
+    serving_size = 3
+    serving_unit = "u"
+    url = "http://recipe.link"
     nutrients_from_ingredients = False
-    calories = 1060
+    calories = Decimal("1060")
     protein_g = 250
     fat_g = 5
     saturated_fat_g = 0

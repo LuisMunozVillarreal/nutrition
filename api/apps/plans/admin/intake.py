@@ -17,27 +17,31 @@ class IntakeAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "day",
-        "planned_time",
         "food",
         "meal",
         "serving_size",
         "serving_unit",
         "calories",
         "protein_g",
+        "fat_g",
+        "carbs_g",
     ]
 
     fields = [
         "day",
-        "planned_time",
         "food",
         "meal",
         "serving_size",
         "serving_unit",
         "calories",
         "protein_g",
+        "fat_g",
+        "carbs_g",
     ]
 
     readonly_fields = [
         "calories",
         "protein_g",
+        "fat_g",
+        "carbs_g",
     ]

@@ -7,8 +7,8 @@ from typing import Any
 
 from pint import UnitRegistry
 
+from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
-from .product import FoodProduct
 from .quantity import FoodQuantity
 
 
@@ -25,11 +25,11 @@ class FoodProportion(Nutrients, FoodQuantity):
     def food(self) -> Any:
         """Get food abstract method."""
 
-    def get_portion_for(self, food: FoodProduct, nutrient: str) -> Decimal:
+    def get_portion_for(self, food: Food, nutrient: str) -> Decimal:
         """Get portion of nutrient for the given food.
 
         Args:
-            food (FoodProduct): food to get the nutrient from.
+            food (Food): food to get the nutrient from.
             nutrient (str): nutrient name.
 
         Returns:
@@ -58,7 +58,7 @@ class FoodProportion(Nutrients, FoodQuantity):
         for nutrient in NUTRIENT_LIST:
             value = getattr(self.food, nutrient)
             if value:
-                food = FoodProduct.objects.get(id=self.food.id)
+                food = Food.objects.get(id=self.food.id)
                 value = self.get_portion_for(food, nutrient)
                 setattr(self, nutrient, value)
 
