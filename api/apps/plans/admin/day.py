@@ -1,11 +1,14 @@
 """Day admin config module."""
 
 
+import copy
+
 from django.contrib import admin
 
 from apps.exercises.models import DaySteps, Exercise
 
 from ..models import Day, Intake
+from .intake import IntakeAdmin
 
 
 class IntakeInline(admin.TabularInline):
@@ -13,27 +16,10 @@ class IntakeInline(admin.TabularInline):
 
     model = Intake
     show_change_link = True
-    ordering = [
-        "meal_order",
-    ]
 
-    fields = [
-        "food",
-        "meal",
-        "serving_size",
-        "serving_unit",
-        "calories",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
-    ]
-
-    readonly_fields = [
-        "calories",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
-    ]
+    ordering = copy.deepcopy(IntakeAdmin.ordering)
+    fields = copy.deepcopy(IntakeAdmin.fields)
+    readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
 
 
 class ExerciseInline(admin.TabularInline):
@@ -80,29 +66,58 @@ class DayAdmin(admin.ModelAdmin):
         "id",
         "plan",
         "day",
+        "day_num",
+        "deficit",
+        "tracked",
         "num_foods",
         "tdee",
-        "estimated_calorie_goal",
-        "calorie_intake",
-        "protein_intake_g",
+        "calorie_goal",
+        "calorie_intake_perc",
+        "protein_g_goal",
+        "protein_g_intake_perc",
+        "fat_g_goal",
+        "fat_g_intake_perc",
+        "carbs_g_goal",
+        "carbs_g_intake_perc",
     ]
 
     fields = [
         "plan",
         "day",
+        "day_num",
+        "deficit",
+        "tracked",
         "num_foods",
         "tdee",
-        "estimated_calorie_goal",
+        "calorie_goal",
         "calorie_intake_perc",
         "calorie_deficit",
-        "protein_intake_g",
+        "calorie_surplus",
+        "protein_g_goal",
+        "protein_g",
+        "protein_g_intake_perc",
+        "fat_g_goal",
+        "fat_g",
+        "fat_g_intake_perc",
+        "carbs_g_goal",
+        "carbs_g",
+        "carbs_g_intake_perc",
     ]
 
     readonly_fields = [
         "num_foods",
         "tdee",
-        "estimated_calorie_goal",
+        "calorie_goal",
         "calorie_intake_perc",
         "calorie_deficit",
-        "protein_intake_g",
+        "calorie_surplus",
+        "protein_g_goal",
+        "protein_g",
+        "protein_g_intake_perc",
+        "fat_g_goal",
+        "fat_g",
+        "fat_g_intake_perc",
+        "carbs_g_goal",
+        "carbs_g",
+        "carbs_g_intake_perc",
     ]

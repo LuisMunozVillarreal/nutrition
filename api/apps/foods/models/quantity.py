@@ -16,9 +16,15 @@ class FoodQuantity(models.Model):
 
     SERVING_UNIT_GRAMS = "g"
     SERVING_UNIT_MILIGRAMS = "mg"
+    SERVING_UNIT_UNIT = "serving"
+    SERVING_UNIT_CUP = "cup"
+    SERVING_UNIT_ML = "ml"
     SERVING_UNIT_CHOICES = (
         (SERVING_UNIT_GRAMS, "gram(s)"),
         (SERVING_UNIT_MILIGRAMS, "miligram(s)"),
+        (SERVING_UNIT_UNIT, "serving(s)"),
+        (SERVING_UNIT_CUP, "cup(s)"),
+        (SERVING_UNIT_ML, "millilitre(s)"),
     )
 
     serving_unit = models.CharField(

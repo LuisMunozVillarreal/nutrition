@@ -25,5 +25,5 @@ class MeasurementFactory(DjangoModelFactory):
         13,
         tzinfo=datetime.timezone.utc,
     )
-    fat_perc = 21
+    body_fat_perc = 21
     weight = Decimal("94.3")
