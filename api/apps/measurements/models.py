@@ -17,14 +17,14 @@ class Measurement(BaseModel):
         related_name="measurements",
     )
 
-    fat_perc = models.DecimalField(
+    body_fat_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
+        verbose_name="Body fat (%)",
     )
 
     weight = models.DecimalField(
-        max_digits=10,
-        decimal_places=1,
+        max_digits=10, decimal_places=1, verbose_name="Weight (kg)"
     )
 
     def __str__(self) -> str:
@@ -42,7 +42,7 @@ class Measurement(BaseModel):
         Returns:
             Decimal: fat in kgs.
         """
-        return self.weight * self.fat_perc / 100
+        return self.weight * self.body_fat_perc / 100
 
     @property
     def bmr_kma(self) -> Decimal:
@@ -55,7 +55,8 @@ class Measurement(BaseModel):
             return Decimal("0")
 
         return 370 + (
-            Decimal("21.6") * ((self.weight * (100 - self.fat_perc) / 100))
+            Decimal("21.6")
+            * ((self.weight * (100 - self.body_fat_perc) / 100))
         )
 
     @property

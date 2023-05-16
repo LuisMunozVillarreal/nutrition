@@ -14,12 +14,6 @@ class Recipe(Food):
         blank=True,
     )
 
-    number_of_servings = models.PositiveIntegerField()
-
-    link = models.URLField(
-        blank=True,
-    )
-
     nutrients_from_ingredients = models.BooleanField(
         default=False,
         verbose_name="Calculate nutrients from ingredients",

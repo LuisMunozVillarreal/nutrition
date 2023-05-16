@@ -15,6 +15,7 @@ class FoodProductAdmin(admin.ModelAdmin):
         "brand",
         "name",
         "serving_size",
+        "serving_unit",
         "calories",
         "protein_g",
         "fat_g",
@@ -57,7 +58,7 @@ class RecipeAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "name",
-        "number_of_servings",
+        "serving_size",
         "num_ingredients",
         "calories",
         "protein_g",

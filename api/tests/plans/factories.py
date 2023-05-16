@@ -23,9 +23,9 @@ class WeekPlanFactory(DjangoModelFactory):
     user = SubFactory(UserFactory)
     measurement = SubFactory(MeasurementFactory)
     start_date = datetime.date(2023, 1, 9)
-    protein_kg = Decimal("2.5")
+    protein_g_kg = Decimal("2.5")
     fat_perc = 25
-    deficit = 100
+    deficit = Decimal("200")
 
 
 class DayFactory(DjangoModelFactory):
@@ -36,6 +36,10 @@ class DayFactory(DjangoModelFactory):
 
     plan = SubFactory(WeekPlanFactory)
     day = datetime.date(2023, 1, 9)
+    day_num = 1
+    deficit = Decimal("220")
+    tracked = False
+    protein_g_goal = Decimal("235.8")
 
 
 class IntakeFactory(DjangoModelFactory):
@@ -46,7 +50,6 @@ class IntakeFactory(DjangoModelFactory):
 
     day = SubFactory(DayFactory)
     food = SubFactory(FoodProductFactory)
-    planned_time = datetime.time(12, 0)
     meal = Intake.MEAL_BREAKFAST
     meal_order = 0
     serving_size = 100
