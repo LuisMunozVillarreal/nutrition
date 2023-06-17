@@ -4,26 +4,28 @@
 import copy
 
 from django.contrib import admin
-from nested_inline.admin import (  # typing: ignore
+from nested_inline.admin import (  # type: ignore[import]
     NestedModelAdmin,
     NestedTabularInline,
 )
 
-from ..models import Day, Intake, WeekPlan
+from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
+
+from ..models import Day, WeekPlan
 from .day import DayAdmin
-from .intake import IntakeAdmin
+from .intake import IntakeInlineBase
 
 
-class IntakeInline(NestedTabularInline):
+class IntakeInline(IntakeInlineBase, NestedTabularInline):
     """Intake inline class."""
 
-    model = Intake
-    extra = 0
-    show_change_link = True
 
-    ordering = copy.deepcopy(IntakeAdmin.ordering)
-    fields = copy.deepcopy(IntakeAdmin.fields)
-    readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
+class ExerciseInline(ExerciseInlineBase, NestedTabularInline):
+    """Exercise inline class."""
+
+
+class DayStepsInline(DayStepsInlineBase, NestedTabularInline):
+    """DaySteps inline class."""
 
 
 class DayInline(NestedTabularInline):
@@ -31,10 +33,13 @@ class DayInline(NestedTabularInline):
 
     model = Day
     extra = 0
+    max_num = 0
     show_change_link = True
 
     inlines = [
         IntakeInline,
+        ExerciseInline,
+        DayStepsInline,
     ]
 
     fields = copy.deepcopy(DayAdmin.fields)
@@ -44,6 +49,10 @@ class DayInline(NestedTabularInline):
 @admin.register(WeekPlan)
 class WeekPlanAdmin(NestedModelAdmin):
     """WeekPLan admin class."""
+
+    autocomplete_fields = [
+        "user",
+    ]
 
     inlines = [
         DayInline,

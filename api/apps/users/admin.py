@@ -10,6 +10,11 @@ from .models import User
 class UserAdmin(admin.ModelAdmin):
     """UserAdmin class."""
 
+    search_fields = [
+        "first_name",
+        "last_name",
+    ]
+
     list_display = [
         "id",
         "full_name",

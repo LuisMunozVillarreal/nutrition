@@ -1,6 +1,8 @@
 """Intake admin config module."""
 
 
+import copy
+
 from django.contrib import admin
 
 from ..models import Intake
@@ -12,6 +14,10 @@ class IntakeAdmin(admin.ModelAdmin):
 
     ordering = [
         "meal_order",
+    ]
+
+    autocomplete_fields = [
+        "food",
     ]
 
     list_display = [
@@ -45,3 +51,21 @@ class IntakeAdmin(admin.ModelAdmin):
         "fat_g",
         "carbs_g",
     ]
+
+
+class IntakeInlineBase:
+    """Intake inline class."""
+
+    # pylint: disable=too-few-public-methods
+
+    model = Intake
+    extra = 0
+    show_change_link = True
+
+    autocomplete_fields = [
+        "food",
+    ]
+
+    ordering = copy.deepcopy(IntakeAdmin.ordering)
+    fields = copy.deepcopy(IntakeAdmin.fields)
+    readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
