@@ -37,7 +37,7 @@ class Day(Nutrients):
     )
 
     tracked = models.BooleanField(
-        default=False,
+        default=True,
         help_text=(
             "Indicates whether the day's intakes and exercises are taken into "
             "account for the calorie intake and goal, respectively. "
@@ -200,6 +200,9 @@ class Day(Nutrients):
         Returns:
             int: Exercise Activity Thermogenesis.
         """
+        if self.id is None:
+            return 0
+
         res = self.exercises.aggregate(total_kcals=models.Sum("kcals"))
         return res["total_kcals"] or 0
 
