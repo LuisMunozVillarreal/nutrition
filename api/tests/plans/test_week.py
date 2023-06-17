@@ -68,15 +68,15 @@ def test_days_are_created(db, week_plan):
     # Then
     assert week_plan.days.count() == week_plan.PLAN_LENGTH_DAYS
 
-    day_one = week_plan.days.all()[6]
+    day_one = week_plan.days.all()[0]
     assert day_one.deficit == 220
     assert day_one.day_num == 1
-    assert week_plan.days.all()[5].deficit == 220
-    assert week_plan.days.all()[4].deficit == 220
+    assert week_plan.days.all()[1].deficit == 220
+    assert week_plan.days.all()[2].deficit == 220
     assert week_plan.days.all()[3].deficit == 220
-    assert week_plan.days.all()[2].deficit == 180
-    assert week_plan.days.all()[1].deficit == 160
-    assert week_plan.days.all()[0].deficit == 180
+    assert week_plan.days.all()[4].deficit == 180
+    assert week_plan.days.all()[5].deficit == 160
+    assert week_plan.days.all()[6].deficit == 180
 
 
 def test_saving_week_doesnt_create_more_days(db, week_plan):
@@ -93,19 +93,19 @@ def test_calorie_goal_with_surplus(
 ):
     """Calorie goal with surplus is correct."""
     # Given
-    day_one = week_plan.days.all()[6]
+    day_one = week_plan.days.all()[0]
     day_one.tracked = True
     day_one.save()
     for _ in range(30):
         intake_factory(day=day_one, food=food_product)
 
-    day_two = week_plan.days.all()[5]
+    day_two = week_plan.days.all()[1]
     day_two.tracked = True
     day_two.save()
     for _ in range(30):
         intake_factory(day=day_two, food=food_product)
 
-    day_three = week_plan.days.all()[4]
+    day_three = week_plan.days.all()[2]
 
     # When / Then
     assert day_three.plan.extra_surplus(day_three.day_num) == Decimal("529.96")

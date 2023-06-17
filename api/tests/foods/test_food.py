@@ -12,3 +12,4 @@ def test_food_no_brand(db, food_product_factory):
 
     # When / Then
     assert str(food) == "Chicken Breast"
+    assert str(product) == "Chicken Breast (100 g)"

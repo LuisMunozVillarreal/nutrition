@@ -20,4 +20,9 @@ class FoodProduct(Food):
         Returns:
             str: string representation.
         """
-        return f"{self.brand} {self.name} ({self.serving_size})"
+        res = f"{self.name} ({self.serving_size} {self.serving_unit})"
+
+        if self.brand:
+            res = f"{self.brand} {res}"
+
+        return res

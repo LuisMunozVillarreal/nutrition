@@ -16,7 +16,7 @@ class Day(Nutrients):
     # pylint: disable=too-many-instance-attributes
 
     class Meta:
-        ordering = ["plan", "-day"]
+        ordering = ["-plan", "day"]
 
     plan = models.ForeignKey(
         "plans.WeekPlan",
