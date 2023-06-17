@@ -13,7 +13,7 @@ class WeekPlan(BaseModel):
 
     PLAN_LENGTH_DAYS = 7
     # The following represent percentages. They should all sum 700
-    DEFICIT_DISTRIBUTION = [110, 110, 110, 110, 90, 80, 90]
+    DEFICIT_DISTRIBUTION = [90, 80, 90, 110, 110, 110, 110]
     EXERCISE_RATE = Decimal("1.375")
 
     user = models.ForeignKey(
