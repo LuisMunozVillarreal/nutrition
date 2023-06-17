@@ -74,6 +74,9 @@ class Exercise(BaseModel):
 class DaySteps(BaseModel):
     """DaySteps model class."""
 
+    class Meta:
+        verbose_name_plural = "Day steps"
+
     day = models.OneToOneField(
         "plans.Day",
         on_delete=models.CASCADE,

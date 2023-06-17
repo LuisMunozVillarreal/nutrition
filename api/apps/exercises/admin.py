@@ -29,3 +29,38 @@ class DayStepsAdmin(admin.ModelAdmin):
         "day",
         "steps",
     ]
+
+
+class ExerciseInlineBase:
+    """Exercise inline class."""
+
+    # pylint: disable=too-few-public-methods
+
+    model = Exercise
+    extra = 0
+    show_change_link = True
+
+    fields = [
+        "type",
+        "kcals",
+        "duration",
+        "distance",
+    ]
+
+
+class DayStepsInlineBase:
+    """DaySteps inline class."""
+
+    # pylint: disable=too-few-public-methods
+
+    model = DaySteps
+    show_change_link = True
+
+    fields = [
+        "steps",
+        "kcals",
+    ]
+
+    readonly_fields = [
+        "kcals",
+    ]

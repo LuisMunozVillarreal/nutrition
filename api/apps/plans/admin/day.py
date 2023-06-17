@@ -1,55 +1,33 @@
 """Day admin config module."""
 
 
-import copy
-
 from django.contrib import admin
 
-from apps.exercises.models import DaySteps, Exercise
+from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
 
-from ..models import Day, Intake
-from .intake import IntakeAdmin
+from ..models import Day
+from .intake import IntakeInlineBase
 
 
-class IntakeInline(admin.TabularInline):
+class IntakeInline(  # type: ignore[misc]
+    IntakeInlineBase,
+    admin.TabularInline,
+):
     """Intake inline class."""
 
-    model = Intake
-    show_change_link = True
 
-    ordering = copy.deepcopy(IntakeAdmin.ordering)
-    fields = copy.deepcopy(IntakeAdmin.fields)
-    readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
-
-
-class ExerciseInline(admin.TabularInline):
+class ExerciseInline(  # type: ignore[misc]
+    ExerciseInlineBase,
+    admin.TabularInline,
+):
     """Exercise inline class."""
 
-    model = Exercise
-    show_change_link = True
 
-    fields = [
-        "type",
-        "kcals",
-        "duration",
-        "distance",
-    ]
-
-
-class DayStepsInline(admin.TabularInline):
+class DayStepsInline(  # type: ignore[misc]
+    DayStepsInlineBase,
+    admin.TabularInline,
+):
     """DaySteps inline class."""
-
-    model = DaySteps
-    show_change_link = True
-
-    fields = [
-        "steps",
-        "kcals",
-    ]
-
-    readonly_fields = [
-        "kcals",
-    ]
 
 
 @admin.register(Day)
@@ -105,6 +83,8 @@ class DayAdmin(admin.ModelAdmin):
     ]
 
     readonly_fields = [
+        "day",
+        "day_num",
         "num_foods",
         "tdee",
         "calorie_goal",
