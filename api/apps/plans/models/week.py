@@ -128,7 +128,7 @@ class WeekPlan(BaseModel):
         if not self.calorie_goal:
             return Decimal("0")
 
-        return self.calories * 100 / self.calorie_goal
+        return round(self.calories * 100 / self.calorie_goal, 2)
 
     @property
     def calorie_deficit(self) -> Decimal:
