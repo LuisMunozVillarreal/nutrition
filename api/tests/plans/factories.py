@@ -38,7 +38,7 @@ class DayFactory(DjangoModelFactory):
     day = datetime.date(2023, 1, 9)
     day_num = 1
     deficit = Decimal("220")
-    tracked = False
+    tracked = True
     protein_g_goal = Decimal("235.8")
 
 

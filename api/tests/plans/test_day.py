@@ -13,36 +13,41 @@ def test_protein_g_goal(db, day):
 
 def test_estimated_calorie_goal(db, day):
     """Estimated calorie goal is correct."""
+    # Given
+    day.tracked = False
+    day.save()
+
+    # When / Then
     assert day.calorie_goal == Decimal("2501.3109")
 
 
 def test_estimated_fat_g_goal(db, day):
     """Estimated fat goal is correct."""
+    # Given
+    day.tracked = False
+    day.save()
+
+    # When / Then
     assert day.fat_g_goal == Decimal("69.48085833333333333333333333")
 
 
 def test_estimated_carb_g_goal(db, day):
     """Estimated carb goal is correct."""
+    # Given
+    day.tracked = False
+    day.save()
+
+    # When / Then
     assert day.carbs_g_goal == Decimal("468.99579375")
 
 
 def test_tracked_calorie_goal(db, day_steps, exercise):
     """Tracked calorie goal is correct."""
-    # Given
-    day_steps.day.tracked = True
-    day_steps.day.save()
-
-    # When / Then
     assert day_steps.day.calorie_goal == Decimal("2087.04872")
 
 
 def test_tracked_calorie_goal_no_steps(db, day, exercise):
     """Tracked calorie goal with no steps is correct."""
-    # Given
-    day.tracked = True
-    day.save()
-
-    # When / Then
     assert day.calorie_goal == Decimal("2057.04872")
 
 
