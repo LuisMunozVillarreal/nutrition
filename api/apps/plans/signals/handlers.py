@@ -106,18 +106,19 @@ def decrease_day_nutrients(
 
 
 @receiver(post_save, sender=Exercise)
-def increase_day_goals_and_percs(
+def increase_day_goals_and_percs_and_tracked(
     sender: Exercise,  # pylint: disable=unused-argument
     instance: Exercise,
     **kwargs: Any,
 ) -> None:
-    """Increase day goals.
+    """Increase day goals and make day tracked.
 
     Args:
         sender (Exercise): signal sender.
         instance (Exercise): instance to be saved.
         kwargs (Any): keyword arguments.
     """
+    instance.day.tracked = True
     instance.day.save()
 
 
