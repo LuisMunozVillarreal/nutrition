@@ -5,3 +5,4 @@
 from .food import Food
 from .product import FoodProduct
 from .recipe import Recipe, RecipeIngredient
+from .serving import Serving

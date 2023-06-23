@@ -5,10 +5,10 @@ from typing import Any
 
 from django.db import models
 
-from apps.foods.models.proportion import FoodProportion
+from apps.foods.models.nutrients import NUTRIENT_LIST, Nutrients
 
 
-class Intake(FoodProportion):
+class Intake(Nutrients):
     """Intake models class."""
 
     day = models.ForeignKey(
@@ -18,8 +18,14 @@ class Intake(FoodProportion):
     )
 
     food = models.ForeignKey(
-        "foods.Food",
+        "foods.Serving",
         on_delete=models.CASCADE,
+    )
+
+    num_servings = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        default=1,
     )
 
     MEAL_BREAKFAST = "breakfast"
@@ -57,7 +63,7 @@ class Intake(FoodProportion):
         """
         return (
             f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
-            f" {self.serving_size} ({self.serving_unit})"
+            f" {self.food.size} ({self.food.unit})"
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -68,4 +74,9 @@ class Intake(FoodProportion):
             kwargs (dict): keyword arguments.
         """
         self.meal_order = self.MEAL_ORDER[self.meal]
+
+        for nutrient in NUTRIENT_LIST:
+            value = getattr(self.food, nutrient) or 0
+            setattr(self, nutrient, value * self.num_servings)
+
         super().save(*args, **kwargs)
