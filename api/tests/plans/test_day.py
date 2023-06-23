@@ -54,7 +54,7 @@ def test_tracked_calorie_goal_no_steps(db, day, exercise):
 def test_increase_day_nutrients(db, intake):
     """Calculate a increase in day nutrients correctly."""
     # When
-    intake.serving_size = 200
+    intake.num_servings = 2
     intake.save()
 
     # Then
@@ -128,7 +128,7 @@ def test_zero_calorie_deficit(db, day):
     """Zero calorie deficit works as expected."""
     # When
     day.calorie_goal = 1
-    day.calories = 2
+    day.energy = 2
 
     # Then
     assert day.calorie_deficit == 0

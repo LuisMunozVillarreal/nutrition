@@ -107,7 +107,7 @@ class WeekPlan(BaseModel):
 
     # Intake
     @property
-    def calories(self) -> Decimal:
+    def energy(self) -> Decimal:
         """Get calorie intake.
 
         Returns:
@@ -115,7 +115,7 @@ class WeekPlan(BaseModel):
         """
         kcals = Decimal("0")
         for day in self.days.all():
-            kcals += day.calories
+            kcals += day.energy
         return kcals
 
     @property
@@ -128,7 +128,7 @@ class WeekPlan(BaseModel):
         if not self.calorie_goal:
             return Decimal("0")
 
-        return round(self.calories * 100 / self.calorie_goal, 2)
+        return round(self.energy * 100 / self.calorie_goal, 2)
 
     @property
     def calorie_deficit(self) -> Decimal:
@@ -137,4 +137,4 @@ class WeekPlan(BaseModel):
         Returns:
             Decimal: calorie deficit.
         """
-        return self.twee - self.calories
+        return self.twee - self.energy

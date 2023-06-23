@@ -5,8 +5,7 @@ def test_calculate_recipe_nutrients(db, recipe_ingredient):
     """Calculate recipe nutrients correctly."""
     # Given
     assert recipe_ingredient.food.protein_g == 25  # / 100 g
-    assert recipe_ingredient.food.serving_size == 100
-    assert recipe_ingredient.serving_size == 100
+    assert recipe_ingredient.food.size == 100
     assert recipe_ingredient.protein_g == 25
     recipe = recipe_ingredient.recipe
     assert recipe.protein_g == 250
@@ -40,7 +39,7 @@ def test_increase_recipe_nutrient(db, recipe_ingredient):
     recipe.save()
 
     # When
-    recipe_ingredient.serving_size = 200
+    recipe_ingredient.num_servings = 2
     recipe_ingredient.save()
 
     # Then

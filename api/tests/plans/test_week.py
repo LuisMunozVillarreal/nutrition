@@ -88,22 +88,20 @@ def test_saving_week_doesnt_create_more_days(db, week_plan):
     assert week_plan.days.count() == 7
 
 
-def test_calorie_goal_with_surplus(
-    db, week_plan, intake_factory, food_product
-):
+def test_calorie_goal_with_surplus(db, week_plan, intake_factory, serving):
     """Calorie goal with surplus is correct."""
     # Given
     day_one = week_plan.days.all()[0]
     day_one.tracked = True
     day_one.save()
     for _ in range(30):
-        intake_factory(day=day_one, food=food_product)
+        intake_factory(day=day_one, food=serving)
 
     day_two = week_plan.days.all()[1]
     day_two.tracked = True
     day_two.save()
     for _ in range(30):
-        intake_factory(day=day_two, food=food_product)
+        intake_factory(day=day_two, food=serving)
 
     day_three = week_plan.days.all()[2]
 

@@ -67,7 +67,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         "deficit",
         "twee",
         "calorie_goal",
-        "calories",
+        "energy",
         "calorie_intake_perc",
         "calorie_deficit",
     ]
@@ -81,7 +81,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         "deficit",
         "twee",
         "calorie_goal",
-        "calories",
+        "energy",
         "calorie_intake_perc",
         "calorie_deficit",
     ]
@@ -89,7 +89,7 @@ class WeekPlanAdmin(NestedModelAdmin):
     readonly_fields = [
         "twee",
         "calorie_goal",
-        "calories",
+        "energy",
         "calorie_intake_perc",
         "calorie_deficit",
     ]
