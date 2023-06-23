@@ -31,7 +31,7 @@ def test_search_renders_weekplan(logged_in_admin_client, week_plan):
     assert result.status_code == 200
 
 
-@pytest.mark.parametrize("model", ["intake", "day", "weekplan"])
+@pytest.mark.parametrize("model", ["intake", "weekplan"])
 def test_add_new_renders(logged_in_admin_client, model):
     """Admin add renders."""
     # When

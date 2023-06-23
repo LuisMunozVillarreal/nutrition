@@ -1,4 +1,4 @@
-"""food app signal handlers module."""
+"""food app signal handlers for recipe nutrients module."""
 
 
 from decimal import Decimal
@@ -31,7 +31,7 @@ def increase_recipe_nutrients(
     created = instance.id is None
     ingredient = instance
 
-    for nutrient in NUTRIENT_LIST:
+    for nutrient in NUTRIENT_LIST + ["weight"]:
         old_ingredient_value = 0
         new_ingredient_value = getattr(ingredient, nutrient)
         if not new_ingredient_value:
@@ -67,7 +67,7 @@ def decrease_recipe_nutrients(
 
     ingredient = instance
 
-    for nutrient in NUTRIENT_LIST:
+    for nutrient in NUTRIENT_LIST + ["weight"]:
         recipe_value = getattr(recipe, nutrient)
         ingredient_value = getattr(ingredient, nutrient)
         if ingredient_value:
@@ -100,13 +100,9 @@ def calculate_recipe_nutrients(
     if db_recipe.nutrients_from_ingredients:
         return
 
-    for nutrient in NUTRIENT_LIST:
+    for nutrient in NUTRIENT_LIST + ["weight"]:
         recipe_value = Decimal("0")
         for ingredient in recipe.ingredients.all():
-            value = ingredient.get_portion_for(ingredient.food, nutrient)
-            if not value:
-                continue
-
-            recipe_value += value
+            recipe_value += getattr(ingredient, nutrient)
 
         setattr(recipe, nutrient, recipe_value)

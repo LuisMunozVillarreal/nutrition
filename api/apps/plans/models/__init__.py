@@ -16,7 +16,7 @@ A day in the week can be in 3 different "modes":
      : calorie_goal = estimated_calorie_goal
    - Remaining days: As per the first day, but substracting the incurred
      surpluses from previous days, if any.
-     : estimated_calorie_goal: uses plan.remaing_calories
+     : estimated_calorie_goal: uses plan.remaing_energy
      : calorie_goal = estimated_calorie_goal
 2. The day is ongoing:
    - No logged exercises

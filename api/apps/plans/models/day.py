@@ -76,24 +76,28 @@ class Day(Nutrients):
         max_digits=10,
         decimal_places=1,
         editable=False,
+        verbose_name="Calorie Intake %",
     )
 
     protein_g_intake_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         editable=False,
+        verbose_name="Protein Intake %",
     )
 
     fat_g_intake_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         editable=False,
+        verbose_name="Fat Intake %",
     )
 
     carbs_g_intake_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         editable=False,
+        verbose_name="Carbs Intake %",
     )
 
     def __str__(self) -> str:
@@ -150,7 +154,11 @@ class Day(Nutrients):
         Returns:
             Decimal: estimated calorie goal.
         """
-        return self.tdee - self.deficit - self.plan.extra_surplus(self.day_num)
+        return (
+            self.tdee
+            - Decimal(self.deficit)
+            - self.plan.extra_surplus(self.day_num)
+        )
 
     @property
     def _fat_kcal_goal(self):
@@ -241,7 +249,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        return self.calories * 100 / self.calorie_goal
+        return self.energy * 100 / self.calorie_goal
 
     @property
     def _protein_g_intake_perc(self) -> Decimal:
@@ -289,7 +297,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        deficit = self.calorie_goal - self.calories
+        deficit = self.calorie_goal - self.energy
         if deficit > 0:
             return deficit
 
@@ -305,7 +313,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        surplus = self.calories - self.calorie_goal
+        surplus = self.energy - self.calorie_goal
         if surplus > 0:
             return surplus
 

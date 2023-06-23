@@ -9,7 +9,8 @@ from .food import Food
 class FoodProduct(Food):
     """FoodProduct model class."""
 
-    barcode = models.PositiveIntegerField(
+    barcode = models.CharField(
+        max_length=255,
         blank=True,
         null=True,
     )
@@ -20,7 +21,7 @@ class FoodProduct(Food):
         Returns:
             str: string representation.
         """
-        res = f"{self.name} ({self.serving_size} {self.serving_unit})"
+        res = f"{self.name} ({self.weight}{self.weight_unit})"
 
         if self.brand:
             res = f"{self.brand} {res}"

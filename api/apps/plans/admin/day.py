@@ -46,16 +46,18 @@ class DayAdmin(admin.ModelAdmin):
         "day",
         "day_num",
         "deficit",
-        "tracked",
-        "num_foods",
         "tdee",
         "calorie_goal",
+        "energy",
         "calorie_intake_perc",
         "protein_g_goal",
+        "protein_g",
         "protein_g_intake_perc",
         "fat_g_goal",
+        "fat_g",
         "fat_g_intake_perc",
         "carbs_g_goal",
+        "carbs_g",
         "carbs_g_intake_perc",
     ]
 
@@ -101,3 +103,19 @@ class DayAdmin(admin.ModelAdmin):
         "carbs_g",
         "carbs_g_intake_perc",
     ]
+
+    def has_add_permission(self, request, obj=None):
+        """Get whether it has add permission.
+
+        Overriden to prevent Days being added from the admin panel.
+
+        Args:
+            request (request): user request.
+            obj (Day): object related to the request.
+
+        Returns:
+            bool: whether it has add permission.
+        """
+        # pylint: disable=unused-argument
+
+        return False

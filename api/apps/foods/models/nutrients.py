@@ -12,23 +12,25 @@ class Nutrients(BaseModel):
     class Meta:
         abstract = True
 
-    calories = models.DecimalField(
+    energy = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         default=0,
+        verbose_name="Energy (kcal)",
     )
 
     protein_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         default=0,
+        verbose_name="Protein (g)",
     )
 
     fat_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
-        verbose_name="Total Fat (g)",
         default=0,
+        verbose_name="Total Fat (g)",
     )
 
     saturated_fat_g = models.DecimalField(

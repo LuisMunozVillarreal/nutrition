@@ -1,10 +1,12 @@
 """Recipe models module."""
 
 
+from typing import Any
+
 from django.db import models
 
 from .food import Food
-from .proportion import FoodProportion
+from .nutrients import NUTRIENT_LIST, Nutrients
 
 
 class Recipe(Food):
@@ -37,7 +39,7 @@ class Recipe(Food):
         return self.name
 
 
-class RecipeIngredient(FoodProportion):
+class RecipeIngredient(Nutrients):
     """RecipeIngredient models class."""
 
     recipe = models.ForeignKey(
@@ -47,9 +49,15 @@ class RecipeIngredient(FoodProportion):
     )
 
     food = models.ForeignKey(
-        "foods.FoodProduct",
+        "foods.Serving",
         on_delete=models.CASCADE,
         related_name="recipes",
+    )
+
+    num_servings = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        default=1,
     )
 
     def __str__(self) -> str:
@@ -60,5 +68,27 @@ class RecipeIngredient(FoodProportion):
         """
         return (
             f"{self.recipe.name} - {str(self.food)}"
-            f" {self.serving_size} ({self.serving_unit})"
+            f" {self.food.size * self.num_servings} ({self.food.unit})"
         )
+
+    @property
+    def weight(self) -> int:
+        """Get the weight of the serving.
+
+        Returns:
+            int: the weight of the serving.
+        """
+        return self.food.weight
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save instance into the db.
+
+        Args:
+            args (list): arguments.
+            kwargs (dict): keyword arguments.
+        """
+        for nutrient in NUTRIENT_LIST:
+            value = getattr(self.food, nutrient) or 0
+            setattr(self, nutrient, value * self.num_servings)
+
+        super().save(*args, **kwargs)

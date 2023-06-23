@@ -9,7 +9,7 @@ from factory.django import DjangoModelFactory
 
 from apps.plans.models import Day, Intake, WeekPlan
 
-from ..foods.factories import FoodProductFactory
+from ..foods.factories import ServingFactory
 from ..measurements.factories import MeasurementFactory
 from ..users.factories import UserFactory
 
@@ -49,8 +49,6 @@ class IntakeFactory(DjangoModelFactory):
         model = Intake
 
     day = SubFactory(DayFactory)
-    food = SubFactory(FoodProductFactory)
+    food = SubFactory(ServingFactory)
     meal = Intake.MEAL_BREAKFAST
     meal_order = 0
-    serving_size = 100
-    serving_unit = "g"
