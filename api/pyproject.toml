@@ -1,3 +1,6 @@
+[tool.bandit]
+exclude_dirs = ["tests", ".tox"]
+
 [tool.black]
 line-length = 79
 
@@ -29,12 +32,15 @@ python = "^3.11"
 django-admin-sortable2 = "2.1.9"
 django-compressor = "4.4"
 django-cors-headers = "4.2.0"
+django-dotenv = "1.4.2"
+django-environ = "0.10.0"
 django-extensions = "3.2.3"
 django-nested-inline = "0.4.6"
 django = "4.2.4"
 pint = "0.22"
 
 [tool.poetry.group.dev.dependencies]
+bandit = {extras = ["toml"], version = "1.7.5"}
 black = "23.7.0"
 django-stubs = "4.2.3"
 flake8 = "6.1.0"
@@ -47,6 +53,7 @@ pylint-django = "2.5.3"
 pylint = "2.17.5"
 pytest-cov = "4.1.0"
 pytest-django = "4.5.2"
+pytest-dotenv = "0.5.2"
 pytest-factoryboy = "2.5.1"
 pytest-mock = "3.11.1"
 pytest-xdist = "3.3.1"

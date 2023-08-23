@@ -38,7 +38,7 @@ class UserManager(BaseUserManager[AbstractUser]):
         return user
 
     def create_user(
-        self, email: str, password: str = "", **extra_fields: Any
+        self, email: str, password: str, **extra_fields: Any
     ) -> AbstractUser:
         """Create and save a User with the given email and password.
 
