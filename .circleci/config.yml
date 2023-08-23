@@ -68,6 +68,12 @@ jobs:
     steps:
       - validate:
           env: pytest
+  bandit:
+    working_directory: ~/project/api
+    executor: python
+    steps:
+      - validate:
+          env: bandit
   flake8:
     working_directory: ~/project/api
     executor: python
