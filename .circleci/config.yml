@@ -9,11 +9,12 @@ parameters:
     default: "/home/backend/project/backend/.venv/"
 
 executors:
-  python:
+  api:
     docker:
       - image: << pipeline.parameters.backend-image >>
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
+
   python-postgresql:
     docker:
       - image: << pipeline.parameters.backend-image >>
@@ -21,17 +22,22 @@ executors:
         environment:
           POSTGRES_USER: nutrition
 
+  webapp:
+    docker:
+      - image: "node:lts-alpine3.17"
+
+
 commands:
   python-dependencies:
     steps:
       - checkout:
           path: ~/project
       - restore_cache:
-          name: Restore Python Dependencies
+          name: Restore API Dependencies
           keys:
             - python-packages-{{ checksum "poetry.lock" }}-v3
       - run:
-          name: Install Python Dependencies
+          name: Install API Dependencies
           command: poetry install --no-ansi
       - save_cache:
           name: Save Python Dependencies
@@ -45,7 +51,7 @@ commands:
           name: Create GCP credential JSON
           command: echo $GCLOUD_SERVICE_KEY > nutrition-gcp-db-backup-credentials.json
 
-  validate:
+  validate-backend:
     parameters:
       env:
         type: string
@@ -63,8 +69,36 @@ commands:
           paths:
             - .tox/<< parameters.env >>/lib
 
+
+  validate-webapp:
+    parameters:
+      env:
+        type: string
+    steps:
+      - checkout:
+          path: ~/project
+
+      # Webapp dependencies
+      - restore_cache:
+          name: Restore Webapp dependencies
+          keys:
+            - webapp-packages-{{ checksum "yarn.lock" }}-v1
+      - run:
+          name: Install Webapp dependencies
+          command: yarn install
+      - save_cache:
+          name: Save Webapp Dependencies
+          key: webapp-packages-{{ checksum "yarn.lock" }}-v1
+          paths:
+            - node_modules
+
+      # Run chekcers
+      - run:
+          name: << parameters.env >>
+          command: yarn << parameters.env >>
+
 jobs:
-  pytest:
+  backend-pytest:
     working_directory: ~/project/backend
     executor: python-postgresql
     steps:
@@ -72,28 +106,28 @@ jobs:
       - gcp-credentials
       - validate:
           env: pytest
-  bandit:
+  backend-bandit:
     working_directory: ~/project/backend
     executor: python
     steps:
       - python-dependencies
       - validate:
           env: bandit
-  flake8:
+  backend-flake8:
     working_directory: ~/project/backend
     executor: python
     steps:
       - python-dependencies
       - validate:
           env: flake8
-  black:
+  backend-black:
     working_directory: ~/project/backend
     executor: python
     steps:
       - python-dependencies
       - validate:
           env: black
-  mypy:
+  backend-mypy:
     working_directory: ~/project/backend
     executor: python
     steps:
@@ -101,7 +135,7 @@ jobs:
       - gcp-credentials
       - validate:
           env: mypy
-  pylint:
+  backend-pylint:
     working_directory: ~/project/backend
     executor: python
     steps:
@@ -109,7 +143,7 @@ jobs:
       - gcp-credentials
       - validate:
           env: pylint
-  pylint-tests:
+  backend-pylint-tests:
     working_directory: ~/project/backend
     executor: python
     steps:
@@ -117,21 +151,21 @@ jobs:
       - gcp-credentials
       - validate:
           env: pylint-tests
-  pydocstyle:
+  backend-pydocstyle:
     working_directory: ~/project/backend
     executor: python
     steps:
       - python-dependencies
       - validate:
           env: pydocstyle
-  pydocstyle-tests:
+  backend-pydocstyle-tests:
     working_directory: ~/project/backend
     executor: python
     steps:
       - python-dependencies
       - validate:
           env: pydocstyle-tests
-  docker-build:
+  backend-docker-build:
     working_directory: ~/project/backend
     docker:
       - image: docker:24.0.9-git
@@ -145,7 +179,7 @@ jobs:
           name: Docker build
           command: |
             docker build . -f platform/docker/Dockerfile
-  migrations:
+  backend-migrations:
     working_directory: ~/project/backend
     docker:
       - image: << pipeline.parameters.backend-image >>
@@ -168,19 +202,39 @@ jobs:
       - run:
           name: Check all Django model migrations can be applied
           command: ./manage.py migrate
-
+  webapp-build-lint:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: build
+  webapp-test-coverage:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: test:ci
+  webapp-cpd:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: cpd
 
 workflows:
   version: 2
   ValidationWorkflow:
     jobs:
-      - pytest
-      - flake8
-      - black
-      - mypy
-      - pylint
-      - pylint-tests
-      - pydocstyle
-      - pydocstyle-tests
-      - docker-build
-      - migrations
+      - backend-pytest
+      - backend-flake8
+      - backend-black
+      - backend-mypy
+      - backend-pylint
+      - backend-pylint-tests
+      - backend-pydocstyle
+      - backend-pydocstyle-tests
+      - backend-docker-build
+      - backend-migrations
+      - webapp-build-lint
+      - webapp-test-coverage
+      - webapp-cpd
