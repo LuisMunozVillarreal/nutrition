@@ -37,6 +37,7 @@ django-environ = "0.10.0"
 django-extensions = "3.2.3"
 django-nested-inline = "0.4.6"
 django = "4.2.4"
+graphene-django = "3.1.5"
 pint = "0.22"
 
 [tool.poetry.group.dev.dependencies]

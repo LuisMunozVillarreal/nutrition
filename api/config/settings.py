@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "graphene_django",
     "nested_inline",
 ]
 
@@ -156,3 +157,9 @@ PROTEIN_KCAL_GRAM = 4
 FAT_KCAL_GRAM = 9
 CARB_KCAL_GRAM = 4
 KCAL_KG = 7700
+
+
+# Graphene
+GRAPHENE = {
+    "SCHEMA": "config.schema.SCHEMA"
+}
