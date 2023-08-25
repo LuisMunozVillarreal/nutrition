@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "graphene_django",
     "nested_inline",
     "taggit",
 ]
@@ -233,3 +234,7 @@ LOGGING = {
         "propagate": True,
     },
 }
+
+
+# Graphene
+GRAPHENE = {"SCHEMA": "config.schema.SCHEMA"}
