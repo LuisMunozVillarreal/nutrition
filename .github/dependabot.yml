@@ -1,6 +1,10 @@
 version: 2
 updates:
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "api/"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "node"
+    directory: "webapp/"
     schedule:
       interval: "daily"

@@ -1,14 +1,17 @@
 version: 2.1
 
 executors:
-  python:
+  api:
     docker:
       - image: "python:3.11.3-slim-bullseye"
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
+  webapp:
+    docker:
+      - image: "node:lts-alpine3.17"
 
 commands:
-  validate:
+  validate-api:
     parameters:
       env:
         type: string
@@ -33,17 +36,17 @@ commands:
           paths:
             - /root/.local/
 
-      # Python dependencies
+      # API dependencies
       - restore_cache:
-          name: Restore Python Dependencies
+          name: Restore API Dependencies
           keys:
-            - python-packages-{{ checksum "poetry.lock" }}-v1
+            - api-packages-{{ checksum "poetry.lock" }}-v1
       - run:
-          name: Install Python Dependencies
+          name: Install API Dependencies
           command: poetry install --no-ansi
       - save_cache:
-          name: Save Python Dependencies
-          key: python-packages-{{ checksum "poetry.lock" }}-v1
+          name: Save API Dependencies
+          key: api-packages-{{ checksum "poetry.lock" }}-v1
           paths:
             - /root/.cache/pypoetry/
 
@@ -61,71 +64,120 @@ commands:
           paths:
             - .tox/<<parameters.env>>/lib
 
-jobs:
-  pytest:
-    working_directory: ~/project/api
-    executor: python
+  validate-webapp:
+    parameters:
+      env:
+        type: string
     steps:
-      - validate:
+      - checkout:
+          path: ~/project
+
+      # Webapp dependencies
+      - restore_cache:
+          name: Restore Webapp dependencies
+          keys:
+            - webapp-packages-{{ checksum "yarn.lock" }}-v1
+      - run:
+          name: Install Webapp dependencies
+          command: yarn install
+      - save_cache:
+          name: Save Webapp Dependencies
+          key: webapp-packages-{{ checksum "yarn.lock" }}-v1
+          paths:
+            - node_modules
+
+      # Run chekcers
+      - run:
+          name: <<parameters.env>>
+          command: yarn <<parameters.env>>
+
+jobs:
+  api-pytest:
+    working_directory: ~/project/api
+    executor: api
+    steps:
+      - validate-api:
           env: pytest
-  bandit:
+  api-bandit:
     working_directory: ~/project/api
     executor: python
     steps:
       - validate:
           env: bandit
-  flake8:
+  api-flake8:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: flake8
-  black:
+  api-black:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: black
-  mypy:
+  api-mypy:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: mypy
-  pylint:
+  api-pylint:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: pylint
-  pylint-tests:
+  api-pylint-tests:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: pylint-tests
-  pydocstyle:
+  api-pydocstyle:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: pydocstyle
-  pydocstyle-tests:
+  api-pydocstyle-tests:
     working_directory: ~/project/api
-    executor: python
+    executor: api
     steps:
-      - validate:
+      - validate-api:
           env: pydocstyle-tests
+  webapp-build-lint:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: build
+  webapp-test-coverage:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: test:ci
+  webapp-cpd:
+    working_directory: ~/project/webapp
+    executor: webapp
+    steps:
+      - validate-webapp:
+          env: cpd
 
 workflows:
   version: 2
   ValidationWorkflow:
     jobs:
-      - pytest
-      - flake8
-      - black
-      - mypy
-      - pylint
-      - pylint-tests
-      - pydocstyle
-      - pydocstyle-tests
+      - api-pytest
+      - api-bandit
+      - api-flake8
+      - api-black
+      - api-mypy
+      - api-pylint
+      - api-pylint-tests
+      - api-pydocstyle
+      - api-pydocstyle-tests
+      - webapp-build-lint
+      - webapp-test-coverage
+      - webapp-cpd
