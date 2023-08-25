@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django_extensions",
+    "graphene_django",
     "nested_inline",
 ]
 
@@ -205,3 +206,9 @@ GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
 
 # Gemini
 GEMINI_API_KEY = ENV("GEMINI_API_KEY")
+
+
+# Graphene
+GRAPHENE = {
+    "SCHEMA": "config.schema.SCHEMA"
+}
