@@ -1,0 +1,27 @@
+mutation CreateFoodProduct(
+  $barcode: String!
+  $brand: String!
+  $name: String!
+  $weight: Decimal!
+  $numServings: Decimal!
+  $energy: Decimal!
+  $carbs: Decimal!
+  $fat: Decimal!
+  $protein: Decimal!
+) {
+  createFoodProduct(
+    barcode: $barcode
+    brand: $brand
+    name: $name
+    weight: $weight
+    numServings: $numServings
+    energy: $energy
+    carbsG: $carbs
+    fatG: $fat
+    proteinG: $protein
+  ) {
+    foodProduct {
+      id
+    }
+  }
+}
