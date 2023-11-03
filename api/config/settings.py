@@ -28,7 +28,7 @@ SECRET_KEY = ENV("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS: list[str] = ["192.168.0.2", "localhost"]
+ALLOWED_HOSTS: list[str] = ["192.168.0.9", "192.168.0.2", "localhost"]
 
 
 # Application definition
@@ -163,3 +163,20 @@ KCAL_KG = 7700
 GRAPHENE = {
     "SCHEMA": "config.schema.SCHEMA"
 }
+
+# LOGGING = {
+#     'version': 1,
+#     'handlers': {
+#         'console': {
+#             'level': 'DEBUG',
+#             'class': 'logging.StreamHandler',
+#         },
+#     },
+#     'loggers': {
+#         'django': {
+#             'handlers': ['console'],
+#             'level': 'DEBUG',
+#             'propagate': True,
+#         },
+#     }
+# }

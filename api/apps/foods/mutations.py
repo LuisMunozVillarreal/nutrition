@@ -22,8 +22,14 @@ class FoodProductMutation(DjangoModelFormMutation):
         form_class = FoodProductForm
 
     def resolve_food_product(self, info, **kwargs):
-        return self.foodProduct
+        return self.food_product
+
+    @classmethod
+    def mutate(cls, self, info, input):
+        food_product = FoodProduct(**input)
+        food_product.save()
+        return FoodProductMutation(food_product=food_product)
 
 
 class FoodsMutations(graphene.ObjectType):
-    food_product = FoodProductMutation.Field()
+    create_food_product = FoodProductMutation.Field()
