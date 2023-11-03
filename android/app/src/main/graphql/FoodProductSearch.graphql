@@ -1,0 +1,6 @@
+query FoodProductSearch($barcode: String!) {
+  foodProductSearch(barcode: $barcode) {
+    name
+    barcode
+  }
+}
