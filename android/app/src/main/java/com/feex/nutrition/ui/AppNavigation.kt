@@ -1,20 +1,22 @@
-package com.feex.nutrition
+package com.feex.nutrition.ui
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.feex.nutrition.foodproductfinder.BarcodeScanScreen
-import com.feex.nutrition.ui.HomeScreen
+import com.feex.nutrition.ui.screens.HomeScreen
+import com.feex.nutrition.ui.screens.barcodescanner.BarcodeScannerScreen
+import com.feex.nutrition.ui.screens.foodproduct.FoodProductScreen
 
-enum class NutritionScreen() {
+enum class NutritionScreen {
     Home,
     BarcodeScan,
+    FoodProduct,
 }
 
 @Composable
-fun NutritionApp(
+fun AppNavigation(
     navController: NavHostController = rememberNavController(),
 ) {
     NavHost(
@@ -29,7 +31,14 @@ fun NutritionApp(
             )
         }
         composable(route = NutritionScreen.BarcodeScan.name) {
-            BarcodeScanScreen()
+            BarcodeScannerScreen(
+                onBarcodeFound = {
+                    navController.navigate(NutritionScreen.FoodProduct.name)
+                }
+            )
+        }
+        composable(route = NutritionScreen.FoodProduct.name) {
+            FoodProductScreen()
         }
     }
 }

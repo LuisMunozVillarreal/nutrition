@@ -1,0 +1,9 @@
+query GetFoodProductByBarcode($barcode: String!) {
+  getFoodProductByBarcode(barcode: $barcode) {
+    brand
+    carbsG
+    energy
+    fatG
+    name
+  }
+}

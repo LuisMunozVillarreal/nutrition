@@ -1,19 +1,16 @@
 from apps.foods.models.product import FoodProduct
 import graphene
-from graphene import relay
 
 
-from .types import FoodProductNode
+from .types import FoodProductType
 
 
 class FoodsQueries(graphene.ObjectType):
-    food_product = graphene.List(FoodProductNode)
-    food_product_search = graphene.List(
-        FoodProductNode, barcode=graphene.String(),
+    get_food_product_by_barcode = graphene.List(
+        FoodProductType,
+        barcode=graphene.String(),
     )
 
-    def resolve_food_product(self, info):
-        return FoodProduct.objects.all()
-
-    def resolve_food_product_search(self, info, barcode):
+    def resolve_get_food_product_by_barcode(self, info, barcode):
+        print(barcode)
         return FoodProduct.objects.filter(barcode=barcode)

@@ -1,4 +1,4 @@
-package com.feex.nutrition.foodproductfinder
+package com.feex.nutrition.ui.screens.barcodescanner
 
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
