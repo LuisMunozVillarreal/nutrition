@@ -1,5 +1,6 @@
 package com.feex.nutrition.ui.screens.barcodescanner
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -24,9 +25,15 @@ class BarcodeScannerViewModel @Inject constructor(
         private set
 
     fun found(barcodes: MutableList<Barcode>) {
-        viewModelScope.launch {
+        Log.d(TAG, "found, state: ${barcodeScannerState.javaClass.simpleName}")
+        if (barcodeScannerState == BarcodeScannerState.Scanning) {
+            Log.d(TAG, "found, changing state to Found")
             barcodeScannerState = BarcodeScannerState.Found
+            barcodeRepository.addDetectedBarcodes(barcodes)
         }
-        barcodeRepository.addDetectedBarcodes(barcodes)
+    }
+
+    companion object {
+        private const val TAG: String = "NUT BarcodeScannerViewModel"
     }
 }

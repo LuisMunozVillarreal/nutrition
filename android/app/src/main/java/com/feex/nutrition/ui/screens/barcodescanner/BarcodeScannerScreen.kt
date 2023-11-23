@@ -1,6 +1,7 @@
 package com.feex.nutrition.ui.screens.barcodescanner
 
 import android.Manifest
+import android.util.Log
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,7 +13,7 @@ import com.google.accompanist.permissions.rememberPermissionState
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun BarcodeScannerScreen(
-    barcodeScannerViewModel: BarcodeScannerViewModel = hiltViewModel(),
+    barcodeScannerViewModel: BarcodeScannerViewModel,
     onBarcodeFound: () -> Unit,
 ) {
     val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
@@ -29,6 +30,7 @@ fun BarcodeScannerScreen(
                     "function without access to the camera")
         },
         content = {
+            Log.d("NUT BarcodeScannerScreen", "content")
             BarcodeScannerLayout(barcodeScannerViewModel, onBarcodeFound)
         },
     )
@@ -41,6 +43,9 @@ fun BarcodeScannerLayout(
 ) {
     when (barcodeScannerViewModel.barcodeScannerState) {
         is BarcodeScannerState.Scanning -> CameraPreviewView(barcodeScannerViewModel)
-        is BarcodeScannerState.Found -> onBarcodeFound()
+        is BarcodeScannerState.Found -> {
+            Log.d("NUT BarcodeScannerLayout", "onBarcodeFound")
+            onBarcodeFound()
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.feex.nutrition.ui.screens.barcodescanner
 
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -19,21 +19,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.google.mlkit.vision.barcode.common.Barcode
 import java.util.concurrent.Executors
 
 @Composable
 fun CameraPreviewView(
     barcodeScannerViewModel: BarcodeScannerViewModel,
 ) {
+    val TAG: String = "NUT OnBarCodesDetected"
     val context = LocalContext.current
     //val detectedBarcode = remember { mutableStateListOf<Barcode>() }
     val imageWidth = remember { mutableIntStateOf(0) }
     val imageHeight = remember { mutableIntStateOf(0) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val analyzer = BarcodeAnalyser { barcodes, width, height ->
-        // TODO: the process needs to stop as soon as a barcode is found.
-        //       This ends up making a ton of requests
+        Log.d(TAG, "barcodes detected: $barcodes")
         imageWidth.intValue = width
         imageHeight.intValue = height
         if (barcodes.size > 0) {

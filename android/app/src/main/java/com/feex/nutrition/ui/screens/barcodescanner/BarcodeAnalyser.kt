@@ -1,5 +1,6 @@
 package com.feex.nutrition.ui.screens.barcodescanner
 
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
@@ -20,14 +21,22 @@ class BarcodeAnalyser(
             val imageValue = InputImage.fromMediaImage(it, imageProxy.imageInfo.rotationDegrees)
             scanner.process(imageValue)
                 .addOnSuccessListener { barcodes ->
+                    Log.d(TAG, "addOnSuccessListener: $barcodes")
                     onBarcodeDetected(barcodes, imageValue.height, imageValue.width)
                 }
                 .addOnFailureListener { failure ->
+                    Log.d(TAG, "addOnFailureListener")
                     failure.printStackTrace()
                 }
                 .addOnCompleteListener {
+                    Log.d(TAG, "addOnCompleteListener")
                     imageProxy.close()
+                    //scanner.close()
                 }
         }
+    }
+
+    companion object {
+        private const val TAG: String = "NUT BarcodeAnalyser"
     }
 }
