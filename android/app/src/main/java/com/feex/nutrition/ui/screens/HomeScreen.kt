@@ -1,6 +1,7 @@
 package com.feex.nutrition.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -11,20 +12,14 @@ import androidx.compose.ui.tooling.preview.Preview
 @Composable
 fun HomeScreen(
     onScanBarcodeButtonClicked: () -> Unit,
+    onCreateProductButtonClicked: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Row {
         Button(onClick = onScanBarcodeButtonClicked) {
             Text("Scan Barcode")
         }
+        Button(onClick = onCreateProductButtonClicked) {
+            Text("Add product manually")
+        }
     }
-}
-
-@Preview
-@Composable
-fun HomeScreenPreview() {
-    HomeScreen(
-        onScanBarcodeButtonClicked = {},
-    )
 }

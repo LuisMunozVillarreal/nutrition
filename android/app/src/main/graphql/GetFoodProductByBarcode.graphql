@@ -1,9 +1,27 @@
 query GetFoodProductByBarcode($barcode: String!) {
   getFoodProductByBarcode(barcode: $barcode) {
     brand
-    carbsG
-    energy
-    fatG
     name
+    url
+    barcode
+    energy
+    weight
+    weightUnit
+    numServings
+    proteinG
+    fatG
+    saturatedFatG
+    polyunsaturatedFatG
+    monosaturatedFatG
+    transFatG
+    carbsG
+    fiberCarbsG
+    sugarCarbsG
+    sodiumMg
+    potassiumMg
+    vitaminAPerc
+    vitaminCPerc
+    calciumPerc
+    ironPerc
   }
 }

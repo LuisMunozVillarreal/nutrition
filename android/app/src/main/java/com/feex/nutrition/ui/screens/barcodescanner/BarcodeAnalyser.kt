@@ -31,7 +31,6 @@ class BarcodeAnalyser(
                 .addOnCompleteListener {
                     Log.d(TAG, "addOnCompleteListener")
                     imageProxy.close()
-                    //scanner.close()
                 }
         }
     }

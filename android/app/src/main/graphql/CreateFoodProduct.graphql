@@ -30,6 +30,6 @@ mutation CreateFoodProduct(
       calciumPerc
       ironPerc
     }
-    state
+    status
   }
 }

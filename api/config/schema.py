@@ -2,10 +2,10 @@ import graphene
 
 
 from apps.foods.mutations import FoodsMutations
-from apps.foods.queries import FoodsQueries
+from apps.foods.queries import FoodProductQuery
 
 
-class Query(FoodsQueries, graphene.ObjectType):
+class Query(FoodProductQuery, graphene.ObjectType):
     pass
 
 

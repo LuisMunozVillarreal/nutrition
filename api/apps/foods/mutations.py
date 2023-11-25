@@ -7,7 +7,7 @@ from .types import FoodProductType
 OPEN_FOOD_FACTS_API = openfoodfacts.API(version="v2")
 
 
-class FoodProductState(graphene.Enum):
+class FoodProductStatus(graphene.Enum):
     ALREADY_EXISTS = 1
     NOT_FOUND = 2
     CREATED = 3
@@ -40,13 +40,13 @@ class FoodProductMutation(graphene.Mutation):
         iron_perc = graphene.Int()
 
     food_product = graphene.Field(FoodProductType)
-    state = graphene.Field(FoodProductState)
+    status = graphene.Field(FoodProductStatus)
 
     def resolve_food_product(self, info, **kwargs):
         return self.food_product
 
-    def resolve_state(self, info, **kwargs):
-        return self.state
+    def resolve_status(self, info, **kwargs):
+        return self.status
 
     @classmethod
     def mutate(cls, root, info, **kwargs):
@@ -71,7 +71,7 @@ class FoodProductMutation(graphene.Mutation):
         if qs.exists():
             return FoodProductMutation(
                 food_product=qs.first(),
-                state=FoodProductState.ALREADY_EXISTS,
+                status=FoodProductStatus.ALREADY_EXISTS,
             )
         elif len(kwargs) == 1:
             result = OPEN_FOOD_FACTS_API.product.get(barcode)
@@ -103,18 +103,18 @@ class FoodProductMutation(graphene.Mutation):
                 food_product.save()
                 return FoodProductMutation(
                     food_product=food_product,
-                    state=FoodProductState.CREATED,
+                    status=FoodProductState.CREATED,
                 )
             else:
                 return FoodProductMutation(
-                    state=FoodProductState.NOT_FOUND,
+                    status=FoodProductState.NOT_FOUND,
                 )
         else:
             food_product = FoodProduct(**kwargs)
             food_product.save()
             return FoodProductMutation(
                 food_product=food_product,
-                    state=FoodProductState.CREATED,
+                    status=FoodProductState.CREATED,
             )
 
 

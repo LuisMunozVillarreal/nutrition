@@ -128,13 +128,9 @@
               "isDeprecated": false,
               "name": "getFoodProductByBarcode",
               "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "FoodProductType",
-                  "ofType": null
-                }
+                "kind": "OBJECT",
+                "name": "FoodProductType",
+                "ofType": null
               }
             }
           ],
@@ -535,9 +531,13 @@
               "isDeprecated": false,
               "name": "barcode",
               "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
               }
             },
             {
@@ -1006,10 +1006,10 @@
               "deprecationReason": null,
               "description": null,
               "isDeprecated": false,
-              "name": "state",
+              "name": "status",
               "type": {
                 "kind": "ENUM",
-                "name": "FoodProductState",
+                "name": "FoodProductStatus",
                 "ofType": null
               }
             }
@@ -1046,7 +1046,7 @@
           "inputFields": null,
           "interfaces": null,
           "kind": "ENUM",
-          "name": "FoodProductState",
+          "name": "FoodProductStatus",
           "possibleTypes": null
         },
         {

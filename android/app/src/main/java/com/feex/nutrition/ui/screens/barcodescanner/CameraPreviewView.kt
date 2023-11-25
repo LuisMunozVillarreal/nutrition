@@ -19,11 +19,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.barcode.common.Barcode
 import java.util.concurrent.Executors
 
 @Composable
 fun CameraPreviewView(
-    barcodeScannerViewModel: BarcodeScannerViewModel,
+    onBarcodeFound: (MutableList<Barcode>) -> Unit,
 ) {
     val TAG: String = "NUT OnBarCodesDetected"
     val context = LocalContext.current
@@ -36,7 +37,7 @@ fun CameraPreviewView(
         imageWidth.intValue = width
         imageHeight.intValue = height
         if (barcodes.size > 0) {
-            barcodeScannerViewModel.found(barcodes)
+            onBarcodeFound(barcodes)
         }
     }
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
