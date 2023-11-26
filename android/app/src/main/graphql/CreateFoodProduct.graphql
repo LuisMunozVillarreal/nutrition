@@ -1,35 +1,27 @@
 mutation CreateFoodProduct(
   $barcode: String!
+  $brand: String!
+  $name: String!
+  $weight: Decimal!
+  $numServings: Decimal!
+  $energy: Decimal!
+  $carbs: Decimal!
+  $fat: Decimal!
+  $protein: Decimal!
 ) {
   createFoodProduct(
-    barcode: $barcode,
+    barcode: $barcode
+    brand: $brand
+    name: $name
+    weight: $weight
+    numServings: $numServings
+    energy: $energy
+    carbsG: $carbs
+    fatG: $fat
+    proteinG: $protein
   ) {
     foodProduct {
       id
-      brand
-      name
-      url
-      barcode
-      energy
-      weight
-      weightUnit
-      numServings
-      proteinG
-      fatG
-      saturatedFatG
-      polyunsaturatedFatG
-      monosaturatedFatG
-      transFatG
-      carbsG
-      fiberCarbsG
-      sugarCarbsG
-      sodiumMg
-      potassiumMg
-      vitaminAPerc
-      vitaminCPerc
-      calciumPerc
-      ironPerc
     }
-    status
   }
 }

@@ -4,8 +4,6 @@ from requests.exceptions import HTTPError
 import requests
 import pytest
 
-from graphene_django.utils.testing import graphql_query
-
 QUERY = """
     {{
       getFoodProductByBarcode(
@@ -40,13 +38,6 @@ QUERY = """
 """
 
 
-@pytest.fixture
-def client_query(client):
-    def func(*args, **kwargs):
-        return graphql_query(*args, **kwargs, client=client)
-    return func
-
-
 def test_barcode_exists_in_db(client_query, db, food_product):
     """Barcode sent exists in DB."""
     # When
@@ -63,7 +54,7 @@ def test_barcode_exists_in_db(client_query, db, food_product):
         "url": "http://foodproduct.link",
         "barcode": "012308980493",
         "energy": "106.0",
-        "weight": 320,
+        "weight": "320.0",
         "weightUnit": "G",
         "numServings": "2.0",
         "proteinG": "25.0",
@@ -125,7 +116,7 @@ def test_barcode_exists_in_openfoodfacts(client_query, db, openfoodfacts):
         "barcode": "00000000",
         "url": "",
         "energy": "106",
-        "weight": 320,
+        "weight": "320",
         "weightUnit": "G",
         "numServings": "2",
         "proteinG": "25",

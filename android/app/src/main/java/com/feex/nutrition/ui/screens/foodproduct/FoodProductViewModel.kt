@@ -9,7 +9,6 @@ import androidx.lifecycle.viewModelScope
 import com.apollographql.apollo3.exception.ApolloException
 import com.feex.nutrition.GetFoodProductByBarcodeQuery
 import com.feex.nutrition.data.FoodProductRepository
-import com.feex.nutrition.type.FoodProductStatus
 import com.google.mlkit.vision.barcode.common.Barcode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
@@ -55,7 +54,7 @@ class FoodProductViewModel @Inject constructor(
         return foodProductRepository.getBarcode()
     }
 
-    fun getFoodProduct(barcode : String) {
+    fun getFoodProduct(barcode: String) {
         viewModelScope.launch {
             Log.d(TAG, "getOrCreateFoodProduct:  ${foodProductState.javaClass.simpleName}")
             foodProductState = FoodProductState.Fetching
@@ -83,6 +82,36 @@ class FoodProductViewModel @Inject constructor(
     fun addFoodProductManually() {
         viewModelScope.launch {
             foodProductState = FoodProductState.AddProductManually
+        }
+    }
+
+    fun createFoodProduct(
+        barcode: String,
+        brand: String,
+        name: String,
+        weight: String,
+        numServings: String,
+        energy: String,
+        carbs: String,
+        fat: String,
+        protein: String,
+    ) {
+        viewModelScope.launch {
+            try {
+                val response = foodProductRepository.createFoodProduct(
+                    barcode, brand, name, weight, numServings, energy, carbs, fat, protein
+                )
+                if (response.hasErrors()) {
+                    Log.d(TAG, response.errors.toString())
+                    foodProductState = FoodProductState.Error(response.errors)
+                }
+                else {
+                    foodProductState = FoodProductState.Created
+                }
+            } catch (e: ApolloException) {
+                Log.d(TAG, e.toString())
+                foodProductState = FoodProductState.Exception(e)
+            }
         }
     }
 

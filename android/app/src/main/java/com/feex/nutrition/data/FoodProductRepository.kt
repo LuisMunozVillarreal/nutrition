@@ -33,8 +33,28 @@ class FoodProductRepository @Inject constructor(){
         return apolloClient.query(GetFoodProductByBarcodeQuery(barcode = barcode)).execute()
     }
 
-    suspend fun createFoodProduct(barcode: String): ApolloResponse<CreateFoodProductMutation.Data> {
-        return apolloClient.mutation(CreateFoodProductMutation(barcode = barcode)).execute()
+    suspend fun createFoodProduct(
+        barcode: String,
+        brand: String,
+        name: String,
+        weight: String,
+        numServings: String,
+        energy: String,
+        carbs: String,
+        fat: String,
+        protein: String,
+    ): ApolloResponse<CreateFoodProductMutation.Data> {
+        return apolloClient.mutation(CreateFoodProductMutation(
+            barcode = barcode,
+            brand = brand,
+            name = name,
+            weight = weight,
+            numServings = numServings,
+            energy = energy,
+            carbs = carbs,
+            fat = fat,
+            protein = protein,
+        )).execute()
     }
 
     companion object {

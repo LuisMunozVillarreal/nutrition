@@ -487,7 +487,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "SCALAR",
-                  "name": "Int",
+                  "name": "Decimal",
                   "ofType": null
                 }
               }
@@ -953,7 +953,7 @@
                   "name": "weight",
                   "type": {
                     "kind": "SCALAR",
-                    "name": "Int",
+                    "name": "Decimal",
                     "ofType": null
                   }
                 },
@@ -1000,53 +1000,12 @@
                 "name": "FoodProductType",
                 "ofType": null
               }
-            },
-            {
-              "args": [],
-              "deprecationReason": null,
-              "description": null,
-              "isDeprecated": false,
-              "name": "status",
-              "type": {
-                "kind": "ENUM",
-                "name": "FoodProductStatus",
-                "ofType": null
-              }
             }
           ],
           "inputFields": null,
           "interfaces": [],
           "kind": "OBJECT",
           "name": "FoodProductMutation",
-          "possibleTypes": null
-        },
-        {
-          "description": null,
-          "enumValues": [
-            {
-              "deprecationReason": null,
-              "description": null,
-              "isDeprecated": false,
-              "name": "ALREADY_EXISTS"
-            },
-            {
-              "deprecationReason": null,
-              "description": null,
-              "isDeprecated": false,
-              "name": "NOT_FOUND"
-            },
-            {
-              "deprecationReason": null,
-              "description": null,
-              "isDeprecated": false,
-              "name": "CREATED"
-            }
-          ],
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "kind": "ENUM",
-          "name": "FoodProductStatus",
           "possibleTypes": null
         },
         {

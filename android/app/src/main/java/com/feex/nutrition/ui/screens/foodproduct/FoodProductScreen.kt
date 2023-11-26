@@ -19,6 +19,24 @@ fun FoodProductScreen(
     val scanAnotherProduct = {
         foodProductViewModel.reset()
     }
+    val createFoodProduct = {
+            barcode: String,
+            brand: String,
+            name: String,
+            weight: String,
+            numServings: String,
+            energy: String,
+            carbs: String,
+            fat: String,
+            protein: String,
+            ->
+        foodProductViewModel.createFoodProduct(
+            barcode, brand, name, weight, numServings, energy, carbs, fat, protein
+        )
+    }
+    val addToPantry = {
+        foodProductViewModel.addFoodProductToPantry()
+    }
 
     Log.d("NUT FoodProductScreen", foodProductState.javaClass.simpleName)
 
@@ -38,14 +56,17 @@ fun FoodProductScreen(
         is FoodProductState.Fetched -> FoodProductFetchedScreen(
             foodProductState,
             foodProductViewModel.foodProduct,
-            addToPantry = {
-                foodProductViewModel.addFoodProductToPantry()
-            },
+            addToPantry = addToPantry,
             scanAnotherProduct,
         )
-        is FoodProductState.NotFound -> CreateFoodProductScreen(getBarcode())
-        is FoodProductState.AddProductManually -> CreateFoodProductScreen()
-        is FoodProductState.Created -> CreatedScreen()
+        is FoodProductState.NotFound -> CreateFoodProductScreen(
+            barcode = getBarcode(),
+            createFoodProduct = createFoodProduct,
+        )
+        is FoodProductState.AddProductManually -> CreateFoodProductScreen(
+            createFoodProduct = createFoodProduct,
+        )
+        is FoodProductState.Created -> CreatedScreen(addToPantry, scanAnotherProduct)
         is FoodProductState.AddedToPantry -> AddedToPantry(scanAnotherProduct)
         is FoodProductState.Error -> ErrorScreen(
             foodProductState,
@@ -99,8 +120,19 @@ fun AddedToPantry(
 }
 
 @Composable
-fun CreatedScreen() {
+fun CreatedScreen(
+    addToPantry: () -> Unit,
+    scanAnotherProduct: () -> Unit,
+) {
     Text("Created")
+    Row {
+        Button(onClick={ addToPantry() }) {
+            Text("Add to your pantry")
+        }
+        Button(onClick={ scanAnotherProduct() }) {
+            Text("Scan another product")
+        }
+    }
 }
 
 @Composable
