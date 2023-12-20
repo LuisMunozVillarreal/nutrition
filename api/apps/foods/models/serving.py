@@ -51,19 +51,19 @@ class Serving(Nutrients):
         return res
 
     @property
-    def weight(self) -> int:
+    def weight(self) -> Decimal:
         """Get the weight of the serving.
 
         Returns:
-            int: the weight of the serving.
+            Decimal: the weight of the serving.
         """
         if self.unit == UNIT_CONTAINER:
             return self.food.weight
 
         if self.unit == UNIT_SERVING:
-            return int(self.food.weight // self.food.num_servings)
+            return Decimal(self.food.weight // self.food.num_servings)
 
-        return self.size
+        return Decimal(self.size)
 
     @property
     def weight_unit(self) -> str:

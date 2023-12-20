@@ -1,6 +1,7 @@
 """Recipe models module."""
 
 
+from decimal import Decimal
 from typing import Any
 
 from django.db import models
@@ -72,11 +73,11 @@ class RecipeIngredient(Nutrients):
         )
 
     @property
-    def weight(self) -> int:
+    def weight(self) -> Decimal:
         """Get the weight of the serving.
 
         Returns:
-            int: the weight of the serving.
+            Decimal: the weight of the serving.
         """
         return self.food.weight
 

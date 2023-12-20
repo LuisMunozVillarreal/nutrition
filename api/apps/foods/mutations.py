@@ -1,20 +1,14 @@
-import graphene
+"""food app mutations module for graphene."""
 
-from django import forms
+
+import graphene
 
 from .models.product import FoodProduct
 from .types import FoodProductType
 
 
-# class FoodProductForm(forms.ModelForm):
-#     class Meta:
-#         model = FoodProduct
-#         fields = "__all__"
-
-
 class FoodProductMutation(graphene.Mutation):
-    # class Meta:
-    #     form_class = FoodProductForm
+    """FoodProduct mutation."""
 
     class Arguments:
         barcode = graphene.String(required=True)
@@ -43,15 +37,36 @@ class FoodProductMutation(graphene.Mutation):
 
     food_product = graphene.Field(FoodProductType)
 
-    def resolve_food_product(self, info, **kwargs):
+    def resolve_food_product(self, info, **kwargs) -> FoodProduct:
+        """Resolve food_product.
+
+        Args:
+            info ():
+            kwargs (Dict[]): keyword arguments.
+
+        Returns:
+            FoodProduct: created instance.
+        """
         return self.food_product
 
     @classmethod
     def mutate(cls, root, info, **kwargs):
+        """Mutate.
+
+        Args:
+            root ():
+            info ():
+            kwargs (Dict[]): keyword arguments.
+
+        Returns:
+            FoodProductMutation:
+        """
         food_product = FoodProduct(**kwargs)
         food_product.save()
         return FoodProductMutation(food_product=food_product)
 
 
 class FoodsMutations(graphene.ObjectType):
+    """Foods app mutations."""
+
     create_food_product = FoodProductMutation.Field()
