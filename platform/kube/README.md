@@ -20,6 +20,22 @@ Make sure you have `helm` 3 installed.
 
     kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v2.10/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml
 
+#### Namespaces
+
+    kubectl create namespace nutrition-staging
+
+    kubectl create namespace nutrition-production
+
+#### Secrets
+
+##### Postgresql
+
+    kubectl create secret generic nutrition-postgresql --namespace nutrition-<environemnt> --from-literal=postgresql-password=<my-postgresql-password-here>
+
+##### Django Secret Key
+
+    kubectl create secret generic nutrition-django-secret-key --namespace nutrition-<environment> --from-literal=secret-key=<my-django-secret-key-here>
+
 ### Platform
 
 The following instructions will install all releases.

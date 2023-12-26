@@ -28,8 +28,8 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.11"
 django-admin-sortable2 = "^2.1.10"
+django-allow-cidr = "^0.7.1"
 django-compressor = "^4.4"
 django-cors-headers = "^4.3.1"
 django-dotenv = "^1.4.2"
@@ -37,7 +37,10 @@ django-environ = "^0.11.2"
 django-extensions = "^3.2.3"
 django-nested-inline = "^0.4.6"
 django = "^5.0"
+gunicorn = "^21.2.0"
 pint = "^0.23"
+python = "^3.11"
+supervisor = "^4.2.5"
 
 [tool.poetry.group.dev.dependencies]
 bandit = {extras = ["toml"], version = "^1.7.6"}
@@ -59,6 +62,9 @@ pytest-mock = "^3.12.0"
 pytest-xdist = "^3.5.0"
 pytest = "^7.4.3"
 tox = "^4.11.4"
+
+[tool.poetry.scripts]
+nutrition = "manage:main"
 
 [build-system]
 requires = ["poetry-core"]
