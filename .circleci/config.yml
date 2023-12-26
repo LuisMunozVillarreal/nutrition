@@ -63,55 +63,55 @@ commands:
 
 jobs:
   pytest:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: pytest
   bandit:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: bandit
   flake8:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: flake8
   black:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: black
   mypy:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: mypy
   pylint:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: pylint
   pylint-tests:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: pylint-tests
   pydocstyle:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
           env: pydocstyle
   pydocstyle-tests:
-    working_directory: ~/project/api
+    working_directory: ~/project/backend
     executor: python
     steps:
       - validate:
