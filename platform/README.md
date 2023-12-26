@@ -19,7 +19,7 @@ Then edit `/home/swarf/.kube/config` and change the IP by `feex.ddns.net`.
 
 # Deploy platform
 
-Check platform/README
+Check [this instructions](kube/README).
 
 # Uninstall k3s
 

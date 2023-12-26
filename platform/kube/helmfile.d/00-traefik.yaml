@@ -15,7 +15,7 @@ releases:
           - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
           - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
           - "--accesslog=true"
-          - "--log.level=INFO"
+          - "--log.level=DEBUG"
 
         providers:
           file:
@@ -33,6 +33,11 @@ releases:
                     loadBalancer:
                       servers:
                         - url: http://192.168.100.197:8123
+
+          kubernetesIngress:
+            endpoint: "http://localhost:8001"
+            publishedService:
+              enabled: true
 
         ports:
           web:
