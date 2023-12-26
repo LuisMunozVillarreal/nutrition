@@ -1,0 +1,8 @@
+---
+- name: Config nginx
+  template: src=nginx.conf.j2
+            dest=/etc/nginx/nginx.conf
+
+- name: Config project on nginx
+  template: src=project_nginx.conf.j2
+            dest=/etc/nginx/conf.d/{{ project_name }}.conf
