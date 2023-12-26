@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 
 from pathlib import Path
+from warnings import filterwarnings
 
 import environ
 
@@ -156,3 +157,11 @@ PROTEIN_KCAL_GRAM = 4
 FAT_KCAL_GRAM = 9
 CARB_KCAL_GRAM = 4
 KCAL_KG = 7700
+
+
+# https://adamj.eu/tech/2023/12/07/django-fix-urlfield-assume-scheme-warnings/
+filterwarnings(
+    "ignore",
+    "The FORMS_URLFIELD_ASSUME_HTTPS transitional setting is deprecated.",
+)
+FORMS_URLFIELD_ASSUME_HTTPS = True

@@ -12,6 +12,8 @@ from ..models import Intake
 class IntakeAdmin(admin.ModelAdmin):
     """Intake admin class."""
 
+    # pylint: disable=duplicate-code
+
     ordering = [
         "meal_order",
     ]

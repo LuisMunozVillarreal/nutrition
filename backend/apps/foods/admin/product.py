@@ -13,6 +13,8 @@ from .serving import ServingInline
 class FoodProductAdmin(admin.ModelAdmin):
     """FoodProductAdmin class."""
 
+    # pylint: disable=duplicate-code
+
     inlines = [
         ServingInline,
     ]
