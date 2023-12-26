@@ -25,6 +25,7 @@ def add_recipe_serving(
         created (bool): whether is created or not.
         kwargs (Any): keyword arguments.
     """
+    # pylint: disable=duplicate-code
     if not created:
         return
 
