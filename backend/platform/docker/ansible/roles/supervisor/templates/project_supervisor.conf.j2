@@ -1,0 +1,6 @@
+[program:django]
+command=gunicorn config.wsgi -c /etc/gunicorn.conf.py
+{% include "cmd_vars.j2" %}
+
+[group:{{ project_name }}]
+programs=django

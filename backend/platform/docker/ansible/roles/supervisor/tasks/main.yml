@@ -1,0 +1,16 @@
+---
+- name: Create supervisor conf directory
+  file:
+    path: "/etc/supervisor/conf.d"
+    owner: "root"
+    group: "root"
+    state: directory
+    recurse: yes
+
+- name: Config supervisor
+  template: src=supervisord.conf.j2
+            dest=/etc/supervisor/supervisord.conf
+
+- name: Config project to run under supervisor
+  template: src=project_supervisor.conf.j2
+            dest=/etc/supervisor/conf.d/{{ project_name }}.conf

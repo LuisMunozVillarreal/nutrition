@@ -1,0 +1,16 @@
+---
+- name: Configure a backend server
+  hosts: localhost
+  connection: local
+  vars:
+    project_name: api
+    env: "{{ lookup('env', 'ENV') }}"
+    user: "{{ lookup('env', 'USER_NAME') }}"
+    group: "{{ lookup('env', 'USER_NAME') }}"
+    src_dir: "{{ lookup('env', 'SRC_DIR') }}"
+    log_dir: "{{ lookup('env', 'LOG_DIR') }}"
+  roles:
+    - gunicorn
+    - nginx
+    - ntp
+    - supervisor

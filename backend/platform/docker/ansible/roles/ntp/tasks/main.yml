@@ -1,0 +1,4 @@
+---
+- name: Config NTP
+  template: src=ntp.conf.j2
+            dest=/etc/ntp.conf

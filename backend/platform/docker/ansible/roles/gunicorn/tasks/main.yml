@@ -1,0 +1,4 @@
+---
+- name: Config gunicorn
+  template: src=gunicorn.conf.j2
+            dest=/etc/gunicorn.conf.py

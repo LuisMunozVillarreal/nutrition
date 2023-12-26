@@ -1,0 +1,9 @@
+*
+
+!pyproject.toml
+!poetry.lock
+!manage.py
+!apps
+!config
+!platform/docker/entrypoint.sh
+!platform/docker/ansible
