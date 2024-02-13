@@ -1,0 +1,59 @@
+repositories:
+  - name: traefik
+    url: https://helm.traefik.io/traefik
+
+releases:
+  - name: traefik
+    chart: traefik/traefik
+    namespace: traefik
+    version: 26.0.0
+    values:
+      - additionalArguments:
+          - "--certificatesresolvers.letsencrypt.acme.email=luis.munoz.villarreal+traefik@gmail.com"
+          - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
+          - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+          - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+          - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+          - "--accesslog=true"
+          - "--log.level=INFO"
+
+        providers:
+          file:
+            enabled: true
+            content: |-
+              http:
+                routers:
+                  to-homeassistant:
+                    rule: "Host(`feex.ddns.net`)"
+                    service: homeassistant
+                    entryPoints:
+                      - websecure
+                services:
+                  homeassistant:
+                    loadBalancer:
+                      servers:
+                        - url: http://192.168.100.197:8123
+
+        ports:
+          web:
+            redirectTo:
+              port: websecure
+
+          websecure:
+            tls:
+              enabled: true
+              certResolver: letsencrypt
+              domains:
+                - main: "feex.ddns.net"
+
+        persistence:
+          enabled: true
+
+        deployment:
+          initContainers:
+            - name: volume-permissions
+              image: busybox:1.31.1
+              command: ["sh", "-c", "chmod -Rv 600 /data/* || true"]
+              volumeMounts:
+                - name: data
+                  mountPath: /data
