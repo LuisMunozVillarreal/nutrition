@@ -97,7 +97,7 @@ ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Paths
 ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
-ENV PYTHON_PATH="/home/$USER_NAME/.local/bin"
+ENV PYTHONPATH="/home/$USER_NAME/.local/bin:$SRC_DIR/.venv/lib/python3.11/site-packages/"
 
 # Poetry
 RUN pip install --user poetry==1.7.1
@@ -105,6 +105,7 @@ RUN pip install --user poetry==1.7.1
 # Project deps
 COPY pyproject.toml .
 COPY poetry.lock .
+RUN poetry config virtualenvs.in-project true
 RUN poetry install --no-root --no-directory --without dev
 
 # Copy app
