@@ -2,7 +2,7 @@
 
 set -eux -o pipefail
 
-source /home/$USER_NAME/.cache/pypoetry/virtualenvs/nutrition-*/bin/activate
+source $SRC_DIR/.venv/bin/activate
 
 ./manage.py migrate
 ./manage.py collectstatic --no-input
