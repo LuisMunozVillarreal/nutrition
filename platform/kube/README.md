@@ -30,7 +30,23 @@ Make sure you have `helm` 3 installed.
 
 ##### Postgresql
 
+###### Password
+
     kubectl create secret generic nutrition-postgresql --namespace nutrition-<environemnt> --from-literal=postgresql-password=<my-postgresql-password-here>
+
+###### Init script
+
+Edit `postgresql-init.sql` to add the password used in the previous secret.
+
+Create the secret:
+
+    kubectl create secret generic nutrition-postgresql-init-script --namespace nutrition-<environment> --from-file postgresql-init.sql
+
+Remove the password from the file.
+
+###### GCP credentials for DB backup
+
+    kubectl create secret generic nutrition-gcp-db-backup-credentials --namespace nutrition-<environemnt> --from-file nutrition-gcp-db-backup-credentials.json
 
 ##### Django Secret Key
 
@@ -63,6 +79,10 @@ The following instructions will install all releases.
 ## Uninstall
 
     helmfile --debug destroy
+
+### Per workspace
+
+    helmfile --debug destroy -n <namespace>
 
 
 # Traefik dashboard

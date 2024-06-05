@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "nutrition.fullname" . }}-dbbackup
+spec:
+  schedule: "10 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "nutrition.serviceAccountName" . }}
+          containers:
+          - name: {{ .Chart.Name }}-dbbackup
+            image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
+            imagePullPolicy: IfNotPresent
+            {{- with .Values.env }}
+            env:
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            resources:
+              requests:
+                cpu: 50m
+                memory: 10Mi
+              # Process get killed because of this limit
+              # limits:
+              #   cpu: 500m
+              #   memory: 50Mi
+            command:
+            - /bin/sh
+            - -c
+            - test $ENVIRONMENT == "production" && python manage.py dbbackup -v 3
+          restartPolicy: OnFailure
