@@ -1,4 +1,4 @@
-FROM python:3.11.8-slim-bookworm
+FROM debian:trixie-20240423-slim
 
 USER root
 
@@ -12,21 +12,21 @@ RUN \
   apt-get update && \
   apt-get install -y --no-install-recommends \
     # Postgresql
-    libpq-dev=15.6-0+deb12u1 \
-    gcc=4:12.2.0-3 \
-    libc6-dev=2.36-9+deb12u7 \
-    curl=7.88.1-10+deb12u5 \
-    wget=1.21.3-1+b2 \
-    unzip=6.0-28 \
-    postgresql-client=15+248 \
+    libpq-dev=16.2-2+b1 \
+    gcc=4:13.2.0-7 \
+    libc6-dev=2.38-10 \
+    postgresql-client=16+259 \
     # Locales
-    locales=2.36-9+deb12u4 \
+    locales=2.38-10 \
     # Sudo
-    sudo=1.9.13p3-1+deb12u1 \
+    sudo=1.9.15p5-3+b1 \
     # Server
-    nginx=1.22.1-9 \
-    libnginx-mod-http-lua=1:0.10.23-1 \
-    ntp=1:4.2.8p15+dfsg-2~1.2.2+dfsg1-1+deb12u1 && \
+    nginx=1.26.0-1 \
+    libnginx-mod-http-lua=1:0.10.26-2+b1 \
+    python-is-python3=3.11.4-1 \
+    python3-dev=3.11.8-1 \
+    python3-poetry=1.8.2+dfsg-1 \
+    ntp=1:4.2.8p15+dfsg-2~1.2.3+dfsg1-2 && \
   # Clean
   apt-get purge -y --auto-remove git && \
   apt-get autoclean && \
@@ -67,7 +67,7 @@ RUN \
   apt-get update && \
   # Install ansible
   apt-get install -y --no-install-recommends \
-    ansible=7.3.0+dfsg-1 && \
+    ansible=9.5.1+dfsg-1 && \
   # Install config
   ansible-playbook "ansible/$NAME.yml" && \
   # Uninstall ansible & clean
@@ -98,9 +98,6 @@ ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 # Paths
 ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
 ENV PYTHONPATH="/home/$USER_NAME/.local/bin:$SRC_DIR/.venv/lib/python3.11/site-packages/"
-
-# Poetry
-RUN pip install --user poetry==1.7.1
 
 # Project deps
 COPY pyproject.toml .

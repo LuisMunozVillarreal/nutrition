@@ -1,119 +1,134 @@
 version: 2.1
 
+parameters:
+  backend-image:
+    type: string
+    default: "luismunozvillarreal/nutrition-backend:0.1.0_build-a19cbc2-1715436133"
+  poetry-venv:
+    type: string
+    default: "/home/backend/project/backend/.venv/"
+
 executors:
   python:
     docker:
-      - image: "python:3.11.8-slim-bookworm"
+      - image: << pipeline.parameters.backend-image >>
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
+  python-postgresql:
+    docker:
+      - image: << pipeline.parameters.backend-image >>
+      - image: cimg/postgres:16.2
+        environment:
+          POSTGRES_USER: nutrition
 
 commands:
-  validate:
-    parameters:
-      env:
-        type: string
-      poetry-version:
-        default: "1.7.1"
-        type: string
+  python-dependencies:
     steps:
       - checkout:
           path: ~/project
-
-      # Poetry
-      - restore_cache:
-          name: Restore Poetry
-          keys:
-            - poetry-<<parameters.poetry-version>>-v1
-      - run:
-          name: Install Poetry
-          command: pip install --user poetry==<<parameters.poetry-version>>
-      - save_cache:
-          name: Cache Poetry
-          key: poetry-<<parameters.poetry-version>>-v1
-          paths:
-            - /root/.local/
-
-      # Python dependencies
       - restore_cache:
           name: Restore Python Dependencies
           keys:
-            - python-packages-{{ checksum "poetry.lock" }}-v1
+            - python-packages-{{ checksum "poetry.lock" }}-v3
       - run:
           name: Install Python Dependencies
           command: poetry install --no-ansi
       - save_cache:
           name: Save Python Dependencies
-          key: python-packages-{{ checksum "poetry.lock" }}-v1
+          key: python-packages-{{ checksum "poetry.lock" }}-v3
           paths:
-            - /root/.cache/pypoetry/
+            - << pipeline.parameters.poetry-venv >>
 
-      # Tox
+  gcp-credentials:
+    steps:
+      - run:
+          name: Create GCP credential JSON
+          command: echo $GCLOUD_SERVICE_KEY > nutrition-gcp-db-backup-credentials.json
+
+  validate:
+    parameters:
+      env:
+        type: string
+    steps:
       - restore_cache:
           name: Restore Tox Dependencies
           keys:
-            - tox-<<parameters.env>>-{{ checksum "poetry.lock" }}-v1
+            - tox-<< parameters.env >>-{{ checksum "poetry.lock" }}-v1
       - run:
-          name: <<parameters.env>>
-          command: poetry run tox -e <<parameters.env>>
+          name: << parameters.env >>
+          command: poetry run tox -e << parameters.env >>
       - save_cache:
           name: Save Tox Dependencies
-          key: tox-<<parameters.env>>-{{ checksum "poetry.lock" }}-v1
+          key: tox-<< parameters.env >>-{{ checksum "poetry.lock" }}-v1
           paths:
-            - .tox/<<parameters.env>>/lib
+            - .tox/<< parameters.env >>/lib
 
 jobs:
   pytest:
     working_directory: ~/project/backend
-    executor: python
+    executor: python-postgresql
     steps:
+      - python-dependencies
+      - gcp-credentials
       - validate:
           env: pytest
   bandit:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
       - validate:
           env: bandit
   flake8:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
       - validate:
           env: flake8
   black:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
       - validate:
           env: black
   mypy:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
+      - gcp-credentials
       - validate:
           env: mypy
   pylint:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
+      - gcp-credentials
       - validate:
           env: pylint
   pylint-tests:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
+      - gcp-credentials
       - validate:
           env: pylint-tests
   pydocstyle:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
       - validate:
           env: pydocstyle
   pydocstyle-tests:
     working_directory: ~/project/backend
     executor: python
     steps:
+      - python-dependencies
       - validate:
           env: pydocstyle-tests
   docker-build:
@@ -130,6 +145,29 @@ jobs:
           name: Docker build
           command: |
             docker build . -f platform/docker/Dockerfile
+  migrations:
+    working_directory: ~/project/backend
+    docker:
+      - image: << pipeline.parameters.backend-image >>
+        environment:
+          SECRET_KEY: "SecretKey"
+          # POSTGRESQL_PASSWORD: "password"
+      - image: cimg/postgres:16.2
+        environment:
+          POSTGRES_DB: nutrition
+          POSTGRES_USER: nutrition
+    steps:
+      - python-dependencies
+      - gcp-credentials
+      - run:
+          name: Restore latest production DB
+          command: ./manage.py dbrestore --noinput
+      - run:
+          name: Check there is no standing Django models migrations
+          command: ./manage.py makemigrations --check
+      - run:
+          name: Check all Django model migrations can be applied
+          command: ./manage.py migrate
 
 
 workflows:
@@ -145,3 +183,4 @@ workflows:
       - pydocstyle
       - pydocstyle-tests
       - docker-build
+      - migrations
