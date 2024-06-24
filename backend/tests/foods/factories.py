@@ -1,11 +1,14 @@
 """foods app factories module."""
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 
 from apps.foods.models import (
+    CupboardItem,
+    CupboardItemServing,
     Food,
     FoodProduct,
     Recipe,
@@ -120,3 +123,24 @@ class RecipeIngredientFactory(DjangoModelFactory):
 
     recipe = SubFactory(RecipeFactory)
     food = SubFactory(ServingFactory)
+
+
+class CupboardItemFactory(DjangoModelFactory):
+    """CupboardItemFactory class."""
+
+    class Meta:
+        model = CupboardItem
+
+    food = SubFactory(FoodFactory)
+    purchased_at = datetime(2020, 12, 21, 0, 0, 0, tzinfo=timezone.utc)
+
+
+class CupboardItemServingFactory(DjangoModelFactory):
+    """CupboardItemServingFactory class."""
+
+    class Meta:
+        model = CupboardItemServing
+
+    item = SubFactory(CupboardItemFactory)
+    # serving = SubFactory(ServingFactory)
+    food = SubFactory(FoodFactory)
