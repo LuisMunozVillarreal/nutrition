@@ -32,4 +32,4 @@ releases:
         paths:
         - path: /
           pathType: Prefix
-  version: 0.1.0
+  version: 0.7.0+build-f3ee378-1720302123

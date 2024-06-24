@@ -6,8 +6,8 @@ server {
 
     client_max_body_size 4G;
 
-    access_log off;
-    error_log  /dev/null;
+    access_log /dev/stdout;
+    error_log  /dev/stderr;
 
     keepalive_timeout 5;
 

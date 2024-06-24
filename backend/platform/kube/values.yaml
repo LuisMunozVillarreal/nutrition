@@ -78,3 +78,6 @@ postgresql:
           userPasswordKey: postgresql-password
         username: nutrition
         database: nutrition
+  primary:
+    initdb:
+      scriptSecret: nutrition-postgresql-init-script
