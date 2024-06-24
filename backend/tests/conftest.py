@@ -6,6 +6,8 @@ from pytest_factoryboy import register
 
 from .exercises.factories import DayStepsFactory, ExerciseFactory
 from .foods.factories import (
+    CupboardItemFactory,
+    CupboardItemServingFactory,
     FoodFactory,
     FoodProductFactory,
     RecipeFactory,
@@ -17,6 +19,8 @@ from .measurements.factories import MeasurementFactory
 from .plans.factories import DayFactory, IntakeFactory, WeekPlanFactory
 from .users.factories import UserFactory
 
+register(CupboardItemFactory)
+register(CupboardItemServingFactory)
 register(DayFactory)
 register(DayStepsFactory)
 register(ExerciseFactory)

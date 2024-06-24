@@ -26,6 +26,7 @@ disable=
     unused-argument,
     fixme,
     redefined-outer-name,
+    C0103,
 
 
 [SIMILARITIES]
