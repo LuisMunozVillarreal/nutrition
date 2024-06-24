@@ -13,13 +13,16 @@ from pathlib import Path
 from warnings import filterwarnings
 
 import environ
+from google.oauth2 import service_account
 
 ENV = environ.Env()
+
+NUTRITION = "nutrition"
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = ENV("SECRET_KEY", default="")
+SECRET_KEY = ENV("SECRET_KEY")
 
 DEBUG = ENV("DEBUG", default=False)
 
@@ -32,7 +35,6 @@ ENVIRONMENT = ENV("ENVIRONMENT", default="development")
 if ENVIRONMENT == "development":  # pragma: no cover
     ALLOWED_HOSTS = ["192.168.0.2", "localhost"]
     DEBUG = True
-    SECRET_KEY = "LocalDevSecretKey"  # nosec
 
 
 # Application definition
@@ -44,6 +46,7 @@ INSTALLED_APPS = [
     "apps.measurements",
     "apps.plans",
     "apps.users",
+    "dbbackup",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -87,13 +90,19 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 
 # Database
-# https://docs.djangoproject.com/en/4.1/ref/settings/#databases
+POSTGRESQL_DB = NUTRITION
+POSTGRESQL_USER = NUTRITION
+POSTGRESQL_PASSWORD = ENV("POSTGRESQL_PASSWORD", default="")
+POSTGRESQL_HOST = ENV("BACKEND_POSTGRESQL_SERVICE_HOST", default="localhost")
+DB_CONFIG = ENV.db(
+    default=(
+        f"postgres://{POSTGRESQL_USER}:{POSTGRESQL_PASSWORD}@"
+        f"{POSTGRESQL_HOST}:5432/{POSTGRESQL_DB}"
+    )
+)
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
+    "default": DB_CONFIG,
 }
 
 
@@ -171,3 +180,24 @@ filterwarnings(
     "The FORMS_URLFIELD_ASSUME_HTTPS transitional setting is deprecated.",
 )
 FORMS_URLFIELD_ASSUME_HTTPS = True
+
+
+# DB Backup
+DBBACKUP_FILENAME_TEMPLATE = (
+    f"nutrition-{ENVIRONMENT}-db-backup-{{datetime}}.{{extension}}"
+)
+DBBACKUP_STORAGE = "storages.backends.gcloud.GoogleCloudStorage"
+DBBACKUP_STORAGE_OPTIONS = {
+    "bucket_name": "nutrition-db-backups",
+    "project_id": "nutrition",
+    "blob_chunk_size": 1024 * 1024,
+    "default_acl": None,
+}
+DBBACKUP_CONNECTORS = {
+    "default": {
+        "RESTORE_SUFFIX": "--if-exists",
+    },
+}
+GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
+    "nutrition-gcp-db-backup-credentials.json"
+)

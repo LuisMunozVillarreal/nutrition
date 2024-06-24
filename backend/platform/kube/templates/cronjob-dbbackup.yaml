@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "nutrition.fullname" . }}-dbbackup
+spec:
+  schedule: "15 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "nutrition.serviceAccountName" . }}
+          volumes:
+            - name: nutrition-gcp-db-backup-credentials
+              secret:
+                secretName: nutrition-gcp-db-backup-credentials
+          containers:
+          - name: {{ .Chart.Name }}-dbbackup
+            image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
+            imagePullPolicy: IfNotPresent
+            {{- with .Values.env }}
+            env:
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            volumeMounts:
+              - mountPath: "/mnt/secret/"
+                name: nutrition-gcp-db-backup-credentials
+                readOnly: true
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json
+            command:
+              - /bin/bash
+              - -c
+              - python manage.py dbbackup -v 3
+          restartPolicy: OnFailure
