@@ -130,3 +130,9 @@ dmypy.json
 
 # Helm
 **/charts
+
+# Local env
+**/.env
+
+# GS credentials
+backend/nutrition-gcp-db-backup-credentials.json

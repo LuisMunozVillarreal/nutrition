@@ -50,3 +50,8 @@ def logged_in_admin_client(db, client, admin_user):
     """Client with an admin user logged in."""
     client.force_login(admin_user)
     return client
+
+
+@pytest.fixture(autouse=True)
+def reset_sequence(django_db_reset_sequences):
+    """Reset sequences by default."""
