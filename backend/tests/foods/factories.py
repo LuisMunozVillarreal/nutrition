@@ -1,11 +1,14 @@
 """foods app factories module."""
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 
 from apps.foods.models import (
+    CupboardItemServing,
+    CupboardItem,
     Food,
     FoodProduct,
     Recipe,
@@ -120,3 +123,43 @@ class RecipeIngredientFactory(DjangoModelFactory):
 
     recipe = SubFactory(RecipeFactory)
     food = SubFactory(ServingFactory)
+
+
+class CupboardItemFactory(DjangoModelFactory):
+
+    class Meta:
+        model = CupboardItem
+
+    food = SubFactory(FoodFactory)
+    purchased_at = datetime(2020, 12, 21, 0, 0, 0, tzinfo=timezone.utc)
+
+    # brand = "Ocado"
+    # name = "Chicken Breast"
+    # url = "http://food.link"
+    # energy = Decimal("106")
+    # weight = Decimal("320")
+    # weight_unit = "g"
+    # protein_g = 25
+    # fat_g = Decimal("0.5")
+    # saturated_fat_g = 0
+    # polyunsaturated_fat_g = 0
+    # monosaturated_fat_g = 0
+    # trans_fat_g = 0
+    # carbs_g = Decimal("0.3")
+    # fiber_carbs_g = 0
+    # sugar_carbs_g = 0
+    # sodium_mg = 0
+    # potassium_mg = 0
+    # vitamin_a_perc = 0
+    # vitamin_c_perc = 0
+    # calcium_perc = 0
+    # iron_perc = 0
+
+
+class CupboardItemServingFactory(DjangoModelFactory):
+    class Meta:
+        model = CupboardItemServing
+
+    item = SubFactory(CupboardItemFactory)
+    # serving = SubFactory(ServingFactory)
+    food = SubFactory(FoodFactory)
