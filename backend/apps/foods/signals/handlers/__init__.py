@@ -1,6 +1,5 @@
 """food.signal.handlers module."""
 
-
 # flake8: noqa: F401
 from .product import add_default_servings
 from .recipe_nutrients import (

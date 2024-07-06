@@ -1,6 +1,5 @@
 """food app signal handlers for recipe servings module."""
 
-
 from typing import Any
 
 from django.db.models.signals import post_save

@@ -1,6 +1,5 @@
 """goals app factories module."""
 
-
 from factory import SubFactory
 from factory.django import DjangoModelFactory
 

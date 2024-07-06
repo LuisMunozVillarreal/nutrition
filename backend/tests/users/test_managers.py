@@ -1,6 +1,5 @@
 """apps.users.managers tests."""
 
-
 import pytest
 from django.contrib.auth import get_user_model
 

@@ -1,6 +1,5 @@
 """Base model module."""
 
-
 from django.db import models
 
 

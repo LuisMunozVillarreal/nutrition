@@ -1,6 +1,5 @@
 """goals app admin config module."""
 
-
 from datetime import date
 from decimal import Decimal
 

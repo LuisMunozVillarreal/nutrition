@@ -1,6 +1,5 @@
 """users app config module."""
 
-
 from django.apps import AppConfig
 
 

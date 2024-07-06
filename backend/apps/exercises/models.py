@@ -1,6 +1,5 @@
 """Exercise model module."""
 
-
 import datetime
 from decimal import Decimal
 

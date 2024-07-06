@@ -1,6 +1,5 @@
 """units module."""
 
-
 UNIT_GRAM = "g"
 UNIT_MILIGRAM = "mg"
 UNIT_LITRE = "l"

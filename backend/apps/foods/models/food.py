@@ -1,6 +1,5 @@
 """Food model module."""
 
-
 from django.db import models
 
 from .nutrients import Nutrients

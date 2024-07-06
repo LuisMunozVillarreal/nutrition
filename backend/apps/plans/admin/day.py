@@ -1,6 +1,5 @@
 """Day admin config module."""
 
-
 from django.contrib import admin
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase

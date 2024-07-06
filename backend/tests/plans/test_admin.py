@@ -1,6 +1,5 @@
 """apps.plans.admin tests."""
 
-
 import pytest
 
 

@@ -1,6 +1,5 @@
 """Food app tests."""
 
-
 from apps.foods.models import Food
 
 

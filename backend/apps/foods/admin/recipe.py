@@ -1,6 +1,5 @@
 """admin config for recipe module."""
 
-
 from django.contrib import admin
 
 from apps.libs.admin import get_remaining_fields
