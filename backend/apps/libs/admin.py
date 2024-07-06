@@ -1,6 +1,5 @@
 """Admin libraries."""
 
-
 from typing import List, Type
 
 from apps.foods.models import FoodProduct, Recipe

@@ -1,6 +1,5 @@
 """Nutriens model module."""
 
-
 from django.db import models
 
 from apps.libs.basemodel import BaseModel

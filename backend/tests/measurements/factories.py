@@ -1,6 +1,5 @@
 """measurements app factories module."""
 
-
 import datetime
 from decimal import Decimal
 

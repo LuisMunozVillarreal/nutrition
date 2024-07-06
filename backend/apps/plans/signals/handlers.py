@@ -1,6 +1,5 @@
 """plans app signal handlers module."""
 
-
 import datetime
 from typing import Any
 

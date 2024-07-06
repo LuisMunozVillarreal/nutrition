@@ -1,6 +1,5 @@
 """apps.foods.admin tests."""
 
-
 #
 # FoodProduct
 #

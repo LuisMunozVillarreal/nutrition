@@ -1,6 +1,5 @@
 """tests config module."""
 
-
 import pytest
 from pytest_factoryboy import register
 
