@@ -1,6 +1,5 @@
 """foods app factories module."""
 
-
 from decimal import Decimal
 
 from factory import SubFactory

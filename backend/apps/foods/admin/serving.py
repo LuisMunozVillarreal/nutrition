@@ -1,6 +1,5 @@
 """admin config for servings module."""
 
-
 from django.contrib import admin
 
 from ..models import Serving

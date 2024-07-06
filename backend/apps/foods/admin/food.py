@@ -1,6 +1,5 @@
 """foods app admin config module."""
 
-
 from django.contrib import admin
 
 from ..models import Food

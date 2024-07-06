@@ -1,6 +1,5 @@
 """food product servings tests module."""
 
-
 from decimal import Decimal
 
 

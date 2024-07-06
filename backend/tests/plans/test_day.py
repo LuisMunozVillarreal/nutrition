@@ -1,6 +1,5 @@
 """plan day tests module."""
 
-
 from decimal import Decimal
 
 import pytest

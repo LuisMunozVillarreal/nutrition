@@ -1,6 +1,5 @@
 """Recipe models module."""
 
-
 from typing import Any
 
 from django.db import models

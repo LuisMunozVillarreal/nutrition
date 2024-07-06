@@ -51,7 +51,6 @@ CG110  ECG110  ECG110  ECG110  ECG90  ECG80  ECG90
 
 """
 
-
 from decimal import Decimal
 
 import pytest

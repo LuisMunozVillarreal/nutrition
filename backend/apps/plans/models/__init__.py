@@ -31,7 +31,6 @@ A day in the week can be in 3 different "modes":
 Fat and carbohydrates are based on the previous calorie goals
 """
 
-
 # flake8: noqa: F401
 from .intake import Intake
 from .day import Day

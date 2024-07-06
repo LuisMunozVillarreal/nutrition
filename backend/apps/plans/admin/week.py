@@ -1,6 +1,5 @@
 """week admin config module."""
 
-
 import copy
 
 from django.contrib import admin

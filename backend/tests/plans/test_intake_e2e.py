@@ -1,6 +1,5 @@
 """intake e2e tests."""
 
-
 from decimal import Decimal
 
 from apps.foods.models.units import UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING

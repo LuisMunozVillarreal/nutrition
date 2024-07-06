@@ -1,6 +1,5 @@
 """apps.exercises factories."""
 
-
 import datetime
 from decimal import Decimal
 
