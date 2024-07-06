@@ -39,7 +39,7 @@ django-extensions = "^3.2.3"
 django-nested-inline = "^0.4.6"
 django-storages = {extras = ["google"], version = "^1.14.3"}
 django = "^5.0"
-gunicorn = "^21.2.0"
+gunicorn = ">=21.2,<23.0"
 pint = "^0.23"
 psycopg2 = "^2.9.9"
 python = "^3.11"
