@@ -14,17 +14,17 @@ RUN \
     # Postgresql
     libpq-dev=16.3-1+b1 \
     gcc=4:13.2.0-7 \
-    libc6-dev=2.38-13 \
+    libc6-dev=2.38-14 \
     postgresql-client=16+261 \
     # Locales
-    locales=2.38-13 \
+    locales=2.38-14 \
     # Sudo
     sudo=1.9.15p5-3+b1 \
     # Server
     nginx=1.26.0-1 \
     libnginx-mod-http-lua=1:0.10.26-3 \
     python-is-python3=3.11.4-1 \
-    python3-dev=3.11.8-1 \
+    python3-dev=3.12.3-1 \
     python3-poetry=1.8.3+dfsg-2 \
     ntp=1:4.2.8p15+dfsg-2~1.2.3+dfsg1-3 && \
   # Clean
