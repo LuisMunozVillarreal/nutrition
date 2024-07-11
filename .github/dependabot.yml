@@ -1,7 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: "pip"
-    directory: "/"
+    directory: "/backend/"
     schedule:
       interval: "daily"
     groups:
@@ -10,7 +10,7 @@ updates:
       production-dependencies:
         dependency-type: "production"
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/backend/platform/docker/"
     schedule:
       interval: "daily"
     groups:
