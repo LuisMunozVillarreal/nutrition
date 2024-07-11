@@ -15,4 +15,5 @@ updates:
       interval: "daily"
     groups:
       updates:
-        patterns: "*"
+        patterns:
+          - "*"
