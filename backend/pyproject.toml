@@ -40,7 +40,7 @@ django-nested-inline = "^0.4.6"
 django-storages = {extras = ["google"], version = "^1.14.3"}
 django = "^5.0.6"
 gunicorn = "^22.0.0"
-pint = "^0.23"
+pint = ">=0.23,<0.25"
 psycopg2 = "^2.9.9"
 python = "^3.11"
 supervisor = "^4.2.5"
