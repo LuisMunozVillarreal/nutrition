@@ -18,6 +18,10 @@
 
     poetry self add poetry-dotenv-plugin
 
+If you're using Debian, run the following outside any virtual env:
+
+    pip install poetry-dotenv-plugin --user --break-system-packages
+
 2. Create a local file called `.env`, with the following content:
 
 ```
