@@ -69,7 +69,9 @@ def increase_day_nutrients(
             continue
 
         if not created:
-            db_food = Intake.objects.get(id=instance.id)
+            db_food = Intake.objects.get(  # type: ignore[attr-defined]
+                id=instance.id
+            )
             old_food_value = getattr(db_food, nutrient)
 
         diff = new_food_value - old_food_value
