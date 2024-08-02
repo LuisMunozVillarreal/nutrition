@@ -12,21 +12,21 @@ RUN \
   apt-get update && \
   apt-get install -y --no-install-recommends \
     # Postgresql
-    libpq-dev=16.3-1+b1 \
-    gcc=4:13.2.0-7 \
-    libc6-dev=2.38-14 \
-    postgresql-client=16+261 \
+    libpq-dev \
+    gcc \
+    libc6-dev \
+    postgresql-client \
     # Locales
-    locales=2.38-14 \
+    locales \
     # Sudo
-    sudo=1.9.15p5-3+b1 \
+    sudo \
     # Server
-    nginx=1.26.0-1 \
-    libnginx-mod-http-lua=1:0.10.26-3 \
-    python-is-python3=3.11.4-1 \
-    python3-dev=3.12.3-1 \
-    python3-poetry=1.8.3+dfsg-2 \
-    ntp=1:4.2.8p15+dfsg-2~1.2.3+dfsg1-3 && \
+    nginx \
+    libnginx-mod-http-lua \
+    python-is-python3 \
+    python3-dev \
+    python3-poetry \
+    ntp && \
   # Clean
   apt-get purge -y --auto-remove git && \
   apt-get autoclean && \
@@ -67,7 +67,7 @@ RUN \
   apt-get update && \
   # Install ansible
   apt-get install -y --no-install-recommends \
-    ansible=10.1.0+dfsg-1 && \
+    ansible && \
   # Install config
   ansible-playbook "ansible/$NAME.yml" && \
   # Uninstall ansible & clean
