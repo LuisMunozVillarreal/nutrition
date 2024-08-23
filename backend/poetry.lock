@@ -477,17 +477,17 @@ django = ">=3.2"
 
 [[package]]
 name = "django-dbbackup"
-version = "4.1.0"
+version = "4.2.0"
 description = "Management commands to help backup and restore a project database and media."
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "django-dbbackup-4.1.0.tar.gz", hash = "sha256:c411d38d0f8e60ab3254017278c14ebd75d4001b5634fc73be7fbe8a5260583b"},
-    {file = "django_dbbackup-4.1.0-py3-none-any.whl", hash = "sha256:c539b5246b429a22a8efadbab3719ee6b8eda45c66c4ff6592056c590d51c782"},
+    {file = "django_dbbackup-4.2.0-py3-none-any.whl", hash = "sha256:8baf9ee16c60ad2fc21bf42851fa8710e2b6035278bb75d626342e4b1fcf7566"},
+    {file = "django_dbbackup-4.2.0.tar.gz", hash = "sha256:2fad069caf64b28ae2c1fe818bb3232e4e934d2b2f6bd47ed15582c7884c134e"},
 ]
 
 [package.dependencies]
-django = ">=2.2"
+django = ">=3.2"
 pytz = "*"
 
 [[package]]
