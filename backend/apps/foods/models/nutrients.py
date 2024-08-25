@@ -1,5 +1,8 @@
 """Nutriens model module."""
 
+from decimal import Decimal
+from typing import Any
+
 from django.db import models
 
 from apps.libs.basemodel import BaseModel
@@ -74,6 +77,13 @@ class Nutrients(BaseModel):
         null=True,
     )
 
+    salt_g = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        blank=True,
+        null=True,
+    )
+
     sugar_carbs_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
@@ -115,9 +125,23 @@ class Nutrients(BaseModel):
         null=True,
     )
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save instance into the db.
+
+        Args:
+            args (list): arguments.
+            kwargs (dict): keyword arguments.
+        """
+        if self.salt_g:
+            self.sodium_mg = self.salt_g / Decimal("2.5") * 1000
+        elif self.sodium_mg:
+            self.salt_g = self.sodium_mg * Decimal("2.5") / 1000
+
+        super().save(*args, **kwargs)
+
 
 NUTRIENT_LIST = [
     i
     for i in Nutrients.__dict__
-    if i[:1] not in ["_", "M"] and i not in BaseModel.__dict__
+    if i[:1] not in ["_", "M"] and i not in BaseModel.__dict__ and i != "save"
 ]
