@@ -70,7 +70,7 @@ class Nutrients(BaseModel):
         default=0,
     )
 
-    fiber_carbs_g = models.DecimalField(
+    fibre_carbs_g = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         blank=True,

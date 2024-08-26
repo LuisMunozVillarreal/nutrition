@@ -33,7 +33,7 @@ class FoodFactory(DjangoModelFactory):
     monosaturated_fat_g = 0
     trans_fat_g = 0
     carbs_g = Decimal("0.3")
-    fiber_carbs_g = 0
+    fibre_carbs_g = 0
     sugar_carbs_g = 0
     sodium_mg = 0
     potassium_mg = 0
@@ -73,7 +73,7 @@ class FoodProductFactory(DjangoModelFactory):
     monosaturated_fat_g = 0
     trans_fat_g = 0
     carbs_g = Decimal("0.3")
-    fiber_carbs_g = 0
+    fibre_carbs_g = 0
     sugar_carbs_g = 0
     sodium_mg = 0
     potassium_mg = 0
@@ -102,7 +102,7 @@ class RecipeFactory(DjangoModelFactory):
     monosaturated_fat_g = 0
     trans_fat_g = 0
     carbs_g = 30
-    fiber_carbs_g = 0
+    fibre_carbs_g = 0
     sugar_carbs_g = 0
     sodium_mg = 0
     potassium_mg = 0
