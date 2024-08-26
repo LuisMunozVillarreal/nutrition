@@ -12,6 +12,7 @@ class FoodProduct(Food):
         max_length=255,
         blank=True,
         null=True,
+        default=0,
     )
 
     def __str__(self) -> str:
