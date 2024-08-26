@@ -201,3 +201,7 @@ DBBACKUP_CONNECTORS = {
 GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
     "nutrition-gcp-db-backup-credentials.json"
 )
+
+
+# Gemini
+GEMINI_API_KEY = ENV("GEMINI_API_KEY")

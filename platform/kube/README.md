@@ -52,6 +52,10 @@ Remove the password from the file.
 
     kubectl create secret generic nutrition-django-secret-key --namespace nutrition-<environment> --from-literal=secret-key=<my-django-secret-key-here>
 
+##### Django Secret Key
+
+    kubectl create secret generic nutrition-gemini-api-key --namespace nutrition-<environment> --from-literal=gemini-api-key=<my-gemini-api-key-here>
+
 ### Platform
 
 The following instructions will install all releases.

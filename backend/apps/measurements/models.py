@@ -32,6 +32,10 @@ class Measurement(BaseModel):
         Returns:
             str: string representation of the object.
         """
+        # For some reason pylint_django it's failing.
+        # I believe it's due to protobuf being downgraded due to google-genai
+        # pylint: disable=no-member,fixme
+        # TODO: Remove this ones protobuf is back to 5.x.x
         return f"Measurement - {self.created_at.strftime('%a %d %h %y')}"
 
     @property
