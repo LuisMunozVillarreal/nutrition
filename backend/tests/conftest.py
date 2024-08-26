@@ -1,6 +1,7 @@
 """tests config module."""
 
 import pytest
+import requests_mock as requests_mock_lib
 from pytest_factoryboy import register
 
 from .exercises.factories import DayStepsFactory, ExerciseFactory
@@ -54,3 +55,26 @@ def logged_in_admin_client(db, client, admin_user):
 @pytest.fixture(autouse=True)
 def reset_sequence(django_db_reset_sequences):
     """Reset sequences by default."""
+
+
+@pytest.fixture(autouse=True)
+def fallback_requests_mock():
+    """Mock for requests library.
+
+    This mock will make sure that no test creates a real request that can alter
+    production systems. Any kind of request should mocked per test.
+
+    Yields:
+        Mock: requests mocked
+    """
+    with requests_mock_lib.Mocker() as mock:
+        mock.register_uri(
+            requests_mock_lib.ANY,
+            requests_mock_lib.ANY,
+            json={
+                "mocked request": "This request has been mocked to "
+                "prevent tests from contacting the internet. Please, write "
+                "an specific mock for your use case."
+            },
+        )
+        yield mock

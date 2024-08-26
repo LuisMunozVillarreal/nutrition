@@ -8,6 +8,11 @@ releases:
       value: staging.nutfeex.ddns.net
     - name: ENVIRONMENT
       value: staging
+    - name: GEMINI_API_KEY
+      valueFrom:
+        secretKeyRef:
+          key: gemini-api-key
+          name: nutrition-gemini-api-key
     - name: POSTGRESQL_PASSWORD
       valueFrom:
         secretKeyRef:
@@ -32,4 +37,4 @@ releases:
         paths:
         - path: /
           pathType: Prefix
-  version: 0.7.0+build-f3ee378-1720302123
+  version: 0.8.0+build-7ecd9c0-1724701038
