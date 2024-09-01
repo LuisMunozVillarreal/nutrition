@@ -1,5 +1,5 @@
 apiVersion: v2
-appVersion: 0.10.0
+appVersion: 0.11.0
 dependencies:
 - name: postgresql
   repository: oci://registry-1.docker.io/bitnamicharts
@@ -7,4 +7,4 @@ dependencies:
 description: Nutrition backend Helm chart
 name: nutrition
 type: application
-version: 0.10.0
+version: 0.11.0

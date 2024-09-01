@@ -145,22 +145,22 @@ def test_non_ocado_url():
 
 
 @pytest.fixture
-def gemini_api_no_servings(mocker):
-    """Gemini API no servings mock."""
+def gemini_api_missing_info(mocker):
+    """Gemini API missing info mock."""
     data = {
-        "brand": "Ocado",
-        "name": "Chicken",
-        "size": 100,
-        "size unit": "ml",
+        "brand": None,
+        "name": "hola",
+        "size": None,
+        "size unit": None,
         "servings": None,
-        "kcal": 100,
-        "fat": 10.1,
-        "saturates": 10.1,
-        "carbohydrates": 10.1,
-        "sugars": 10.1,
-        "fibre": 10.1,
-        "protein": 10.1,
-        "salt": 10.1,
+        "kcal": None,
+        "fat": None,
+        "saturates": None,
+        "carbohydrates": None,
+        "sugars": None,
+        "fibre": None,
+        "protein": None,
+        "salt": None,
     }
     mock = mocker.patch("apps.foods.ocado_scraper.genai.GenerativeModel")
     mid_mock = mock.return_value.start_chat.return_value.send_message
@@ -168,8 +168,8 @@ def gemini_api_no_servings(mocker):
     return mock
 
 
-def test_ocado_missing_servings(gemini_api_no_servings, ocado_request):
-    """Ocado is scrapped correctly when there is no serving info."""
+def test_ocado_missing_info(gemini_api_missing_info, ocado_request):
+    """Ocado scrapper can handle empty info values."""
     # Given the following form data
     data = {
         "scrape_info_from_url": True,
@@ -193,4 +193,4 @@ def test_ocado_missing_servings(gemini_api_no_servings, ocado_request):
 
     # And ocado has been scraped
     assert ocado_request.call_count == 1
-    gemini_api_no_servings.assert_called()
+    gemini_api_missing_info.assert_called()

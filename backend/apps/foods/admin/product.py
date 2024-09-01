@@ -47,32 +47,107 @@ class FoodProductForm(forms.ModelForm):
 
             del self.errors["name"]
 
-            self.cleaned_data["brand"] = data["brand"]
-            self.cleaned_data["name"] = data["name"]
-            self.cleaned_data["weight"] = round(Decimal(str(data["size"])), 1)
-            self.cleaned_data["weight_unit"] = data["size unit"]
-            self.cleaned_data["num_servings"] = (
-                data["servings"] or self.cleaned_data["num_servings"]
+            self.cleaned_data["brand"] = (
+                data["brand"] or self.cleaned_data.get("brand", "") or ""
             )
-            self.cleaned_data["energy"] = round(Decimal(str(data["kcal"])), 1)
-            self.cleaned_data["fat_g"] = round(Decimal(str(data["fat"])), 1)
+            self.cleaned_data["name"] = (
+                data["name"] or self.cleaned_data.get("name", "") or ""
+            )
+            self.cleaned_data["weight"] = round(
+                Decimal(
+                    str(
+                        data["size"] or self.cleaned_data.get("weight", 0) or 0
+                    )
+                ),
+                1,
+            )
+            self.cleaned_data["weight_unit"] = (
+                data["size unit"]
+                or self.cleaned_data.get("weight_unit", "g")
+                or "g"
+            )
+            self.cleaned_data["num_servings"] = (
+                data["servings"]
+                or self.cleaned_data.get("num_servings", 0)
+                or 0
+            )
+            self.cleaned_data["energy"] = round(
+                Decimal(
+                    str(
+                        data["kcal"] or self.cleaned_data.get("energy", 0) or 0
+                    )
+                ),
+                1,
+            )
+            self.cleaned_data["fat_g"] = round(
+                Decimal(
+                    str(data["fat"] or self.cleaned_data.get("fat_g", 0) or 0)
+                ),
+                1,
+            )
             self.cleaned_data["saturated_fat_g"] = round(
-                Decimal(str(data["saturates"])), 1
+                Decimal(
+                    str(
+                        data["saturates"]
+                        or self.cleaned_data.get("saturated_fat_g", 0)
+                        or 0
+                    )
+                ),
+                1,
             )
             self.cleaned_data["carbs_g"] = round(
-                Decimal(str(data["carbohydrates"])), 1
+                Decimal(
+                    str(
+                        data["carbohydrates"]
+                        or self.cleaned_data.get("carbs_g", 0)
+                        or 0
+                    )
+                ),
+                1,
             )
             self.cleaned_data["sugar_carbs_g"] = round(
-                Decimal(str(data["sugars"])), 1
+                Decimal(
+                    str(
+                        data["sugars"]
+                        or self.cleaned_data.get("sugars_carbs_g", 0)
+                        or 0
+                    )
+                ),
+                1,
             )
             self.cleaned_data["fibre_carbs_g"] = round(
-                Decimal(str(data["fibre"])), 1
+                Decimal(
+                    str(
+                        data["fibre"]
+                        or self.cleaned_data.get("fibre_carbs_g", 0)
+                        or 0
+                    )
+                ),
+                1,
             )
             self.cleaned_data["protein_g"] = round(
-                Decimal(str(data["protein"])), 1
+                Decimal(
+                    str(
+                        data["protein"]
+                        or self.cleaned_data.get("protein_g", 0)
+                        or 0
+                    )
+                ),
+                1,
             )
-            self.cleaned_data["salt_g"] = round(Decimal(str(data["salt"])), 1)
-            self.cleaned_data["nutritional_info_unit"] = data["size unit"]
+            self.cleaned_data["salt_g"] = round(
+                Decimal(
+                    str(
+                        data["salt"] or self.cleaned_data.get("salt_g", 0) or 0
+                    )
+                ),
+                1,
+            )
+            self.cleaned_data["nutritional_info_unit"] = (
+                data["size unit"]
+                or self.cleaned_data.get("nutritional_info_unit", "g")
+                or "g"
+            )
 
         return self.cleaned_data
 
