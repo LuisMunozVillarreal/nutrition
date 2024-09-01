@@ -142,3 +142,55 @@ def test_non_ocado_url():
 
     # And form shows the related error
     assert "Only Ocado product URLs are supported" in str(form.errors)
+
+
+@pytest.fixture
+def gemini_api_no_servings(mocker):
+    """Gemini API no servings mock."""
+    data = {
+        "brand": "Ocado",
+        "name": "Chicken",
+        "size": 100,
+        "size unit": "ml",
+        "servings": None,
+        "kcal": 100,
+        "fat": 10.1,
+        "saturates": 10.1,
+        "carbohydrates": 10.1,
+        "sugars": 10.1,
+        "fibre": 10.1,
+        "protein": 10.1,
+        "salt": 10.1,
+    }
+    mock = mocker.patch("apps.foods.ocado_scraper.genai.GenerativeModel")
+    mid_mock = mock.return_value.start_chat.return_value.send_message
+    mid_mock.return_value.text = str(data)
+    return mock
+
+
+def test_ocado_missing_servings(gemini_api_no_servings, ocado_request):
+    """Ocado is scrapped correctly when there is no serving info."""
+    # Given the following form data
+    data = {
+        "scrape_info_from_url": True,
+        "url": URL,
+        "energy": 0,
+        "protein_g": 0,
+        "fat_g": 0,
+        "carbs_g": 0,
+        "nutritional_info_size": 0,
+        "nutritional_info_unit": "ml",
+        "weight": 0,
+        "weight_unit": "ml",
+        "num_servings": 0,
+    }
+
+    # When the form is created
+    form = FoodProductForm(data=data)
+
+    # Then the form is valid
+    assert form.is_valid()
+
+    # And ocado has been scraped
+    assert ocado_request.call_count == 1
+    gemini_api_no_servings.assert_called()
