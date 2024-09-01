@@ -51,8 +51,8 @@ class FoodProductForm(forms.ModelForm):
             self.cleaned_data["name"] = data["name"]
             self.cleaned_data["weight"] = round(Decimal(str(data["size"])), 1)
             self.cleaned_data["weight_unit"] = data["size unit"]
-            self.cleaned_data["num_servings"] = data.get(
-                "servings", self.cleaned_data["num_servings"]
+            self.cleaned_data["num_servings"] = (
+                data["servings"] or self.cleaned_data["num_servings"]
             )
             self.cleaned_data["energy"] = round(Decimal(str(data["kcal"])), 1)
             self.cleaned_data["fat_g"] = round(Decimal(str(data["fat"])), 1)
