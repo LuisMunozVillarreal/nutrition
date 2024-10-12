@@ -3,7 +3,7 @@ version: 2.1
 parameters:
   backend-image:
     type: string
-    default: "luismunozvillarreal/nutrition-backend:0.9.0"
+    default: "luismunozvillarreal/nutrition-backend:0.13.0"
   poetry-venv:
     type: string
     default: "/home/backend/project/backend/.venv/"
