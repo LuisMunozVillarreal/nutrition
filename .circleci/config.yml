@@ -17,7 +17,7 @@ executors:
   python-postgresql:
     docker:
       - image: << pipeline.parameters.backend-image >>
-      - image: cimg/postgres:16.2
+      - image: cimg/postgres:17.0
         environment:
           POSTGRES_USER: nutrition
 
@@ -152,7 +152,7 @@ jobs:
         environment:
           GEMINI_API_KEY: "ApiKey"
           SECRET_KEY: "SecretKey"
-      - image: cimg/postgres:16.2
+      - image: cimg/postgres:17.0
         environment:
           POSTGRES_DB: nutrition
           POSTGRES_USER: nutrition
