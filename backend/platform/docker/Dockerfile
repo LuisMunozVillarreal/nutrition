@@ -67,11 +67,11 @@ RUN \
   apt-get update && \
   # Install ansible
   apt-get install -y --no-install-recommends \
-    ansible && \
+    ansible-core && \
   # Install config
   ansible-playbook "ansible/$NAME.yml" && \
   # Uninstall ansible & clean
-  apt-get purge -y ansible && \
+  apt-get purge -y ansible-core && \
   apt-get autoremove -y && \
   apt-get autoclean && \
   apt-get clean && \
