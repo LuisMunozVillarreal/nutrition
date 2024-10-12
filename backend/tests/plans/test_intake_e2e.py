@@ -14,7 +14,7 @@ def test_intake_e2e(
     intake_factory,
 ):
     """E2E intake test."""
-    # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-positional-arguments,too-many-arguments
 
     salmon = food_product_factory(
         brand="Ocado",
