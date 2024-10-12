@@ -3,7 +3,7 @@ kind: CronJob
 metadata:
   name: {{ include "nutrition.fullname" . }}-dbbackup
 spec:
-  schedule: "15 * * * *"
+  schedule: "25 * * * *"
   jobTemplate:
     spec:
       template:
@@ -35,5 +35,5 @@ spec:
             command:
               - /bin/bash
               - -c
-              - python manage.py dbbackup -v 3
+              - source $SRC_DIR/.venv/bin/activate; python manage.py dbbackup -v 3
           restartPolicy: OnFailure
