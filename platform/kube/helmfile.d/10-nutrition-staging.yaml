@@ -37,4 +37,4 @@ releases:
         paths:
         - path: /
           pathType: Prefix
-  version: 0.10.0+build-bf9a072-1725212734
+  version: 0.13.0+build-7304a21-1728775431
