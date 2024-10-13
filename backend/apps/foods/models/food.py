@@ -33,7 +33,9 @@ class Food(Nutrients):
         default=UNIT_GRAM,
     )
 
-    weight = models.PositiveIntegerField(
+    weight = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
         default=100,
     )
 

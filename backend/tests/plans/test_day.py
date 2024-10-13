@@ -5,6 +5,15 @@ from decimal import Decimal
 import pytest
 
 
+def test_calorie_goal(db, day):
+    """Calorie goal."""
+    # Then
+    assert day.calorie_goal == Decimal("1957.04872")
+    assert day.protein_g_goal == Decimal("235.75")
+    assert day.fat_g_goal == Decimal("54.36246444444444444444444444")
+    assert day.carbs_g_goal == Decimal("131.196635")
+
+
 def test_protein_g_goal(db, day):
     """Protein goal is correct."""
     assert day.protein_g_goal == Decimal("235.75")
@@ -37,7 +46,7 @@ def test_estimated_carb_g_goal(db, day):
     day.save()
 
     # When / Then
-    assert day.carbs_g_goal == Decimal("468.99579375")
+    assert day.carbs_g_goal == Decimal("233.24579375")
 
 
 def test_tracked_calorie_goal(db, day_steps, exercise):
