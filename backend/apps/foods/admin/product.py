@@ -6,7 +6,10 @@ from typing import Dict
 from django import forms
 from django.contrib import admin
 
-from apps.foods.ocado_scraper import get_ocado_product_details
+from apps.foods.nutrition_facts_finder import (
+    get_food_nutrition_facts,
+    get_ocado_product_details,
+)
 from apps.libs.admin import get_remaining_fields
 
 from ..models import FoodProduct
@@ -21,12 +24,88 @@ class FoodProductForm(forms.ModelForm):
         fields = "__all__"
 
     scrape_info_from_url = forms.BooleanField(required=False)
+    get_info_with_gemini = forms.BooleanField(required=False)
+
+    def _clean_nutrition_facts(self, data: Dict[str, float]) -> None:
+        """Clean nutrition facts.
+
+        Args:
+            data (Dict[str, float]): nutrition facts.
+        """
+        self.cleaned_data["energy"] = round(
+            Decimal(
+                str(data["kcal"] or self.cleaned_data.get("energy", 0) or 0)
+            ),
+            1,
+        )
+        self.cleaned_data["fat_g"] = round(
+            Decimal(
+                str(data["fat"] or self.cleaned_data.get("fat_g", 0) or 0)
+            ),
+            1,
+        )
+        self.cleaned_data["saturated_fat_g"] = round(
+            Decimal(
+                str(
+                    data["saturates"]
+                    or self.cleaned_data.get("saturated_fat_g", 0)
+                    or 0
+                )
+            ),
+            1,
+        )
+        self.cleaned_data["carbs_g"] = round(
+            Decimal(
+                str(
+                    data["carbohydrates"]
+                    or self.cleaned_data.get("carbs_g", 0)
+                    or 0
+                )
+            ),
+            1,
+        )
+        self.cleaned_data["sugar_carbs_g"] = round(
+            Decimal(
+                str(
+                    data["sugars"]
+                    or self.cleaned_data.get("sugars_carbs_g", 0)
+                    or 0
+                )
+            ),
+            1,
+        )
+        self.cleaned_data["fibre_carbs_g"] = round(
+            Decimal(
+                str(
+                    data["fibre"]
+                    or self.cleaned_data.get("fibre_carbs_g", 0)
+                    or 0
+                )
+            ),
+            1,
+        )
+        self.cleaned_data["protein_g"] = round(
+            Decimal(
+                str(
+                    data["protein"]
+                    or self.cleaned_data.get("protein_g", 0)
+                    or 0
+                )
+            ),
+            1,
+        )
+        self.cleaned_data["salt_g"] = round(
+            Decimal(
+                str(data["salt"] or self.cleaned_data.get("salt_g", 0) or 0)
+            ),
+            1,
+        )
 
     def clean(self) -> Dict[str, str | Decimal]:
         """Add scraped info to the fields if requested.
 
         Returns:
-            Dict[str, str | Decimal]
+            Dict[str, str | Decimal]: cleaned data.
 
         Raises:
             ValidationError: if scraping is requested but URL isn't provided.
@@ -38,12 +117,12 @@ class FoodProductForm(forms.ModelForm):
                     "URL is required to scrape the info from"
                 )
 
-            if url[:31] != "https://www.ocado.com/products/":
+            try:
+                data = get_ocado_product_details(url)
+            except ValueError as exc:
                 raise forms.ValidationError(
                     "Only Ocado product URLs are supported"
-                )
-
-            data = get_ocado_product_details(url)
+                ) from exc
 
             del self.errors["name"]
 
@@ -71,83 +150,15 @@ class FoodProductForm(forms.ModelForm):
                 or self.cleaned_data.get("num_servings", 0)
                 or 0
             )
-            self.cleaned_data["energy"] = round(
-                Decimal(
-                    str(
-                        data["kcal"] or self.cleaned_data.get("energy", 0) or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["fat_g"] = round(
-                Decimal(
-                    str(data["fat"] or self.cleaned_data.get("fat_g", 0) or 0)
-                ),
-                1,
-            )
-            self.cleaned_data["saturated_fat_g"] = round(
-                Decimal(
-                    str(
-                        data["saturates"]
-                        or self.cleaned_data.get("saturated_fat_g", 0)
-                        or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["carbs_g"] = round(
-                Decimal(
-                    str(
-                        data["carbohydrates"]
-                        or self.cleaned_data.get("carbs_g", 0)
-                        or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["sugar_carbs_g"] = round(
-                Decimal(
-                    str(
-                        data["sugars"]
-                        or self.cleaned_data.get("sugars_carbs_g", 0)
-                        or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["fibre_carbs_g"] = round(
-                Decimal(
-                    str(
-                        data["fibre"]
-                        or self.cleaned_data.get("fibre_carbs_g", 0)
-                        or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["protein_g"] = round(
-                Decimal(
-                    str(
-                        data["protein"]
-                        or self.cleaned_data.get("protein_g", 0)
-                        or 0
-                    )
-                ),
-                1,
-            )
-            self.cleaned_data["salt_g"] = round(
-                Decimal(
-                    str(
-                        data["salt"] or self.cleaned_data.get("salt_g", 0) or 0
-                    )
-                ),
-                1,
-            )
             self.cleaned_data["nutritional_info_unit"] = (
                 data["size unit"]
                 or self.cleaned_data.get("nutritional_info_unit", "g")
                 or "g"
             )
+            self._clean_nutrition_facts(data)
+        elif self.cleaned_data.get("get_info_with_gemini"):
+            data = get_food_nutrition_facts(self.cleaned_data["name"])
+            self._clean_nutrition_facts(data)
 
         return self.cleaned_data
 
@@ -218,6 +229,7 @@ class FoodProductAdmin(admin.ModelAdmin):
             "Nutrition",
             {
                 "fields": [
+                    "get_info_with_gemini",
                     "nutritional_info_size",
                     "nutritional_info_unit",
                     "energy",
