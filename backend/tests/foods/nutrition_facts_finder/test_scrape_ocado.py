@@ -1,34 +1,27 @@
-"""Tests ocado scraper moduel."""
+"""Tests ocado scraper module."""
 
 import pytest
 
 from apps.foods.admin.product import FoodProductForm
 
+from . import DEFAULT_FORM_DATA
+
 URL = "https://www.ocado.com/products/geeta-s-tikka-paste-207606011"
-
-
-@pytest.fixture
-def gemini_api(mocker):
-    """Gemini API mock."""
-    data = {
-        "brand": "Ocado",
-        "name": "Chicken",
-        "size": 100,
-        "size unit": "ml",
-        "servings": 1,
-        "kcal": 100,
-        "fat": 10.1,
-        "saturates": 10.1,
-        "carbohydrates": 10.1,
-        "sugars": 10.1,
-        "fibre": 10.1,
-        "protein": 10.1,
-        "salt": 10.1,
-    }
-    mock = mocker.patch("apps.foods.ocado_scraper.genai.GenerativeModel")
-    mid_mock = mock.return_value.start_chat.return_value.send_message
-    mid_mock.return_value.text = str(data)
-    return mock
+GEMINI_DATA = {
+    "brand": "Ocado",
+    "name": "Chicken",
+    "size": 100,
+    "size unit": "ml",
+    "servings": 1,
+    "kcal": 100,
+    "fat": 10.1,
+    "saturates": 10.1,
+    "carbohydrates": 10.1,
+    "sugars": 10.1,
+    "fibre": 10.1,
+    "protein": 10.1,
+    "salt": 10.1,
+}
 
 
 @pytest.fixture
@@ -41,21 +34,14 @@ def ocado_request(requests_mock):
     )
 
 
+@pytest.mark.parametrize("gemini_api", ([GEMINI_DATA]), indirect=True)
 def test_ocado_scrapped(gemini_api, ocado_request):
     """Ocado is scrapped correctly."""
     # Given the following form data
     data = {
         "scrape_info_from_url": True,
         "url": URL,
-        "energy": 0,
-        "protein_g": 0,
-        "fat_g": 0,
-        "carbs_g": 0,
-        "nutritional_info_size": 0,
-        "nutritional_info_unit": "ml",
-        "weight": 0,
-        "weight_unit": "ml",
-        "num_servings": 0,
+        **DEFAULT_FORM_DATA,
     }
 
     # When the form is created
@@ -69,20 +55,13 @@ def test_ocado_scrapped(gemini_api, ocado_request):
     gemini_api.assert_called()
 
 
+@pytest.mark.parametrize("gemini_api", ([GEMINI_DATA]), indirect=True)
 def test_ocado_not_scrapped(gemini_api, ocado_request):
     """Ocado is not scrapped."""
     # Given the following form data
     data = {
         "name": "Hola",
-        "energy": 0,
-        "protein_g": 0,
-        "fat_g": 0,
-        "carbs_g": 0,
-        "nutritional_info_size": 0,
-        "nutritional_info_unit": "ml",
-        "weight": 0,
-        "weight_unit": "ml",
-        "num_servings": 0,
+        **DEFAULT_FORM_DATA,
     }
 
     # When the form is created
@@ -96,20 +75,13 @@ def test_ocado_not_scrapped(gemini_api, ocado_request):
     gemini_api.assert_not_called()
 
 
+@pytest.mark.parametrize("gemini_api", ([GEMINI_DATA]), indirect=True)
 def test_ocado_missing_url(gemini_api, ocado_request):
     """Missing URL."""
     # Given the following form data
     data = {
         "scrape_info_from_url": True,
-        "energy": 0,
-        "protein_g": 0,
-        "fat_g": 0,
-        "carbs_g": 0,
-        "nutritional_info_size": 0,
-        "nutritional_info_unit": "ml",
-        "weight": 0,
-        "weight_unit": "ml",
-        "num_servings": 0,
+        **DEFAULT_FORM_DATA,
     }
 
     # When the form is created
@@ -144,45 +116,36 @@ def test_non_ocado_url():
     assert "Only Ocado product URLs are supported" in str(form.errors)
 
 
-@pytest.fixture
-def gemini_api_missing_info(mocker):
-    """Gemini API missing info mock."""
-    data = {
-        "brand": None,
-        "name": "hola",
-        "size": None,
-        "size unit": None,
-        "servings": None,
-        "kcal": None,
-        "fat": None,
-        "saturates": None,
-        "carbohydrates": None,
-        "sugars": None,
-        "fibre": None,
-        "protein": None,
-        "salt": None,
-    }
-    mock = mocker.patch("apps.foods.ocado_scraper.genai.GenerativeModel")
-    mid_mock = mock.return_value.start_chat.return_value.send_message
-    mid_mock.return_value.text = str(data)
-    return mock
-
-
-def test_ocado_missing_info(gemini_api_missing_info, ocado_request):
+@pytest.mark.parametrize(
+    "gemini_api",
+    (
+        [
+            {
+                "brand": None,
+                "name": "hola",
+                "size": None,
+                "size unit": None,
+                "servings": None,
+                "kcal": None,
+                "fat": None,
+                "saturates": None,
+                "carbohydrates": None,
+                "sugars": None,
+                "fibre": None,
+                "protein": None,
+                "salt": None,
+            }
+        ]
+    ),
+    indirect=True,
+)
+def test_ocado_missing_info(gemini_api, ocado_request):
     """Ocado scrapper can handle empty info values."""
     # Given the following form data
     data = {
         "scrape_info_from_url": True,
         "url": URL,
-        "energy": 0,
-        "protein_g": 0,
-        "fat_g": 0,
-        "carbs_g": 0,
-        "nutritional_info_size": 0,
-        "nutritional_info_unit": "ml",
-        "weight": 0,
-        "weight_unit": "ml",
-        "num_servings": 0,
+        **DEFAULT_FORM_DATA,
     }
 
     # When the form is created
@@ -193,4 +156,4 @@ def test_ocado_missing_info(gemini_api_missing_info, ocado_request):
 
     # And ocado has been scraped
     assert ocado_request.call_count == 1
-    gemini_api_missing_info.assert_called()
+    gemini_api.assert_called()
