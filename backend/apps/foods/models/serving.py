@@ -71,6 +71,12 @@ class Serving(Nutrients):
         if self.unit == UNIT_SERVING:
             return int(self.food.weight // self.food.num_servings)
 
+        # pylint: disable=fixme
+        # TODO: if self.unit != self.food.weight_unit, the self.size of
+        # self.unit needs to be converted to self.food.weight_unit first
+        # - This might be related to why the `get_portion_for` function is
+        #   so convoluted.
+        # pylint: enable=fixme
         return self.size
 
     @property
@@ -92,6 +98,9 @@ class Serving(Nutrients):
         Returns:
             Decimal: proportion.
         """
+        # pylint: disable=fixme
+        # TODO: Refactor this unintelligible function
+        # pylint: enable=fixme
         value = getattr(food, nutrient) or 0
 
         unit = self.unit
