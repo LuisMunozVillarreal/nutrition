@@ -4,10 +4,8 @@ from typing import Any
 
 from django.db import models
 
-from ..managers import CupboardItemServingManager
 from .product import FoodProduct
 from .recipe import Recipe
-from .serving import Serving
 
 
 class CupboardItem(models.Model):
@@ -63,19 +61,30 @@ class CupboardItem(models.Model):
         super().save(*args, **kwargs)
 
 
-class CupboardItemServing(Serving):
-    """CupboardItemServing model class.
+class CupboardItemConsumption(models.Model):
+    """CupboardItemConsumption model class.
 
-    Note: A `CupboardItemServing` will be added to the DB when it's
-    planned, not before like `Servings`.
+    A `CupboardItemConsumption` will be added to the DB when it's
+    planned, not before like, `Servings`.
+
     The reason why is because it's unknown what servings will be used to
-    consume a product
+    consume a product.
     """
-
-    objects = CupboardItemServingManager()  # type: ignore
 
     item = models.ForeignKey(
         "foods.CupboardItem",
         on_delete=models.CASCADE,
         related_name="servings",
+    )
+
+    serving = models.ForeignKey(
+        "foods.Serving",
+        on_delete=models.CASCADE,
+        related_name="cupboard_items",
+    )
+
+    num_servings = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        default=1,
     )

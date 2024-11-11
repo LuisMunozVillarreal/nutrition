@@ -29,7 +29,7 @@ class Serving(Nutrients):
             "Size is the amount of units in the serving. For example, if the "
             "unit is grams and the size is 100, it means 100g. When the "
             "serving unit and the food weight unit is the same, then the "
-            "weight of the serving is the same as the weight of the serving. "
+            "weight of the serving is the same as the weight of the food. "
             "However, when the unit of the serving is 'container' or "
             "'serving', then the weight will most certainly differ from the "
             "size, e.g.: size 1 unit container weights 320g."
@@ -59,17 +59,17 @@ class Serving(Nutrients):
         return res
 
     @property
-    def weight(self) -> int:
+    def weight(self) -> Decimal:
         """Get the weight of the serving.
 
         Returns:
-            int: the weight of the serving.
+            Decimal: the weight of the serving.
         """
         if self.unit == UNIT_CONTAINER:
-            return self.food.weight
+            return Decimal(self.food.weight)
 
         if self.unit == UNIT_SERVING:
-            return int(self.food.weight // self.food.num_servings)
+            return Decimal(self.food.weight) / self.food.num_servings
 
         # pylint: disable=fixme
         # TODO: if self.unit != self.food.weight_unit, the self.size of
@@ -77,7 +77,7 @@ class Serving(Nutrients):
         # - This might be related to why the `get_portion_for` function is
         #   so convoluted.
         # pylint: enable=fixme
-        return self.size
+        return Decimal(self.size)
 
     @property
     def weight_unit(self) -> str:

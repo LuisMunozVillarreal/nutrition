@@ -9,7 +9,7 @@ from pint import UnitRegistry
 
 from apps.foods.models import (
     CupboardItem,
-    CupboardItemServing,
+    CupboardItemConsumption,
     Food,
     Recipe,
     Serving,
@@ -18,12 +18,15 @@ from apps.foods.models.units import UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING
 from apps.plans.models import Intake
 
 
-def _get_consumed_g(ureg: UnitRegistry, serving: Serving) -> Decimal:
+def _get_consumed_g(
+    ureg: UnitRegistry, serving: Serving, num_servings
+) -> Decimal:
     """Get consumed grams.
 
     Args:
         ureg (UnitRegistry): UnitRegistry instance.
         serving (Serving): serving to get the consumed grams from.
+        num_servings (Decimal): number of servings.
 
     Returns:
         Decimal: consumed grams.
@@ -33,7 +36,11 @@ def _get_consumed_g(ureg: UnitRegistry, serving: Serving) -> Decimal:
         unit = serving.weight_unit
 
     return (
-        (ureg.Quantity(Decimal(str(serving.weight))) * ureg(unit))
+        (
+            ureg.Quantity(Decimal(str(serving.weight)))
+            * num_servings
+            * ureg(unit)
+        )
         .to(UNIT_GRAM)
         .m
     )
@@ -92,13 +99,15 @@ def calculate_consumption_from_cooked_recipes(
         if not cupboard_item:
             continue
 
-        CupboardItemServing.objects.create_from_serving(
+        CupboardItemConsumption.objects.create(
             item=cupboard_item, serving=serving
         )
 
         consumed_g = Decimal("0")
         for cupboard_serving in cupboard_item.servings.all():
-            consumed_g += _get_consumed_g(ureg, cupboard_serving)
+            consumed_g += _get_consumed_g(
+                ureg, cupboard_serving.serving, cupboard_serving.num_servings
+            )
 
         cupboard_item.consumed_perc = _get_consumed_perc(
             ureg, cupboard_item.food, consumed_g
@@ -124,61 +133,57 @@ def calculate_consumption_from_intakes(
     if not created:
         return
 
-    serving = CupboardItemServing.objects.filter(pk=instance.food.pk).first()
-    if not serving:
+    item = CupboardItem.objects.filter(
+        food=instance.food.food, finished=False
+    ).first()
+    if not item:
         return
+
+    serving = instance.food
+
+    CupboardItemConsumption.objects.create(
+        item=item, serving=serving, num_servings=instance.num_servings
+    )
 
     ureg = serving.UREG
 
-    consumed_g = _get_consumed_g(ureg, serving)
+    consumed_g = _get_consumed_g(ureg, serving, instance.num_servings)
 
-    cupboard_item = serving.item
-    cupboard_item.consumed_perc = _get_consumed_perc(
-        ureg, cupboard_item.food, consumed_g
-    )
-    cupboard_item.save()
+    item.consumed_perc = _get_consumed_perc(ureg, item.food, consumed_g)
+    item.save()
 
 
-class CupboardItemAlreadyConsumedError(Exception):
-    """Cupboard Item Already Consumd Error."""
-
-
-class CupboardItemServingTooBigError(Exception):
+class CupboardItemConsumptionTooBigError(Exception):
     """Cupboard Item Serving Too Big Error."""
 
 
-@receiver(pre_save, sender=CupboardItemServing)
+@receiver(pre_save, sender=CupboardItemConsumption)
 def control_finished_items(
-    sender: CupboardItemServing,  # pylint: disable=unused-argument
-    instance: CupboardItemServing,
+    sender: CupboardItemConsumption,  # pylint: disable=unused-argument
+    instance: CupboardItemConsumption,
     **kwargs: Any,
 ) -> None:
     """Control finished items.
 
     Args:
-        sender (CupboardItemServing): signal sender.
-        instance (CupboardItemServing): instance to be saved.
+        sender (CupboardItemConsumption): signal sender.
+        instance (CupboardItemConsumption): instance to be saved.
         kwargs (Any): keyword arguments.
 
     Raises:
-        CupboardItemAlreadyConsumedError: if the cupboard item is already
-            consumed.
-        CupboardItemServingTooBigError: if the cupboard item serving is too
+        CupboardItemConsumptionTooBigError: if the cupboard item serving is too
             big to be consumed.
     """
     if instance.id is not None:
         return
 
-    if instance.item.finished:
-        raise CupboardItemAlreadyConsumedError()
-
-    serving = instance
+    serving = instance.serving
     ureg = serving.UREG
 
-    consumed_g = _get_consumed_g(ureg, serving)
+    consumed_g = _get_consumed_g(ureg, serving, instance.num_servings)
 
-    cupboard_item = serving.item
+    cupboard_item = instance.item
     consumed_perc = _get_consumed_perc(ureg, cupboard_item.food, consumed_g)
 
     if cupboard_item.consumed_perc + consumed_perc > 100:
-        raise CupboardItemServingTooBigError()
+        raise CupboardItemConsumptionTooBigError()
