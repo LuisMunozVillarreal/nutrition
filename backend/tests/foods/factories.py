@@ -96,7 +96,7 @@ class RecipeFactory(DjangoModelFactory):
     description = "Best recipe"
     url = "http://recipe.link"
     nutrients_from_ingredients = False
-    num_servings = 2
+    num_servings = 2.0
     energy = Decimal("1060")
     protein_g = 250
     fat_g = 5

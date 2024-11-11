@@ -16,6 +16,18 @@ class ServingAdmin(admin.ModelAdmin):
         "unit",
     ]
 
+    list_display = [
+        "id",
+        "food__brand",
+        "food__name",
+        "size",
+        "unit",
+        "energy",
+        "protein_g",
+        "fat_g",
+        "carbs_g",
+    ]
+
     def has_add_permission(self, request, obj=None):
         """Get whether it has add permission.
 
