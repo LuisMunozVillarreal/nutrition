@@ -5,6 +5,8 @@ from typing import Any
 from django.db import models
 
 from ..managers import CupboardItemServingManager
+from .product import FoodProduct
+from .recipe import Recipe
 from .serving import Serving
 
 
@@ -33,6 +35,22 @@ class CupboardItem(models.Model):
         default=0,
     )
 
+    def __str__(self) -> str:
+        """Get string representation of the object.
+
+        Return:
+            str: string representation of the object.
+        """
+        qs1 = FoodProduct.objects.filter(pk=self.food.pk)
+        if qs1.exists():
+            return str(qs1.first())
+
+        qs2 = Recipe.objects.filter(pk=self.food.pk)
+        if qs2.exists():
+            return str(qs2.first())
+
+        return str(self.food)
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
 
@@ -50,6 +68,8 @@ class CupboardItemServing(Serving):
 
     Note: A `CupboardItemServing` will be added to the DB when it's
     planned, not before like `Servings`.
+    The reason why is because it's unknown what servings will be used to
+    consume a product
     """
 
     objects = CupboardItemServingManager()  # type: ignore

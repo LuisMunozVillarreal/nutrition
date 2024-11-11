@@ -9,9 +9,14 @@ from apps.foods.models.cupboard import CupboardItem
 class CupboardItemAdmin(admin.ModelAdmin):
     """CupboardItem Admin class."""
 
+    autocomplete_fields = [
+        "food",
+    ]
+
     list_display = [
         "id",
         "food",
+        "food__num_servings",
         "started",
         "finished",
         "purchased_at",

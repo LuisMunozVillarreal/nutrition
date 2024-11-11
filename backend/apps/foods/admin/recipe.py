@@ -22,7 +22,6 @@ class RecipeIngredientInline(admin.TabularInline):
 
     fields = [
         "food",
-        # "serving",
         "num_servings",
         "energy",
         "protein_g",

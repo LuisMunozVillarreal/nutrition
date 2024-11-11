@@ -1,6 +1,40 @@
 """apps.foods.admin tests."""
 
 #
+# Cupboard
+#
+
+
+def test_search_renders_cupboard(logged_in_admin_client, cupboard_item):
+    """Admin search renders."""
+    # When
+    result = logged_in_admin_client.get(
+        "/admin/foods/cupboarditem/?q=something"
+    )
+
+    # Then
+    assert result.status_code == 200
+
+
+def test_add_new_renders_cupboard(logged_in_admin_client):
+    """Admin new renders."""
+    # When
+    result = logged_in_admin_client.get("/admin/foods/cupboarditem/add/")
+
+    # Then
+    assert result.status_code == 200
+
+
+def test_edit_renders_cupboard(logged_in_admin_client, cupboard_item):
+    """Admin edit renders."""
+    # When
+    result = logged_in_admin_client.get("/admin/foods/cupboarditem/1/change/")
+
+    # Then
+    assert result.status_code == 200
+
+
+#
 # FoodProduct
 #
 
@@ -58,7 +92,7 @@ def test_add_new_renders_recipe(logged_in_admin_client):
 
 
 def test_edit_renders_recipe(logged_in_admin_client, recipe_ingredient):
-    """Admin new renders."""
+    """Admin edit renders."""
     # When
     result = logged_in_admin_client.get("/admin/foods/recipe/1/change/")
 
