@@ -5,10 +5,59 @@ from typing import Any
 
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
+from pint import UnitRegistry
 
-from apps.foods.models import CupboardItem, CupboardItemServing, Recipe
-from apps.foods.models.units import UNIT_GRAM
+from apps.foods.models import (
+    CupboardItem,
+    CupboardItemServing,
+    Food,
+    Recipe,
+    Serving,
+)
+from apps.foods.models.units import UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING
 from apps.plans.models import Intake
+
+
+def _get_consumed_g(ureg: UnitRegistry, serving: Serving) -> Decimal:
+    """Get consumed grams.
+
+    Args:
+        ureg (UnitRegistry): UnitRegistry instance.
+        serving (Serving): serving to get the consumed grams from.
+
+    Returns:
+        Decimal: consumed grams.
+    """
+    unit = serving.unit
+    if unit in (UNIT_CONTAINER, UNIT_SERVING):
+        unit = serving.weight_unit
+
+    return (
+        (ureg.Quantity(Decimal(str(serving.weight))) * ureg(unit))
+        .to(UNIT_GRAM)
+        .m
+    )
+
+
+def _get_consumed_perc(
+    ureg: UnitRegistry, food: Food, consumed_g: Decimal
+) -> Decimal:
+    """Get consumed percentage.
+
+    Args:
+        ureg (UnitRegistry): UnitRegistry instance.
+        food (Food): food to get the consumed percentage from.
+        consumed_g (Decimal): consumed grams.
+
+    Returns:
+        Decimal: consumed percentage.
+    """
+    item_g = (
+        ureg.Quantity(Decimal(str(food.weight)) * ureg(food.weight_unit))
+        .to(UNIT_GRAM)
+        .m
+    )
+    return consumed_g * 100 / item_g
 
 
 @receiver(post_save, sender=CupboardItem)
@@ -29,46 +78,32 @@ def calculate_consumption_from_cooked_recipes(
     if not created:
         return
 
-    recipes = Recipe.objects.filter(pk=instance.food.pk)
-    if not recipes.exists():
+    recipe = Recipe.objects.filter(pk=instance.food.pk).first()
+    if not recipe:
         return
 
-    recipe = recipes.first()
-
-    for recipe_ingredient in recipe.ingredients.all():  # type: ignore
+    for recipe_ingredient in recipe.ingredients.all():
         serving = recipe_ingredient.food
         ureg = serving.UREG
 
-        qs = CupboardItem.objects.filter(food=serving.food, finished=False)
+        cupboard_item = CupboardItem.objects.filter(
+            food=serving.food, finished=False
+        ).first()
+        if not cupboard_item:
+            continue
 
-        cupboard_item = qs.first()
         CupboardItemServing.objects.create_from_serving(
             item=cupboard_item, serving=serving
         )
 
-        consumed_g = 0
-        for cupboard_serving in cupboard_item.servings.all():  # type: ignore
-            consumed_g += (
-                (
-                    ureg.Quantity(Decimal(str(cupboard_serving.size)))
-                    * ureg(cupboard_serving.unit)
-                )
-                .to(UNIT_GRAM)
-                .m
-            )
+        consumed_g = Decimal("0")
+        for cupboard_serving in cupboard_item.servings.all():
+            consumed_g += _get_consumed_g(ureg, cupboard_serving)
 
-        cupboard_item_g = (
-            ureg.Quantity(
-                Decimal(str(cupboard_item.food.weight))  # type: ignore
-                * ureg(cupboard_item.food.weight_unit)  # type: ignore
-            )
-            .to(UNIT_GRAM)
-            .m
+        cupboard_item.consumed_perc = _get_consumed_perc(
+            ureg, cupboard_item.food, consumed_g
         )
-        cupboard_item.consumed_perc = (  # type: ignore
-            consumed_g * 100 / cupboard_item_g
-        )
-        cupboard_item.save()  # type: ignore
+        cupboard_item.save()
 
 
 @receiver(post_save, sender=Intake)
@@ -89,29 +124,18 @@ def calculate_consumption_from_intakes(
     if not created:
         return
 
-    serving = instance.food
-
-    if not CupboardItemServing.objects.filter(pk=serving.pk).exists():
+    serving = CupboardItemServing.objects.filter(pk=instance.food.pk).first()
+    if not serving:
         return
 
     ureg = serving.UREG
 
-    consumed_g = (
-        (ureg.Quantity(Decimal(str(serving.size))) * ureg(serving.unit))
-        .to(UNIT_GRAM)
-        .m
-    )
+    consumed_g = _get_consumed_g(ureg, serving)
 
-    cupboard_item = serving.item  # type: ignore
-    cupboard_item_g = (
-        ureg.Quantity(
-            Decimal(str(cupboard_item.food.weight))
-            * ureg(cupboard_item.food.weight_unit)
-        )
-        .to(UNIT_GRAM)
-        .m
+    cupboard_item = serving.item
+    cupboard_item.consumed_perc = _get_consumed_perc(
+        ureg, cupboard_item.food, consumed_g
     )
-    cupboard_item.consumed_perc = consumed_g * 100 / cupboard_item_g
     cupboard_item.save()
 
 
@@ -150,22 +174,11 @@ def control_finished_items(
 
     serving = instance
     ureg = serving.UREG
-    consumed_g = (
-        (ureg.Quantity(Decimal(str(serving.size))) * ureg(serving.unit))
-        .to(UNIT_GRAM)
-        .m
-    )
+
+    consumed_g = _get_consumed_g(ureg, serving)
 
     cupboard_item = serving.item
-    cupboard_item_g = (
-        ureg.Quantity(
-            Decimal(str(cupboard_item.food.weight))
-            * ureg(cupboard_item.food.weight_unit)
-        )
-        .to(UNIT_GRAM)
-        .m
-    )
-    consumed_perc = consumed_g * 100 / cupboard_item_g
+    consumed_perc = _get_consumed_perc(ureg, cupboard_item.food, consumed_g)
 
     if cupboard_item.consumed_perc + consumed_perc > 100:
         raise CupboardItemServingTooBigError()
