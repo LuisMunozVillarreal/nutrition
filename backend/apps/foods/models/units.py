@@ -8,7 +8,7 @@ UNIT_OUNCE = "oz"
 UNIT_POUND = "lb"
 
 UNIT_LITRE = "l"
-UNIT_MILILITRE = "ml"
+UNIT_MILLILITRE = "ml"
 UNIT_CUP = "cup"
 UNIT_TEASPOON = "tsp"
 UNIT_TABLESPOON = "tbsp"
@@ -24,7 +24,7 @@ UNIT_CHOICES = (
     (UNIT_OUNCE, "ounce(s)"),
     (UNIT_POUND, "pound(s)"),
     (UNIT_LITRE, "litre(s)"),
-    (UNIT_MILILITRE, "millilitre(s)"),
+    (UNIT_MILLILITRE, "millilitre(s)"),
     (UNIT_TEASPOON, "teaspoon(s)"),
     (UNIT_TABLESPOON, "tablespoon(s)"),
     (UNIT_CUP, "cup(s)"),
