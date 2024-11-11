@@ -6,6 +6,7 @@ import pytest
 from django.db.models import Sum
 
 from apps.foods.models.cupboard import CupboardItem
+from apps.foods.models.units import UNIT_CONTAINER, UNIT_SERVING
 from apps.foods.signals.handlers.cupboard import (
     CupboardItemAlreadyConsumedError,
     CupboardItemServingTooBigError,
@@ -46,8 +47,12 @@ def test_add_cooked_recipe_to_cupboard(
 
     # And a recipe made of those products
     recipe = recipe_factory()
-    recipe_ingredient_factory(recipe=recipe, food=fp1.servings.first())
-    recipe_ingredient_factory(recipe=recipe, food=fp2.servings.first())
+    recipe_ingredient_factory(
+        recipe=recipe, food=fp1.servings.filter(unit=UNIT_CONTAINER).first()
+    )
+    recipe_ingredient_factory(
+        recipe=recipe, food=fp2.servings.filter(unit=UNIT_SERVING).first()
+    )
     recipe_ingredient_factory(recipe=recipe, food=fp2.servings.first())
 
     # When that recipe is added to the cupboard
@@ -56,9 +61,34 @@ def test_add_cooked_recipe_to_cupboard(
     # Then the required food products servings to cook that recipe have been
     # removed from the cupboard
     cfp1.refresh_from_db()
-    assert cfp1.consumed_perc == 31.25
+    assert cfp1.consumed_perc == 100
     cfp2.refresh_from_db()
-    assert cfp2.consumed_perc == 62.5
+    assert cfp2.consumed_perc == 81.25
+
+
+def test_add_cooked_recipe_to_an_empty_cupboard(
+    food_product_factory,
+    recipe_factory,
+    recipe_ingredient_factory,
+    cupboard_item_factory,
+):
+    """Cooked recipe can be added to an empty cupboard."""
+    # Given a few food products in the cupboard
+    fp1 = food_product_factory()
+    fp2 = food_product_factory()
+
+    # And a recipe made of those products
+    recipe = recipe_factory()
+    recipe_ingredient_factory(recipe=recipe, food=fp1.servings.first())
+    recipe_ingredient_factory(recipe=recipe, food=fp2.servings.first())
+    recipe_ingredient_factory(recipe=recipe, food=fp2.servings.first())
+
+    # When that recipe is added to the cupboard
+    cupboard_item = cupboard_item_factory(food=recipe)
+
+    # Then the recipe is in the cupboard
+    assert CupboardItem.objects.count() == 1
+    assert CupboardItem.objects.first() == cupboard_item
 
 
 def test_plan_or_consume_cupboard_item(cupboard_item_serving, intake_factory):
