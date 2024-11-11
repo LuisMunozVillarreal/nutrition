@@ -201,3 +201,27 @@ def test_existing_cupboard_item_serving_does_not_consume_cupboard_item_twice(
 
     # Then the cupboard item consumption remains the same
     assert item.consumed_perc == Decimal("31.25")
+
+
+def test_cupboard_str_based_on_product(cupboard_item_factory, food_product):
+    """Cupboard item string representation is based on the product."""
+    # Given a cupboard item based on a food product
+    item = cupboard_item_factory(food=food_product)
+
+    # When the item is converted to a string
+    res = str(item)
+
+    # Then the string representation is the same as the food product
+    assert res == str(food_product)
+
+
+def test_cupboard_str_based_on_recipe(cupboard_item_factory, recipe):
+    """Cupboard item string representation is based on the recipe."""
+    # Given a cupboard item based on a recipe
+    item = cupboard_item_factory(food=recipe)
+
+    # When the item is converted to a string
+    res = str(item)
+
+    # Then the string representation is the same as the recipe
+    assert res == str(recipe)

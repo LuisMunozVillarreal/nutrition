@@ -35,7 +35,7 @@ class Recipe(Food):
         Returns:
             str: string representation of the object.
         """
-        return self.name
+        return f"{self.name} ({self.num_servings}s)"
 
 
 class RecipeIngredient(Nutrients):
