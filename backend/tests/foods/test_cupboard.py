@@ -5,11 +5,10 @@ from decimal import Decimal
 import pytest
 from django.db.models import Sum
 
-from apps.foods.models.cupboard import CupboardItem
+from apps.foods.models.cupboard import CupboardItem, CupboardItemConsumption
 from apps.foods.models.units import UNIT_CONTAINER, UNIT_SERVING
 from apps.foods.signals.handlers.cupboard import (
-    CupboardItemAlreadyConsumedError,
-    CupboardItemServingTooBigError,
+    CupboardItemConsumptionTooBigError,
 )
 
 
@@ -59,7 +58,10 @@ def test_add_cooked_recipe_to_cupboard(
     cupboard_item_factory(food=recipe)
 
     # Then the required food products servings to cook that recipe have been
-    # removed from the cupboard
+    # added as consumed to the cupboard
+    assert CupboardItemConsumption.objects.count() == 3
+
+    # And the consumed percentage is correct
     cfp1.refresh_from_db()
     assert cfp1.consumed_perc == 100
     cfp2.refresh_from_db()
@@ -91,56 +93,45 @@ def test_add_cooked_recipe_to_an_empty_cupboard(
     assert CupboardItem.objects.first() == cupboard_item
 
 
-def test_plan_or_consume_cupboard_item(cupboard_item_serving, intake_factory):
+def test_plan_or_consume_cupboard_item(cupboard_item, serving, intake_factory):
     """Cupboard item can be planned or consumed."""
-    # When a cupboard item serving is linked to an intake
-    intake_factory(food=cupboard_item_serving)
+    # When a cupboard item is consumed partially
+    intake_factory(food=cupboard_item.food.servings.first(), num_servings=2)
 
     # Then the item serving portion appears as consumed in the cupboard
-    assert cupboard_item_serving.item.consumed_perc == 31.25
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 62.5
 
     # And the item appears as started, but not finished
-    assert cupboard_item_serving.item.started is True
-    assert cupboard_item_serving.item.finished is False
+    assert cupboard_item.started is True
+    assert cupboard_item.finished is False
+
+    # And there is a consumption based in the serving in the DB
+    assert CupboardItemConsumption.objects.count() == 1
+    assert CupboardItemConsumption.objects.first().serving == serving
+    assert CupboardItemConsumption.objects.first().num_servings == 2
 
 
-def test_finish_cupboard_item(intake_factory, cupboard_item_serving_factory):
+def test_finish_cupboard_item(intake_factory, cupboard_item, serving):
     """Cupboard item gets finished."""
-    # Given a serving as big as the cupboard item
-    serving = cupboard_item_serving_factory(size=320)
-
-    # When that serving is consumed
-    intake_factory(food=serving)
+    # When a serving as big as the cupboard item is consumed
+    intake_factory(food=serving, num_servings=Decimal("3.2"))
 
     # Then the item appears as finished
-    assert serving.item.finished is True
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.finished is True
 
 
-def test_try_plan_finished_item(intake_factory, cupboard_item_serving_factory):
-    """Finished cupboard item can't be planned again."""
-    # Given an already finished item
-    serving = cupboard_item_serving_factory(size=320)
-    intake_factory(food=serving)
-    assert serving.item.finished is True
-
-    # When an already finished item is tried to be consumed
-    # Then an error is raised
-    with pytest.raises(CupboardItemAlreadyConsumedError):
-        intake_factory(food=cupboard_item_serving_factory(item=serving.item))
-
-
-def test_try_consume_more_than_left(
-    intake_factory, cupboard_item_serving_factory
-):
+def test_try_consume_more_than_left(intake_factory, cupboard_item, serving):
     """Consuming more than available isn't possible."""
+    # Given a cupboard item that is almost consumed
+    intake_factory(food=serving, num_servings=Decimal("3"))
+
     # When a serving that is bigger than the remaining cupboard product
     # is tried to be consumed
-    serving = cupboard_item_serving_factory(size=300)
-    intake_factory(food=serving)
-
     # Then an error is raised
-    with pytest.raises(CupboardItemServingTooBigError):
-        intake_factory(food=cupboard_item_serving_factory(item=serving.item))
+    with pytest.raises(CupboardItemConsumptionTooBigError):
+        intake_factory(food=serving)
 
 
 def test_plan_or_consume_non_cupboard_item(day, intake_factory):
@@ -208,29 +199,23 @@ def test_existing_cupboard_item_does_not_consume_other_items_twice(
     )
 
 
-def test_existing_cupboard_item_serving_does_not_consume_cupboard_item_twice(
-    cupboard_item_factory,
-    cupboard_item_serving_factory,
-    intake_factory,
+def test_existing_cupboard_item_consump_does_not_consume_cupboard_item_twice(
+    cupboard_item, serving, intake_factory
 ):
     """Existing cupboard item serving can't be consumed twice."""
-    # Given a cupboard item
-    item = cupboard_item_factory()
-
-    # And a cupboard item serving
-    serving = cupboard_item_serving_factory(item=item)
-
     # And the serving is part of an intake
     intake_factory(food=serving)
 
     # And a cupboard item consumption
-    assert item.consumed_perc == Decimal("31.25")
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
 
-    # When the cupboard item serving is saved
-    serving.save()
+    # When the related cupboard item serving is saved
+    cupboard_item.servings.first().save()
 
     # Then the cupboard item consumption remains the same
-    assert item.consumed_perc == Decimal("31.25")
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
 
 
 def test_cupboard_str_based_on_product(cupboard_item_factory, food_product):
