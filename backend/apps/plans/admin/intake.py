@@ -25,6 +25,7 @@ class IntakeAdmin(admin.ModelAdmin):
         "id",
         "day",
         "food",
+        "num_servings",
         "meal",
         "energy",
         "protein_g",
@@ -35,6 +36,7 @@ class IntakeAdmin(admin.ModelAdmin):
     fields = [
         "day",
         "food",
+        "num_servings",
         "meal",
         "energy",
         "protein_g",
