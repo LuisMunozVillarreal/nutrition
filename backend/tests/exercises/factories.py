@@ -8,7 +8,7 @@ from factory.django import DjangoModelFactory
 
 from apps.exercises.models import DaySteps, Exercise
 
-from ..plans.factories import DayFactory
+from ..plans.factories.day import DayFactory
 
 
 class ExerciseFactory(DjangoModelFactory):
