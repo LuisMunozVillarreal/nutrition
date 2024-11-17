@@ -5,22 +5,23 @@ import requests_mock as requests_mock_lib
 from pytest_factoryboy import register
 
 from .exercises.factories import DayStepsFactory, ExerciseFactory
-from .foods.factories import (
+from .foods.factories.cupboard import (
     CupboardItemFactory,
-    CupboardItemServingFactory,
-    FoodFactory,
-    FoodProductFactory,
-    RecipeFactory,
-    RecipeIngredientFactory,
-    ServingFactory,
+    CupboardItemIntakeFactory,
 )
+from .foods.factories.food import FoodFactory
+from .foods.factories.product import FoodProductFactory
+from .foods.factories.recipe import RecipeFactory, RecipeIngredientFactory
+from .foods.factories.serving import ServingFactory
 from .goals.factories import FatPercGoalFactory
 from .measurements.factories import MeasurementFactory
-from .plans.factories import DayFactory, IntakeFactory, WeekPlanFactory
+from .plans.factories.day import DayFactory
+from .plans.factories.intake import IntakeFactory
+from .plans.factories.week import WeekPlanFactory
 from .users.factories import UserFactory
 
 register(CupboardItemFactory)
-register(CupboardItemServingFactory)
+register(CupboardItemIntakeFactory)
 register(DayFactory)
 register(DayStepsFactory)
 register(ExerciseFactory)
