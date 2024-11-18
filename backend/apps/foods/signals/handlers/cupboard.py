@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from pint import UnitRegistry
 
@@ -67,6 +67,33 @@ def _get_consumed_perc(
     return consumed_g * 100 / item_g
 
 
+def _set_total_consumed_perc(cupboard_item: CupboardItem) -> None:
+    """Set total consumed percentage.
+
+    Args:
+        cupboard_item (CupboardItem): cupboard item to set the total consumed
+            percentage.
+    """
+    consumed_g = Decimal("0")
+    for consumption in cupboard_item.consumptions.all():
+        ureg = consumption.serving.UREG
+
+        num_servings = Decimal("1")
+        if consumption.intake:
+            num_servings = consumption.intake.num_servings
+
+        consumed_g += _get_consumed_g(ureg, consumption.serving, num_servings)
+
+    if consumed_g:
+        cupboard_item.consumed_perc = _get_consumed_perc(
+            ureg, cupboard_item.food, consumed_g
+        )
+    else:
+        cupboard_item.consumed_perc = 0
+
+    cupboard_item.save()
+
+
 @receiver(post_save, sender=CupboardItem)
 def calculate_consumption_from_cooked_recipes(
     sender: CupboardItem,  # pylint: disable=unused-argument
@@ -91,7 +118,6 @@ def calculate_consumption_from_cooked_recipes(
 
     for recipe_ingredient in recipe.ingredients.all():
         serving = recipe_ingredient.food
-        ureg = serving.UREG
 
         cupboard_item = CupboardItem.objects.filter(
             food=serving.food, finished=False
@@ -103,20 +129,11 @@ def calculate_consumption_from_cooked_recipes(
             item=cupboard_item, serving=serving
         )
 
-        consumed_g = Decimal("0")
-        for cupboard_serving in cupboard_item.servings.all():
-            consumed_g += _get_consumed_g(
-                ureg, cupboard_serving.serving, cupboard_serving.num_servings
-            )
-
-        cupboard_item.consumed_perc = _get_consumed_perc(
-            ureg, cupboard_item.food, consumed_g
-        )
-        cupboard_item.save()
+        _set_total_consumed_perc(cupboard_item)
 
 
 @receiver(post_save, sender=Intake)
-def calculate_consumption_from_intakes(
+def calculate_consumption_from_added_intakes(
     sender: Intake,  # pylint: disable=unused-argument
     instance: Intake,
     created: bool,
@@ -130,9 +147,6 @@ def calculate_consumption_from_intakes(
         created (bool): whether is created or not.
         kwargs (Any): keyword arguments.
     """
-    if not created:
-        return
-
     item = CupboardItem.objects.filter(
         food=instance.food.food, finished=False
     ).first()
@@ -141,16 +155,30 @@ def calculate_consumption_from_intakes(
 
     serving = instance.food
 
-    CupboardItemConsumption.objects.create(
-        item=item, serving=serving, num_servings=instance.num_servings
-    )
+    if created:
+        CupboardItemConsumption.objects.create(
+            item=item,
+            serving=serving,
+            intake=instance,
+        )
 
-    ureg = serving.UREG
+    _set_total_consumed_perc(item)
 
-    consumed_g = _get_consumed_g(ureg, serving, instance.num_servings)
 
-    item.consumed_perc = _get_consumed_perc(ureg, item.food, consumed_g)
-    item.save()
+@receiver(post_delete, sender=CupboardItemConsumption)
+def recalculate_consumption_after_deletion(
+    sender: CupboardItemConsumption,  # pylint: disable=unused-argument
+    instance: CupboardItemConsumption,
+    **kwargs: Any,
+) -> None:
+    """Recalculate consumption after a CupboardItemConsumption gets removed.
+
+    Args:
+        sender (CupboardItemConsumption): signal sender.
+        instance (CupboardItemConsumption): instance that will be deleted.
+        kwargs (Any): keyword arguments.
+    """
+    _set_total_consumed_perc(instance.item)
 
 
 class CupboardItemConsumptionTooBigError(Exception):
@@ -179,8 +207,11 @@ def control_finished_items(
 
     serving = instance.serving
     ureg = serving.UREG
+    num_servings = 1
+    if instance.intake:
+        num_servings = instance.intake.num_servings
 
-    consumed_g = _get_consumed_g(ureg, serving, instance.num_servings)
+    consumed_g = _get_consumed_g(ureg, serving, num_servings)
 
     cupboard_item = instance.item
     consumed_perc = _get_consumed_perc(ureg, cupboard_item.food, consumed_g)

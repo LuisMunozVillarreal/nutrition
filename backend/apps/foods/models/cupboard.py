@@ -74,7 +74,7 @@ class CupboardItemConsumption(models.Model):
     item = models.ForeignKey(
         "foods.CupboardItem",
         on_delete=models.CASCADE,
-        related_name="servings",
+        related_name="consumptions",
     )
 
     serving = models.ForeignKey(
@@ -83,8 +83,9 @@ class CupboardItemConsumption(models.Model):
         related_name="cupboard_items",
     )
 
-    num_servings = models.DecimalField(
-        max_digits=10,
-        decimal_places=1,
-        default=1,
+    intake = models.OneToOneField(
+        "plans.Intake",
+        on_delete=models.CASCADE,
+        related_name="cupboard_item_consumption",
+        null=True,
     )
