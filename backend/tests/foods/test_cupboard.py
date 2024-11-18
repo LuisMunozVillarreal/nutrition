@@ -21,7 +21,7 @@ def test_add_food_to_cupboard(cupboard_item_factory):
     assert item.consumed_perc == 0
 
     # And all its servings are available
-    assert item.servings.count() == 0
+    assert item.consumptions.count() == 0
 
     # And it's not started
     assert item.started is False
@@ -75,7 +75,7 @@ def test_add_cooked_recipe_to_an_empty_cupboard(
     cupboard_item_factory,
 ):
     """Cooked recipe can be added to an empty cupboard."""
-    # Given a few food products in the cupboard
+    # Given a few food products
     fp1 = food_product_factory()
     fp2 = food_product_factory()
 
@@ -96,7 +96,9 @@ def test_add_cooked_recipe_to_an_empty_cupboard(
 def test_plan_or_consume_cupboard_item(cupboard_item, serving, intake_factory):
     """Cupboard item can be planned or consumed."""
     # When a cupboard item is consumed partially
-    intake_factory(food=cupboard_item.food.servings.first(), num_servings=2)
+    intake = intake_factory(
+        food=cupboard_item.food.servings.first(), num_servings=2
+    )
 
     # Then the item serving portion appears as consumed in the cupboard
     cupboard_item.refresh_from_db()
@@ -109,7 +111,55 @@ def test_plan_or_consume_cupboard_item(cupboard_item, serving, intake_factory):
     # And there is a consumption based in the serving in the DB
     assert CupboardItemConsumption.objects.count() == 1
     assert CupboardItemConsumption.objects.first().serving == serving
-    assert CupboardItemConsumption.objects.first().num_servings == 2
+    assert CupboardItemConsumption.objects.first().intake == intake
+
+
+def test_remove_intake(cupboard_item, serving, intake_factory):
+    """Remove intake recalculates cupboard item consumption."""
+    # Given an intake that has consumed a cupboard item
+    intake = intake_factory(food=cupboard_item.food.servings.first())
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 31.25
+    assert cupboard_item.started is True
+
+    # When the intake is removed
+    intake.delete()
+
+    # Then the cupboard item consumption is recalculated and back to zero
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 0
+    assert cupboard_item.started is False
+
+
+def test_add_another_consumption(cupboard_item, serving, intake_factory):
+    """Add another consumption reflects in the consumption percentage."""
+    # Given a cupboard item that has been partially consumed
+    intake_factory(food=cupboard_item.food.servings.first())
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 31.25
+
+    # When another consumption is added
+    intake_factory(food=cupboard_item.food.servings.first())
+
+    # Then the consumed percentage is updated
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 62.5
+
+
+def test_modify_intake(cupboard_item, serving, intake_factory):
+    """Modify an intake reflects on the cupboard item consumption."""
+    # Given a cupboard item that has been partially consumed
+    intake = intake_factory(food=cupboard_item.food.servings.first())
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 31.25
+
+    # When the intake is modified
+    intake.num_servings = 3
+    intake.save()
+
+    # Then the consumed percentage is updated
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 93.75
 
 
 def test_finish_cupboard_item(intake_factory, cupboard_item, serving):
@@ -211,7 +261,7 @@ def test_existing_cupboard_item_consump_does_not_consume_cupboard_item_twice(
     assert cupboard_item.consumed_perc == Decimal("31.25")
 
     # When the related cupboard item serving is saved
-    cupboard_item.servings.first().save()
+    cupboard_item.consumptions.first().save()
 
     # Then the cupboard item consumption remains the same
     cupboard_item.refresh_from_db()
