@@ -6,6 +6,7 @@ from factory import SubFactory
 from factory.django import DjangoModelFactory
 
 from apps.foods.models import CupboardItem, CupboardItemConsumption
+from tests.plans.factories.intake import IntakeFactory
 
 from .food import FoodFactory
 from .serving import ServingFactory
@@ -29,3 +30,4 @@ class CupboardItemConsumptionFactory(DjangoModelFactory):
 
     item = SubFactory(CupboardItemFactory)
     serving = SubFactory(ServingFactory)
+    intake = SubFactory(IntakeFactory)
