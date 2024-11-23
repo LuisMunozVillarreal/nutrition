@@ -39,6 +39,15 @@ def test_edit_renders_cupboard(logged_in_admin_client, cupboard_item):
 #
 
 
+def test_list_renders_food(logged_in_admin_client, food_product):
+    """Admin list renders."""
+    # When
+    result = logged_in_admin_client.get("/admin/foods/foodproduct/")
+
+    # Then
+    assert result.status_code == 200
+
+
 def test_search_renders_food(logged_in_admin_client, food_product):
     """Admin search renders."""
     # When

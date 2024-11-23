@@ -640,6 +640,20 @@ django = "*"
 typing-extensions = "*"
 
 [[package]]
+name = "django-taggit"
+version = "6.1.0"
+description = "django-taggit is a reusable Django application for simple tagging."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "django_taggit-6.1.0-py3-none-any.whl", hash = "sha256:ab776264bbc76cb3d7e49e1bf9054962457831bd21c3a42db9138b41956e4cf0"},
+    {file = "django_taggit-6.1.0.tar.gz", hash = "sha256:c4d1199e6df34125dd36db5eb0efe545b254dec3980ce5dd80e6bab3e78757c3"},
+]
+
+[package.dependencies]
+Django = ">=4.1"
+
+[[package]]
 name = "docstring-to-markdown"
 version = "0.15"
 description = "On the fly conversion of Python docstrings to markdown"
@@ -2878,4 +2892,4 @@ platformdirs = ">=3.5.1"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "c475f24848d3fbb23960b6a9707e16ce7257aa1cfce2e3fa4fe612b1b1d1bddd"
+content-hash = "275cb9394d16e81707e796174c0e974c28727dfdfcadd4ef63a715888f4b76ff"
