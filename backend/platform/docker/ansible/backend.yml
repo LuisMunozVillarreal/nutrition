@@ -3,7 +3,7 @@
   hosts: localhost
   connection: local
   vars:
-    project_name: api
+    project_name: nutrition-backend
     env: "{{ lookup('env', 'ENV') }}"
     user: "{{ lookup('env', 'USER_NAME') }}"
     group: "{{ lookup('env', 'USER_NAME') }}"
