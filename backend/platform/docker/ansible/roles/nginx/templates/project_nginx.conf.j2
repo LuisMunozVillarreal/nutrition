@@ -6,7 +6,7 @@ server {
 
     client_max_body_size 4G;
 
-    access_log /dev/stdout;
+    access_log /dev/stdout healthcheck;
     error_log  /dev/stderr;
 
     keepalive_timeout 5;
@@ -26,7 +26,7 @@ server {
 
     client_max_body_size 4G;
 
-    access_log /dev/stdout;
+    access_log /dev/stdout main;
     error_log  /dev/stderr;
 
     # redirect to https

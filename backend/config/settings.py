@@ -205,3 +205,29 @@ GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
 
 # Gemini
 GEMINI_API_KEY = ENV("GEMINI_API_KEY")
+
+
+# Logging
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "named": {
+            "format": (
+                "Django       - {levelname} {asctime} {module} {process:d} "
+                "{thread:d} {message}"
+            ),
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "named",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "propagate": True,
+    },
+}
