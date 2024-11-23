@@ -1,6 +1,7 @@
 """Food model module."""
 
 from django.db import models
+from taggit.managers import TaggableManager
 
 from .nutrients import Nutrients
 from .units import UNIT_CHOICES, UNIT_GRAM
@@ -20,6 +21,10 @@ class Food(Nutrients):
     )
 
     url = models.URLField(
+        blank=True,
+    )
+
+    tags = TaggableManager(
         blank=True,
     )
 

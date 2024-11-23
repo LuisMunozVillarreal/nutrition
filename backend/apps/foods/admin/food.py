@@ -12,6 +12,7 @@ class FoodAdmin(admin.ModelAdmin):
     search_fields = [
         "brand",
         "name",
+        "tags__name",
     ]
 
     def get_model_perms(self, request):

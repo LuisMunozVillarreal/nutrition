@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+from factory import post_generation
 from factory.django import DjangoModelFactory
 
 from apps.foods.models import FoodProduct
@@ -12,6 +13,7 @@ class FoodProductFactory(DjangoModelFactory):
 
     class Meta:
         model = FoodProduct
+        skip_postgeneration_save = True
 
     brand = "Ocado"
     name = "Chicken Breast"
@@ -36,3 +38,11 @@ class FoodProductFactory(DjangoModelFactory):
     vitamin_c_perc = 0
     calcium_perc = 0
     iron_perc = 0
+
+    @post_generation
+    def tags(obj, create, extracted, **kwargs):
+        """Add tags to the factory."""
+        if not create:
+            return
+
+        obj.tags.add("chicken", "breast")
