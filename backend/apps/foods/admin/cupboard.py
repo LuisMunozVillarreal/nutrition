@@ -17,14 +17,16 @@ class CupboardItemAdmin(admin.ModelAdmin):
         "id",
         "food",
         "food__num_servings",
+        "consumed_servings",
+        "consumed_perc",
         "started",
         "finished",
         "purchased_at",
-        "consumed_perc",
     ]
 
     readonly_fields = [
         "started",
         "finished",
+        "consumed_servings",
         "consumed_perc",
     ]
