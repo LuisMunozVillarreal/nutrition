@@ -14,6 +14,8 @@ class IntakeAdmin(admin.ModelAdmin):
     # pylint: disable=duplicate-code
 
     ordering = [
+        "-day__plan",
+        "-day__day",
         "meal_order",
     ]
 

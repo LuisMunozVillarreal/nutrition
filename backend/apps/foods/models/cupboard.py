@@ -57,7 +57,7 @@ class CupboardItem(models.Model):
         Returns:
             Decimal: consumed servings.
         """
-        return round(self.food.num_servings * self.consumed_perc / 100, 1)
+        return self.food.num_servings * self.consumed_perc / 100
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.

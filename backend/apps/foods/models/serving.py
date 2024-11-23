@@ -6,6 +6,8 @@ from typing import Any
 from django.db import models
 from pint import UnitRegistry
 
+from apps.libs.admin import round_no_trailing_zeros
+
 from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
 from .product import FoodProduct
@@ -54,7 +56,9 @@ class Serving(Nutrients):
         res += self.unit
 
         if self.unit in (UNIT_CONTAINER, UNIT_SERVING):
-            res += f" ({round(self.weight, 2)}{self.weight_unit})"
+            res += (
+                f" ({round_no_trailing_zeros(self.weight)}{self.weight_unit})"
+            )
 
         return res
 
