@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.contrib import admin
 
-from apps.libs.admin import get_remaining_fields
+from apps.libs.admin import get_remaining_fields, round_no_trailing_zeros
 
 from ..models import Recipe, RecipeIngredient
 
@@ -101,7 +101,7 @@ class RecipeAdmin(admin.ModelAdmin):
         Returns:
             Decimal: Energy per serving.
         """
-        return round(obj.energy / obj.num_servings, 1)
+        return round_no_trailing_zeros(obj.energy / obj.num_servings, 1)
 
     @admin.display(description="Protein p/s")
     def protein_p_s(self, obj: Recipe) -> Decimal:
@@ -113,7 +113,7 @@ class RecipeAdmin(admin.ModelAdmin):
         Returns:
             Decimal: Protein per serving
         """
-        return round(obj.protein_g / obj.num_servings, 1)
+        return round_no_trailing_zeros(obj.protein_g / obj.num_servings, 1)
 
     @admin.display(description="Fat p/s")
     def fat_p_s(self, obj: Recipe) -> Decimal:
@@ -125,7 +125,7 @@ class RecipeAdmin(admin.ModelAdmin):
         Returns:
             Decimal: Fat per serving
         """
-        return round(obj.fat_g / obj.num_servings, 1)
+        return round_no_trailing_zeros(obj.fat_g / obj.num_servings, 1)
 
     @admin.display(description="Carbs p/s")
     def carbs_p_s(self, obj: Recipe) -> Decimal:
@@ -137,4 +137,4 @@ class RecipeAdmin(admin.ModelAdmin):
         Returns:
             Decimal: Carbs per serving
         """
-        return round(obj.carbs_g / obj.num_servings, 1)
+        return round_no_trailing_zeros(obj.carbs_g / obj.num_servings, 1)

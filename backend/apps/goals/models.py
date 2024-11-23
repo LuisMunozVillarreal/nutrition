@@ -24,6 +24,7 @@ class FatPercGoal(BaseModel):
     body_fat_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
+        help_text="Body fat percentage goal.",
     )
 
     def get_weeks_to_goal(self, cutting_kcals_week: int) -> Decimal:
