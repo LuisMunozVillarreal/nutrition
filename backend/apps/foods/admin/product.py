@@ -5,6 +5,7 @@ from typing import Dict
 
 from django import forms
 from django.contrib import admin
+from django.db.models.query import QuerySet
 
 from apps.foods.nutrition_facts_finder import (
     get_food_nutrition_facts,
@@ -178,12 +179,14 @@ class FoodProductAdmin(admin.ModelAdmin):
     search_fields = [
         "brand",
         "name",
+        "tags__name",
     ]
 
     list_display = [
         "id",
         "brand",
         "name",
+        "tag_list",
         "weight",
         "weight_unit",
         "num_servings",
@@ -216,6 +219,7 @@ class FoodProductAdmin(admin.ModelAdmin):
                 "fields": [
                     "brand",
                     "name",
+                    "tags",
                     "url",
                     "scrape_info_from_url",
                     "barcode",
@@ -247,3 +251,25 @@ class FoodProductAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def get_queryset(self, request) -> QuerySet:
+        """Get queryset.
+
+        Args:
+            request (request): user request.
+
+        Returns:
+            QuerySet: queryset.
+        """
+        return super().get_queryset(request).prefetch_related("tags")
+
+    def tag_list(self, obj) -> str:
+        """Get tag list.
+
+        Args:
+            obj (FoodProduct): FoodProduct instance.
+
+        Returns:
+            str: tag list.
+        """
+        return ", ".join(o.name for o in obj.tags.all())

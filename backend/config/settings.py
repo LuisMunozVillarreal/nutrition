@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_extensions",
     "nested_inline",
+    "taggit",
 ]
 
 MIDDLEWARE = [

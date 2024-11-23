@@ -12,6 +12,7 @@ class ServingAdmin(admin.ModelAdmin):
     search_fields = [
         "food__brand",
         "food__name",
+        "food__tags__name",
         "size",
         "unit",
     ]
