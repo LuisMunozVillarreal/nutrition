@@ -1,5 +1,6 @@
 """CupboardItem model module."""
 
+from decimal import Decimal
 from typing import Any
 
 from django.db import models
@@ -48,6 +49,15 @@ class CupboardItem(models.Model):
             return str(qs2.first())
 
         return str(self.food)
+
+    @property
+    def consumed_servings(self) -> Decimal:
+        """Get consumed servings.
+
+        Returns:
+            Decimal: consumed servings.
+        """
+        return round(self.food.num_servings * self.consumed_perc / 100, 1)
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
