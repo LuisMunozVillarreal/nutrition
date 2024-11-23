@@ -39,14 +39,22 @@ class WeekPlan(BaseModel):
         max_digits=10,
         decimal_places=1,
         verbose_name="Protein (g/kg)",
-        help_text="Protein grams consumed per kilo of body weight",
+        help_text=(
+            "Protein grams consumed per kilo of body weight. "
+            "The recommended value is 2.3-2.8g/kg for cutting and "
+            "1.8-2.2g/kg for bulking."
+        ),
     )
 
     fat_perc = models.DecimalField(
         max_digits=10,
         decimal_places=1,
         verbose_name="Fat (%)",
-        help_text="Fat percentage of the total calorie goal.",
+        help_text=(
+            "Fat percentage of the total calorie goal. "
+            "The recommended value is 15-25% for cutting and "
+            "20-30% for bulking."
+        ),
     )
 
     deficit = models.PositiveIntegerField(
@@ -131,7 +139,7 @@ class WeekPlan(BaseModel):
         if not self.calorie_goal:
             return Decimal("0")
 
-        return round(self.energy * 100 / self.calorie_goal, 2)
+        return self.energy * 100 / self.calorie_goal
 
     @property
     def calorie_deficit(self) -> Decimal:
