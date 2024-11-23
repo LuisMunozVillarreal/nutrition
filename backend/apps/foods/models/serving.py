@@ -54,7 +54,7 @@ class Serving(Nutrients):
         res += self.unit
 
         if self.unit in (UNIT_CONTAINER, UNIT_SERVING):
-            res += f" ({self.weight}{self.weight_unit})"
+            res += f" ({round(self.weight, 2)}{self.weight_unit})"
 
         return res
 
