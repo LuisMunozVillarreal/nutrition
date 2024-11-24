@@ -87,7 +87,7 @@ def test_decrease_day_exercise(db, exercise):
 
     # Then
     day.refresh_from_db()
-    assert day.calorie_goal == Decimal("1957.0")
+    assert day.calorie_goal == Decimal("1957.05")
 
 
 @pytest.fixture

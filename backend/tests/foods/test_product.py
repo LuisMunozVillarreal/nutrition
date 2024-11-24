@@ -16,7 +16,7 @@ def test_proudct_defualt_three_servings(db, food_product):
     serving = food_product.servings.all()[1]
     assert serving.size == 1
     assert serving.unit == "g"
-    assert serving.energy == Decimal("1.1")
+    assert serving.energy == Decimal("1.06")
 
     serving = food_product.servings.all()[2]
     assert serving.size == 1
