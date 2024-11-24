@@ -48,53 +48,53 @@ class Day(Nutrients):
     # Goals
     calorie_goal = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
     )
 
     protein_g_goal = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
     )
 
     fat_g_goal = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
     )
 
     carbs_g_goal = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
     )
 
     # Intake percentages
     calorie_intake_perc = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
         verbose_name="Calorie Intake %",
     )
 
     protein_g_intake_perc = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
         verbose_name="Protein Intake %",
     )
 
     fat_g_intake_perc = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
         verbose_name="Fat Intake %",
     )
 
     carbs_g_intake_perc = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         editable=False,
         verbose_name="Carbs Intake %",
     )
