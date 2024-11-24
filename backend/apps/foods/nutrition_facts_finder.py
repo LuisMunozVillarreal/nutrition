@@ -10,14 +10,6 @@ import requests
 from bs4 import BeautifulSoup
 from django.conf import settings
 
-GENERATION_CONFIG = genai.GenerationConfig(
-    temperature=1,
-    top_p=0.95,
-    top_k=64,
-    max_output_tokens=8192,
-    response_mime_type="text/plain",
-)
-
 
 def get_ocado_product_details(url: str) -> Dict[str, Any | float]:
     """Get Ocado Product details.
@@ -36,7 +28,6 @@ def get_ocado_product_details(url: str) -> Dict[str, Any | float]:
     # Create the model
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
-        generation_config=GENERATION_CONFIG,
         system_instruction="""
             You will receive an HTML code.
             That HTML is of an Ocado product.
@@ -97,7 +88,6 @@ def get_food_nutrition_facts(food: str) -> Dict[str, float]:
     # Create the model
     model = genai.GenerativeModel(
         model_name="gemini-1.5-flash",
-        generation_config=GENERATION_CONFIG,
         system_instruction="""
             I'll give you the name of a food and I need you to give me a
             python dictionary with the nutritional facts for 100 grams of
