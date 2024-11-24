@@ -13,6 +13,10 @@ add-ignore = "D107,D104,D106"
 [tool.mypy]
 plugins = "mypy_django_plugin.main"
 
+[[tool.mypy.overrides]]
+module = "taggit.models"
+ignore_missing_imports = true
+
 [tool.django-stubs]
 django_settings_module = "config.settings"
 
@@ -73,6 +77,7 @@ pytest = "^8.3.2"
 requests-mock = "^1.12.1"
 tox = "^4.16.0"
 types-requests = "^2.32.0.20240712"
+types-beautifulsoup4 = "^4.12.0.20241020"
 
 [tool.poetry.scripts]
 nutrition = "manage:main"

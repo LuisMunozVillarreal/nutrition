@@ -15,7 +15,7 @@ def add_default_servings(
     instance: FoodProduct,
     created: bool,
     **kwargs: Any,
-):
+) -> None:
     """Add default servings.
 
     Args:
@@ -62,7 +62,7 @@ def update_servings_on_nutritional_change(
     instance: FoodProduct,
     created: bool,
     **kwargs: Any,
-):
+) -> None:
     """Update servings on a nutritional change.
 
     Args:
