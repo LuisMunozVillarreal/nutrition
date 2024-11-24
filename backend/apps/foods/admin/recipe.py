@@ -7,6 +7,7 @@ from django.contrib import admin
 from apps.libs.admin import get_remaining_fields, round_no_trailing_zeros
 
 from ..models import Recipe, RecipeIngredient
+from .base import TagsAdminMixin
 
 
 class RecipeIngredientInline(admin.TabularInline):
@@ -38,7 +39,7 @@ class RecipeIngredientInline(admin.TabularInline):
 
 
 @admin.register(Recipe)
-class RecipeAdmin(admin.ModelAdmin):
+class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
     """RecipeAdmin class."""
 
     inlines = [
@@ -48,6 +49,7 @@ class RecipeAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "name",
+        "tag_list",
         "num_servings",
         "num_ingredients",
         "energy_p_s",
@@ -63,6 +65,7 @@ class RecipeAdmin(admin.ModelAdmin):
     _main_fields = [
         "brand",
         "name",
+        "tags",
         "energy",
         "protein_g",
         "fat_g",
