@@ -108,13 +108,13 @@ def test_intake_e2e(
         food=dill.servings.get(size=1, unit=UNIT_GRAM),
         num_servings=Decimal("10"),
     )
-    assert dill.energy == Decimal("4")
+    assert dill.energy == Decimal("4.30")
 
-    assert recipe.energy == Decimal("4144.9")
+    assert recipe.energy == Decimal("4145.200")
 
     serving = recipe.servings.first()
 
-    assert serving.energy == Decimal("1381.6")
+    assert serving.energy == Decimal("1381.73")
 
     intake = intake_factory(
         day=day,
@@ -122,4 +122,4 @@ def test_intake_e2e(
         num_servings=2,
     )
 
-    assert intake.energy == Decimal("2763.2")
+    assert intake.energy == Decimal("2763.46")

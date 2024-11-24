@@ -16,111 +16,119 @@ class Nutrients(BaseModel):
 
     energy = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         default=0,
         verbose_name="Energy (kcal)",
     )
 
     protein_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         default=0,
         verbose_name="Protein (g)",
     )
 
     fat_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         default=0,
         verbose_name="Total Fat (g)",
     )
 
     saturated_fat_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     polyunsaturated_fat_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     monosaturated_fat_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     trans_fat_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     carbs_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         verbose_name="Total Carbs (g)",
         default=0,
     )
 
     fibre_carbs_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     salt_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     sugar_carbs_g = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     sodium_mg = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
     potassium_mg = models.DecimalField(
         max_digits=10,
-        decimal_places=1,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
-    vitamin_a_perc = models.PositiveIntegerField(
+    vitamin_a_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
-    vitamin_c_perc = models.PositiveIntegerField(
+    vitamin_c_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
-    calcium_perc = models.PositiveIntegerField(
+    calcium_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
         blank=True,
         null=True,
     )
 
-    iron_perc = models.PositiveIntegerField(
+    iron_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
         blank=True,
         null=True,
     )

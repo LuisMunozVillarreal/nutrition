@@ -23,7 +23,9 @@ class Measurement(BaseModel):
     )
 
     weight = models.DecimalField(
-        max_digits=10, decimal_places=1, verbose_name="Weight (kg)"
+        max_digits=10,
+        decimal_places=1,
+        verbose_name="Weight (kg)",
     )
 
     def __str__(self) -> str:
