@@ -54,6 +54,10 @@ class Intake(Nutrients):
         editable=False,
     )
 
+    notes = models.TextField(
+        blank=True,
+    )
+
     def __str__(self) -> str:
         """Get string representation of the object.
 
