@@ -5,6 +5,9 @@ from decimal import Decimal
 
 from django.contrib import admin
 
+from apps.libs.admin import round_field
+from apps.libs.utils import round_no_trailing_zeros
+
 from .models import FatPercGoal
 
 
@@ -15,7 +18,7 @@ class FatPercGoalAdmin(admin.ModelAdmin):
     list_display = [
         "id",
         "user",
-        "body_fat_perc",
+        round_field("body_fat_perc"),
         "weeks_to_goal_at_2500kcals",
         "months_to_goal_at_2500kcals",
         "years_to_goal_at_2500kcals",
@@ -31,7 +34,7 @@ class FatPercGoalAdmin(admin.ModelAdmin):
         Returns:
             Decimal: weeks to goal at 2500 kcals.
         """
-        return obj.get_weeks_to_goal(2500)
+        return round_no_trailing_zeros(obj.get_weeks_to_goal(2500))
 
     def months_to_goal_at_2500kcals(self, obj: FatPercGoal) -> Decimal:
         """Months weeks to goal at 2500 kcals.
@@ -42,7 +45,7 @@ class FatPercGoalAdmin(admin.ModelAdmin):
         Returns:
             Decimal: months to goal at 2500 kcals.
         """
-        return obj.get_months_to_goal(2500)
+        return round_no_trailing_zeros(obj.get_months_to_goal(2500))
 
     def years_to_goal_at_2500kcals(self, obj: FatPercGoal) -> Decimal:
         """Get years to goal at 2500 kcals.
@@ -53,7 +56,7 @@ class FatPercGoalAdmin(admin.ModelAdmin):
         Returns:
             Decimal: years to goal at 2500 kcals.
         """
-        return obj.get_years_to_goal(2500)
+        return round_no_trailing_zeros(obj.get_years_to_goal(2500))
 
     def goal_hit_date_at_2500kcals(self, obj: FatPercGoal) -> date:
         """Get goal hit date at 2500 kcals.

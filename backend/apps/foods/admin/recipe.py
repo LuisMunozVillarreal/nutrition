@@ -4,7 +4,8 @@ from decimal import Decimal
 
 from django.contrib import admin
 
-from apps.libs.admin import get_remaining_fields, round_no_trailing_zeros
+from apps.libs.admin import get_remaining_fields, round_field
+from apps.libs.utils import round_no_trailing_zeros
 
 from ..models import Recipe, RecipeIngredient
 from .base import TagsAdminMixin
@@ -50,16 +51,16 @@ class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
         "id",
         "name",
         "tag_list",
-        "num_servings",
+        round_field("num_servings"),
         "num_ingredients",
         "energy_p_s",
         "protein_p_s",
         "fat_p_s",
         "carbs_p_s",
-        "energy",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
+        round_field("energy"),
+        round_field("protein_g"),
+        round_field("fat_g"),
+        round_field("carbs_g"),
     ]
 
     _main_fields = [

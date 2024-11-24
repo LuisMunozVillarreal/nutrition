@@ -10,7 +10,7 @@ from apps.foods.nutrition_facts_finder import (
     get_food_nutrition_facts,
     get_ocado_product_details,
 )
-from apps.libs.admin import get_remaining_fields
+from apps.libs.admin import get_remaining_fields, round_field
 
 from ..models import FoodProduct
 from .base import TagsAdminMixin
@@ -189,11 +189,11 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         "tag_list",
         "weight",
         "weight_unit",
-        "num_servings",
-        "energy",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
+        round_field("num_servings"),
+        round_field("energy"),
+        round_field("protein_g"),
+        round_field("fat_g"),
+        round_field("carbs_g"),
     ]
 
     _main_fields = [

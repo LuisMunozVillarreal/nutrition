@@ -1,10 +1,8 @@
 """measuremnts app admin config module."""
 
-from decimal import Decimal
-
 from django.contrib import admin
 
-from apps.libs.admin import round_no_trailing_zeros
+from apps.libs.admin import round_field
 
 from .models import Measurement
 
@@ -17,9 +15,9 @@ class MeasurementAdmin(admin.ModelAdmin):
         "id",
         "user",
         "created_at",
-        "body_fat_perc",
-        "weight",
-        "rounded_bmr",
+        round_field("body_fat_perc"),
+        round_field("weight"),
+        round_field("bmr"),
     ]
 
     fields = [
@@ -27,21 +25,10 @@ class MeasurementAdmin(admin.ModelAdmin):
         "created_at",
         "body_fat_perc",
         "weight",
-        "rounded_bmr",
+        "bmr",
     ]
 
     readonly_fields = [
         "created_at",
-        "rounded_bmr",
+        "bmr",
     ]
-
-    def rounded_bmr(self, obj: Measurement) -> Decimal:
-        """Get rounded BMR.
-
-        Args:
-            obj (Measurement): measurement object.
-
-        Returns:
-            Decimal: rounded BMR.
-        """
-        return round_no_trailing_zeros(obj.bmr, 2)

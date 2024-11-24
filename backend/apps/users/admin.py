@@ -2,6 +2,8 @@
 
 from django.contrib import admin
 
+from apps.libs.admin import round_field
+
 from .models import User
 
 
@@ -19,5 +21,5 @@ class UserAdmin(admin.ModelAdmin):
         "full_name",
         "email",
         "date_of_birth",
-        "height",
+        round_field("height"),
     ]

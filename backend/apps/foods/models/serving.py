@@ -6,7 +6,7 @@ from typing import Any
 from django.db import models
 from pint import UnitRegistry
 
-from apps.libs.admin import round_no_trailing_zeros
+from apps.libs.utils import round_no_trailing_zeros
 
 from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
