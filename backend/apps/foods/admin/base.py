@@ -1,12 +1,15 @@
 """Foods admin base module."""
 
+from typing import Any
+
 from django.db.models.query import QuerySet
+from django.http.request import HttpRequest
 
 
 class TagsAdminMixin:
     """Tags admin mixin class."""
 
-    def get_queryset(self, request) -> QuerySet:
+    def get_queryset(self, request: HttpRequest) -> QuerySet:
         """Get queryset.
 
         Args:
@@ -15,9 +18,13 @@ class TagsAdminMixin:
         Returns:
             QuerySet: queryset.
         """
-        return super().get_queryset(request).prefetch_related("tags")
+        return (
+            super()  # type: ignore[misc]
+            .get_queryset(request)
+            .prefetch_related("tags")
+        )
 
-    def tag_list(self, obj) -> str:
+    def tag_list(self, obj: Any) -> str:
         """Get tag list.
 
         Args:

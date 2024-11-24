@@ -15,7 +15,7 @@ def add_recipe_serving(
     instance: Recipe,
     created: bool,
     **kwargs: Any,
-):
+) -> None:
     """Add serving to the recipe.
 
     Args:
@@ -43,7 +43,7 @@ def update_recipe_serving_nutrients(
     instance: Recipe,
     created: bool,
     **kwargs: Any,
-):
+) -> None:
     """Update serving nutrients of the recipe.
 
     Args:

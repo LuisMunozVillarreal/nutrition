@@ -35,7 +35,7 @@ class MeasurementAdmin(admin.ModelAdmin):
         "rounded_bmr",
     ]
 
-    def rounded_bmr(self, obj) -> Decimal:
+    def rounded_bmr(self, obj: Measurement) -> Decimal:
         """Get rounded BMR.
 
         Args:

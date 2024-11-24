@@ -164,19 +164,19 @@ class Day(Nutrients):
         )
 
     @property
-    def _fat_kcal_goal(self):
+    def _fat_kcal_goal(self) -> Decimal:
         return self._calorie_goal * self.plan.fat_perc / 100
 
     @property
-    def _fat_g_goal(self):
+    def _fat_g_goal(self) -> Decimal:
         return self._fat_kcal_goal / settings.FAT_KCAL_GRAM
 
     @property
-    def _carbs_kcal_goal(self):
+    def _carbs_kcal_goal(self) -> Decimal:
         return self._calorie_goal - self._fat_kcal_goal
 
     @property
-    def _carbs_g_goal(self):
+    def _carbs_g_goal(self) -> Decimal:
         return self._carbs_kcal_goal / settings.CARB_KCAL_GRAM
 
     # TDEE

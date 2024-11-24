@@ -1,6 +1,7 @@
 """Day admin config module."""
 
 from django.contrib import admin
+from django.http import HttpRequest
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
 
@@ -103,14 +104,13 @@ class DayAdmin(admin.ModelAdmin):
         "carbs_g_intake_perc",
     ]
 
-    def has_add_permission(self, request, obj=None):
+    def has_add_permission(self, request: HttpRequest) -> bool:
         """Get whether it has add permission.
 
         Overriden to prevent Days being added from the admin panel.
 
         Args:
             request (request): user request.
-            obj (Day): object related to the request.
 
         Returns:
             bool: whether it has add permission.

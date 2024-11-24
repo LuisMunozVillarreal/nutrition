@@ -19,7 +19,7 @@ from apps.plans.models import Intake
 
 
 def _get_consumed_g(
-    ureg: UnitRegistry, serving: Serving, num_servings
+    ureg: UnitRegistry, serving: Serving, num_servings: Decimal
 ) -> Decimal:
     """Get consumed grams.
 

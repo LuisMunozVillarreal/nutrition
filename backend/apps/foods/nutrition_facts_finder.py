@@ -4,7 +4,8 @@ import ast
 from typing import Any, Dict
 from urllib.parse import urlparse
 
-import google.generativeai as genai
+# TODO: Remove this when the stubs are available - pylint: disable=fixme
+import google.generativeai as genai  # type: ignore[import-untyped]
 import requests
 from bs4 import BeautifulSoup
 from django.conf import settings

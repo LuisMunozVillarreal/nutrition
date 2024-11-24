@@ -44,7 +44,7 @@ class Serving(Nutrients):
         default=UNIT_GRAM,
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Get string representation of the object.
 
         Returns:

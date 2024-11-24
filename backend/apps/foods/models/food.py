@@ -1,7 +1,9 @@
 """Food model module."""
 
 from django.db import models
-from taggit.managers import TaggableManager
+
+# TODO: Remove this when the stubs are available - pylint: disable=fixme
+from taggit.managers import TaggableManager  # type: ignore[import-untyped]
 
 from .nutrients import Nutrients
 from .units import UNIT_CHOICES, UNIT_GRAM
