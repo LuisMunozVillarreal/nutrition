@@ -58,6 +58,11 @@ class Intake(Nutrients):
         blank=True,
     )
 
+    processed = models.BooleanField(
+        default=True,
+        help_text="Indicates whether the intake's notes have been processed.",
+    )
+
     def __str__(self) -> str:
         """Get string representation of the object.
 
