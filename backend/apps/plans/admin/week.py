@@ -9,6 +9,7 @@ from nested_inline.admin import (  # type: ignore[import]
 )
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
+from apps.libs.admin import round_field
 
 from ..models import Day, WeekPlan
 from .day import DayAdmin
@@ -61,14 +62,14 @@ class WeekPlanAdmin(NestedModelAdmin):
         "id",
         "user",
         "start_date",
-        "protein_g_kg",
-        "fat_perc",
-        "deficit",
-        "twee",
-        "calorie_goal",
-        "energy",
-        "calorie_intake_perc",
-        "calorie_deficit",
+        round_field("protein_g_kg"),
+        round_field("fat_perc"),
+        round_field("deficit"),
+        round_field("twee"),
+        round_field("calorie_goal"),
+        round_field("energy"),
+        round_field("calorie_intake_perc"),
+        round_field("calorie_deficit"),
     ]
 
     fields = [

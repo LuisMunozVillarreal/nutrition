@@ -2,6 +2,8 @@
 
 from django.contrib import admin
 
+from apps.libs.admin import round_field
+
 from .models import DaySteps, Exercise
 
 
@@ -15,7 +17,7 @@ class ExerciseAdmin(admin.ModelAdmin):
         "type",
         "kcals",
         "duration",
-        "distance",
+        round_field("distance"),
     ]
 
 

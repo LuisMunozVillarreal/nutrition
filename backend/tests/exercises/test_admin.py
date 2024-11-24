@@ -1,6 +1,21 @@
 """apps.exercises.admin tests."""
 
 
+def test_list_renders(logged_in_admin_client, exercise_factory):
+    """Admin list renders."""
+    # Given an exercise without distance
+    exercise_factory(distance=None)
+
+    # When the admin list is accessed
+    result = logged_in_admin_client.get("/admin/exercises/exercise/")
+
+    # Then the exercise is listed
+    assert result.status_code == 200
+
+    # And the distance is not shown
+    # - This is seen in the coverage :)
+
+
 def test_search_renders(logged_in_admin_client, exercise):
     """Admin search renders."""
     # When
