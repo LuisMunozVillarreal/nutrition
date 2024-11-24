@@ -1,10 +1,11 @@
 """Admin libraries."""
 
-from decimal import Decimal
-from typing import List, Type
+from typing import Any, Callable, List, Type
 
 from apps.foods.models.product import FoodProduct
 from apps.foods.models.recipe import Recipe
+
+from .utils import round_no_trailing_zeros
 
 
 def get_remaining_fields(
@@ -33,14 +34,24 @@ def get_remaining_fields(
     return field_names
 
 
-def round_no_trailing_zeros(value: Decimal, decimals: int = 2) -> Decimal:
-    """Round value without trailing zeros.
+def round_field(field_name: str, decimals: int = 2) -> Callable:
+    """Round field for admin view.
 
     Args:
-        value (Decimal): value to round.
+        field_name (str): field name.
         decimals (int): number of decimals.
 
     Returns:
-        Decimal: rounded value.
+        Callable: rounded field.
     """
-    return Decimal(str(round(value * 10**decimals))) / 10**decimals
+
+    def _round_field(obj: Any) -> str:
+        field = getattr(obj, field_name)
+        if field is None:
+            return "-"
+
+        return str(round_no_trailing_zeros(field, decimals))
+
+    _round_field.short_description = field_name  # type: ignore[attr-defined]
+
+    return _round_field

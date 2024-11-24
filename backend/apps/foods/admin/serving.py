@@ -3,6 +3,8 @@
 from django.contrib import admin
 from django.http import HttpRequest
 
+from apps.libs.admin import round_field
+
 from ..models import Serving
 
 
@@ -24,10 +26,10 @@ class ServingAdmin(admin.ModelAdmin):
         "food__name",
         "size",
         "unit",
-        "energy",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
+        round_field("energy"),
+        round_field("protein_g"),
+        round_field("fat_g"),
+        round_field("carbs_g"),
     ]
 
     def has_add_permission(self, request: HttpRequest) -> bool:

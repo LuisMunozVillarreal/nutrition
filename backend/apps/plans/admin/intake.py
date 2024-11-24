@@ -4,6 +4,8 @@ import copy
 
 from django.contrib import admin
 
+from apps.libs.admin import round_field
+
 from ..models import Intake
 
 
@@ -27,12 +29,12 @@ class IntakeAdmin(admin.ModelAdmin):
         "id",
         "day",
         "food",
-        "num_servings",
+        round_field("num_servings"),
         "meal",
-        "energy",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
+        round_field("energy"),
+        round_field("protein_g"),
+        round_field("fat_g"),
+        round_field("carbs_g"),
     ]
 
     fields = [
