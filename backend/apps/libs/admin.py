@@ -7,7 +7,9 @@ from apps.foods.models.product import FoodProduct
 from apps.foods.models.recipe import Recipe
 
 
-def get_remaining_fields(model: Type[FoodProduct | Recipe], fields: List[str]):
+def get_remaining_fields(
+    model: Type[FoodProduct | Recipe], fields: List[str]
+) -> List[str]:
     """Get remaining fields of the model.
 
     Args:
