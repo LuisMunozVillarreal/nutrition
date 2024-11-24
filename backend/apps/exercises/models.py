@@ -42,6 +42,7 @@ class Exercise(BaseModel):
     duration = models.DurationField(
         blank=True,
         null=True,
+        help_text="hh:mm:ss",
     )
 
     distance = models.DecimalField(
