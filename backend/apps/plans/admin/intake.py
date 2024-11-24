@@ -42,6 +42,7 @@ class IntakeAdmin(admin.ModelAdmin):
         "food",
         "num_servings",
         "meal",
+        "notes",
         "energy",
         "protein_g",
         "fat_g",
