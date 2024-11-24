@@ -17,6 +17,7 @@ def test_intake_e2e(
     # pylint: disable=too-many-positional-arguments,too-many-arguments
 
     salmon = food_product_factory(
+        barcode="1",
         brand="Ocado",
         name="Scottish Salmon Fillets Skin On",
         weight=240,
@@ -28,6 +29,7 @@ def test_intake_e2e(
         carbs_g=0.4,
     )
     potatoes = food_product_factory(
+        barcode="2",
         brand="Ocado",
         name="British Baby Potatoes",
         weight=1000,
@@ -39,6 +41,7 @@ def test_intake_e2e(
         carbs_g=14.9,
     )
     mascarpone = food_product_factory(
+        barcode="3",
         brand="Ocado",
         name="Italian Mascarpone",
         weight=250,
@@ -50,6 +53,7 @@ def test_intake_e2e(
         carbs_g=3.8,
     )
     leeks = food_product_factory(
+        barcode="4",
         brand="Ocado",
         name="Organic Leeks",
         weight=400,
@@ -61,6 +65,7 @@ def test_intake_e2e(
         carbs_g=14.2,
     )
     dill = food_product_factory(
+        barcode="5",
         brand="M&S",
         name="Dill",
         weight=25,
