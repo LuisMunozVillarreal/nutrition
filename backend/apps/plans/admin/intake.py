@@ -6,7 +6,15 @@ from django.contrib import admin
 
 from apps.libs.admin import round_field
 
-from ..models import Intake
+from ..models import Intake, IntakePicture
+
+
+class IntakePictureInline(admin.TabularInline):
+    """Intake picture inline class."""
+
+    model = IntakePicture
+    extra = 0
+    show_change_link = True
 
 
 @admin.register(Intake)
@@ -14,6 +22,10 @@ class IntakeAdmin(admin.ModelAdmin):
     """Intake admin class."""
 
     # pylint: disable=duplicate-code
+
+    inlines = [
+        IntakePictureInline,
+    ]
 
     ordering = [
         "-day__plan",

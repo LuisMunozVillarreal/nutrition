@@ -88,3 +88,26 @@ class Intake(Nutrients):
             setattr(self, nutrient, value * self.num_servings)
 
         super().save(*args, **kwargs)
+
+
+class IntakePicture(models.Model):
+    """IntakePicture models class."""
+
+    intake = models.ForeignKey(
+        Intake,
+        on_delete=models.CASCADE,
+        related_name="pictures",
+    )
+
+    description = models.CharField(
+        max_length=255,
+        blank=True,
+    )
+
+    notes = models.TextField(
+        blank=True,
+    )
+
+    picture = models.ImageField(
+        upload_to="intake_pictures",
+    )
