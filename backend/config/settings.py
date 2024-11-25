@@ -184,6 +184,12 @@ filterwarnings(
 FORMS_URLFIELD_ASSUME_HTTPS = True
 
 
+# GS Credentials
+GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
+    "nutrition-gcp-db-backup-credentials.json"
+)
+
+
 # DB Backup
 DBBACKUP_FILENAME_TEMPLATE = (
     f"nutrition-{ENVIRONMENT}-db-backup-{{datetime}}.{{extension}}"
@@ -200,9 +206,22 @@ DBBACKUP_CONNECTORS = {
         "RESTORE_SUFFIX": "--if-exists",
     },
 }
-GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
-    "nutrition-gcp-db-backup-credentials.json"
-)
+
+
+# Default Storage
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
+        "OPTIONS": {
+            "bucket_name": "nutrition-pictures",
+            "project_id": "nutrition",
+            "querystring_auth": True,
+        },
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 
 
 # Gemini
