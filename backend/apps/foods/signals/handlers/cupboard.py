@@ -147,6 +147,9 @@ def calculate_consumption_from_added_intakes(
         created (bool): whether is created or not.
         kwargs (Any): keyword arguments.
     """
+    if instance.food is None:
+        return
+
     item = CupboardItem.objects.filter(
         food=instance.food.food, finished=False
     ).first()
