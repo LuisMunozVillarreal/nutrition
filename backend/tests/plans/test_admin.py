@@ -32,7 +32,20 @@ def test_search_renders_weekplan(logged_in_admin_client, week_plan):
     assert result.status_code == 200
 
 
-def test_add_new_intake_renders(logged_in_admin_client):
+@pytest.fixture
+def time(mocker, request):
+    """Time mock."""
+    mock = mocker.patch("apps.plans.admin.intake.datetime", wraps=datetime)
+    time_mock = mocker.MagicMock()
+    time_mock.time.return_value = datetime.time(*request.param)
+    mock.datetime.now.return_value = time_mock
+    return mock
+
+
+@pytest.mark.parametrize(
+    "time", [(9, 0), (13, 0), (16, 0), (21, 0)], indirect=True
+)
+def test_add_new_intake_renders(logged_in_admin_client, time):
     """Admin add intake renders."""
     # When
     result = logged_in_admin_client.get("/admin/plans/intake/add/")

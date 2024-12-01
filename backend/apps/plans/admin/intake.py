@@ -2,7 +2,7 @@
 
 import copy
 import datetime
-from typing import Dict
+from typing import Any, Dict
 
 from django.contrib import admin
 from django.http import HttpRequest
@@ -82,11 +82,25 @@ class IntakeAdmin(admin.ModelAdmin):
         Returns:
             dict: initial data.
         """
+        res: Dict[str, Any] = {}
+
+        # Day
         day = Day.objects.filter(day=datetime.date.today()).first()
         if day:
-            return {"day": day.id}
+            res["day"] = day.id
 
-        return {}
+        # Meal
+        time = datetime.datetime.now().time()
+        if datetime.time(8) < time < datetime.time(12):
+            res["meal"] = Intake.MEAL_BREAKFAST
+        elif time < datetime.time(15):
+            res["meal"] = Intake.MEAL_LUNCH
+        elif time < datetime.time(20):
+            res["meal"] = Intake.MEAL_SNACK
+        else:
+            res["meal"] = Intake.MEAL_DINNER
+
+        return res
 
 
 class IntakeInlineBase:
