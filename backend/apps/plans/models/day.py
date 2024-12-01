@@ -118,7 +118,7 @@ class Day(Nutrients):
         Returns:
             int: number of foods.
         """
-        return self.intake.count()
+        return self.intakes.count()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance.

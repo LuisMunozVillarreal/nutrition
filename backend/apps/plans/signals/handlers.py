@@ -46,12 +46,12 @@ def create_week_days(
 
 
 @receiver(pre_save, sender=Intake)
-def increase_day_nutrients(
+def change_day_nutrients(
     sender: Intake,  # pylint: disable=unused-argument
     instance: Intake,
     **kwargs: Any,
 ) -> None:
-    """Increase day nutrients.
+    """Change day nutrients on save.
 
     Args:
         sender (Intake): signal sender.
@@ -59,22 +59,21 @@ def increase_day_nutrients(
         kwargs (Any): keyword arguments.
     """
     created = instance.id is None
-    food = instance
     day = instance.day
+    new_intake = instance
+    old_intake = None
+    if not created:
+        old_intake = Intake.objects.get(id=instance.id)
 
     for nutrient in NUTRIENT_LIST:
-        old_food_value = 0
-        new_food_value = getattr(food, nutrient)
-        if not new_food_value:
-            continue
+        old_intake_value = 0
+        if old_intake and old_intake.food:
+            old_intake_value = getattr(old_intake, nutrient) or 0
+        new_intake_value = 0
+        if new_intake.food:
+            new_intake_value = getattr(new_intake, nutrient) or 0
 
-        if not created:
-            db_food = Intake.objects.get(  # type: ignore[attr-defined]
-                id=instance.id
-            )
-            old_food_value = getattr(db_food, nutrient)
-
-        diff = new_food_value - old_food_value
+        diff = new_intake_value - old_intake_value
         day_value = getattr(day, nutrient) or 0
         setattr(day, nutrient, day_value + diff)
 
@@ -94,14 +93,17 @@ def decrease_day_nutrients(
         instance (Intake): instance to be deleted.
         kwargs (Any): keyword arguments.
     """
-    food = instance
+    intake = instance
     day = instance.day
+
+    if instance.food is None:
+        return
 
     for nutrient in NUTRIENT_LIST:
         day_value = getattr(day, nutrient)
-        food_value = getattr(food, nutrient)
-        if food_value:
-            setattr(day, nutrient, day_value - food_value)
+        intake_value = getattr(intake, nutrient)
+        if intake_value:
+            setattr(day, nutrient, day_value - intake_value)
 
     day.save()
 
