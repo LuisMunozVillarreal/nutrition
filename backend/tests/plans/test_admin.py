@@ -1,5 +1,7 @@
 """apps.plans.admin tests."""
 
+import datetime
+
 import pytest
 
 
@@ -30,11 +32,36 @@ def test_search_renders_weekplan(logged_in_admin_client, week_plan):
     assert result.status_code == 200
 
 
-@pytest.mark.parametrize("model", ["intake", "weekplan"])
-def test_add_new_renders(logged_in_admin_client, model):
-    """Admin add renders."""
+def test_add_new_intake_renders(logged_in_admin_client):
+    """Admin add intake renders."""
     # When
-    result = logged_in_admin_client.get(f"/admin/plans/{model}/add/")
+    result = logged_in_admin_client.get("/admin/plans/intake/add/")
+
+    # Then
+    assert result.status_code == 200
+
+
+@pytest.fixture
+def today(mocker):
+    """Today mock."""
+    mock = mocker.patch("apps.plans.admin.intake.datetime", wraps=datetime)
+    mock.date.today.return_value = datetime.date(2023, 1, 9)
+    return mock
+
+
+def test_add_new_intake_with_existing_day(logged_in_admin_client, today, day):
+    """Admin add intake with existing day."""
+    # When
+    result = logged_in_admin_client.get("/admin/plans/intake/add/")
+
+    # Then
+    assert result.status_code == 200
+
+
+def test_add_new_weekplan_renders(logged_in_admin_client):
+    """Admin add weekplan renders."""
+    # When
+    result = logged_in_admin_client.get("/admin/plans/weekplan/add/")
 
     # Then
     assert result.status_code == 200
