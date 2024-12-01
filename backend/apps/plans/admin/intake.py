@@ -1,12 +1,15 @@
 """Intake admin config module."""
 
 import copy
+import datetime
+from typing import Dict
 
 from django.contrib import admin
+from django.http import HttpRequest
 
 from apps.libs.admin import round_field
 
-from ..models import Intake, IntakePicture
+from ..models import Day, Intake, IntakePicture
 
 
 class IntakePictureInline(admin.TabularInline):
@@ -69,6 +72,21 @@ class IntakeAdmin(admin.ModelAdmin):
         "fat_g",
         "carbs_g",
     ]
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
+        """Get initial data for the change form.
+
+        Args:
+            request (HttpRequest): request object.
+
+        Returns:
+            dict: initial data.
+        """
+        day = Day.objects.filter(day=datetime.date.today()).first()
+        if day:
+            return {"day": day.id}
+
+        return {}
 
 
 class IntakeInlineBase:
