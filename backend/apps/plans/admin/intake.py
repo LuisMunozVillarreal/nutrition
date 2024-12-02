@@ -67,6 +67,7 @@ class IntakeAdmin(admin.ModelAdmin):
     ]
 
     readonly_fields = [
+        "processed",
         "energy",
         "protein_g",
         "fat_g",
