@@ -11,7 +11,7 @@ from django.db.models.signals import (
 )
 from django.dispatch import receiver
 
-from apps.exercises.models import Exercise
+from apps.exercises.models import DaySteps, Exercise
 from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.plans.models import Day, Intake, WeekPlan
 
@@ -136,6 +136,38 @@ def decrease_day_goals_and_percs(
     Args:
         sender (Exercise): signal sender.
         instance (Exercise): instance to be deleted.
+        kwargs (Any): keyword arguments.
+    """
+    instance.day.save()
+
+
+@receiver(post_save, sender=DaySteps)
+def enable_steps_flag(
+    sender: DaySteps,  # pylint: disable=unused-argument
+    instance: DaySteps,
+    **kwargs: Any,
+) -> None:
+    """Enable steps flag.
+
+    Args:
+        sender (DayStep): signal sender.
+        instance (DayStep): instance to be saved.
+        kwargs (Any): keyword arguments.
+    """
+    instance.day.save()
+
+
+@receiver(post_delete, sender=DaySteps)
+def disable_steps_flag(
+    sender: DaySteps,  # pylint: disable=unused-argument
+    instance: DaySteps,
+    **kwargs: Any,
+) -> None:
+    """Disable steps flag.
+
+    Args:
+        sender (DayStep): signal sender.
+        instance (DayStep): instance to be deleted.
         kwargs (Any): keyword arguments.
     """
     instance.day.save()
