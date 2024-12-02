@@ -63,6 +63,7 @@ class Intake(Nutrients):
 
     processed = models.BooleanField(
         default=True,
+        editable=False,
         help_text="Indicates whether the intake's notes have been processed.",
     )
 
@@ -88,6 +89,7 @@ class Intake(Nutrients):
             kwargs (dict): keyword arguments.
         """
         self.meal_order = self.MEAL_ORDER[self.meal]
+        self.processed = self.food is not None
 
         for nutrient in NUTRIENT_LIST:
             value = 0
