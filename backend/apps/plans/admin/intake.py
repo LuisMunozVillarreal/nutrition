@@ -94,9 +94,9 @@ class IntakeAdmin(admin.ModelAdmin):
         time = datetime.datetime.now().time()
         if datetime.time(8) < time < datetime.time(12):
             res["meal"] = Intake.MEAL_BREAKFAST
-        elif time < datetime.time(15):
+        elif datetime.time(12) <= time < datetime.time(15):
             res["meal"] = Intake.MEAL_LUNCH
-        elif time < datetime.time(20):
+        elif datetime.time(15) <= time < datetime.time(20):
             res["meal"] = Intake.MEAL_SNACK
         else:
             res["meal"] = Intake.MEAL_DINNER
