@@ -8,11 +8,17 @@ from django.db import models
 
 from apps.foods.models.nutrients import Nutrients
 
+from .intake import Intake
+
 
 class Day(Nutrients):
     """Day model class."""
 
     # pylint: disable=too-many-instance-attributes
+
+    # TODO: rename calorie fields by energy  # pylint: disable=fixme
+    # Also consider renaming 'energy' to 'energy_kcal', the same way
+    # that there is 'protein_g'
 
     class Meta:
         ordering = ["-plan", "day"]
@@ -35,6 +41,7 @@ class Day(Nutrients):
         verbose_name="Planned deficit (kcals)",
     )
 
+    # Flags
     tracked = models.BooleanField(
         default=True,
         help_text=(
@@ -43,6 +50,78 @@ class Day(Nutrients):
             "Otherwise, the estimated values are used. This field is "
             "toggled to true as soon as an exercise or an intake is logged."
         ),
+    )
+
+    breakfast_flag = models.BooleanField(
+        default=False,
+        help_text=(
+            "Indicates whether breakfast was logged. "
+            "Unprocessed breakfast won't count as logged."
+        ),
+        verbose_name="Breakfast",
+    )
+    breakfast_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether breakfast is exceptionally not logged.",
+    )
+
+    lunch_flag = models.BooleanField(
+        default=False,
+        help_text=(
+            "Indicates whether lunch was logged. "
+            "Unprocessed lunch won't count as logged."
+        ),
+        verbose_name="Lunch",
+    )
+    lunch_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether lunch is exceptionally not logged.",
+    )
+
+    snack_flag = models.BooleanField(
+        default=False,
+        help_text=(
+            "Indicates whether snacks were logged. "
+            "Unprocessed snacks won't count as logged."
+        ),
+        verbose_name="Snacks",
+    )
+    snack_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether snacks are exceptionally not logged.",
+    )
+
+    dinner_flag = models.BooleanField(
+        default=False,
+        help_text=(
+            "Indicates whether dinner was logged. "
+            "Unprocessed dinner won't count as logged."
+        ),
+        verbose_name="Dinner",
+    )
+    dinner_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether dinner is exceptionally not logged.",
+    )
+
+    exercises_flag = models.BooleanField(
+        default=False,
+        help_text="Indicates whether exercise was logged.",
+        verbose_name="Exercises",
+    )
+    exercises_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether exercises are exceptionally not logged.",
+    )
+
+    steps_flag = models.BooleanField(
+        default=False,
+        help_text="Indicates whether steps were logged.",
+        verbose_name="Steps",
+    )
+    steps_exc = models.BooleanField(
+        default=False,
+        help_text="Indicates whether steps are exceptionally not logged.",
     )
 
     # Goals
@@ -112,6 +191,15 @@ class Day(Nutrients):
         return f"{str(self.plan)} - {self.day.strftime('%A')}"
 
     @property
+    def weekday(self) -> str:
+        """Get weekday.
+
+        Returns:
+            str: weekday.
+        """
+        return self.day.strftime("%A")
+
+    @property
     def num_foods(self) -> int:
         """Get number of foods.
 
@@ -140,6 +228,49 @@ class Day(Nutrients):
         self.protein_g_intake_perc = self._protein_g_intake_perc
         self.fat_g_intake_perc = self._fat_g_intake_perc
         self.carbs_g_intake_perc = self._carbs_g_intake_perc
+
+        # Flags
+        # TODO: Add tests to cover this
+        self.breakfast_flag = (
+            self.breakfast_exc
+            or bool(self.id)
+            and (
+                self.intakes.filter(meal=Intake.MEAL_BREAKFAST)
+                .filter(processed=True)
+                .exists()
+            )
+        )
+        self.lunch_flag = (
+            self.lunch_exc
+            or bool(self.id)
+            and (
+                self.intakes.filter(meal=Intake.MEAL_LUNCH)
+                .filter(processed=True)
+                .exists()
+            )
+        )
+        self.snack_flag = (
+            self.snack_exc
+            or bool(self.id)
+            and (
+                self.intakes.filter(meal=Intake.MEAL_SNACK)
+                .filter(processed=True)
+                .exists()
+            )
+        )
+        self.dinner_flag = (
+            self.dinner_exc
+            or bool(self.id)
+            and (
+                self.intakes.filter(meal=Intake.MEAL_DINNER)
+                .filter(processed=True)
+                .exists()
+            )
+        )
+        self.exercises_flag = (
+            self.exercises_exc or bool(self.id) and self.exercises.exists()
+        )
+        self.steps_flag = self.steps_exc or hasattr(self, "steps")
 
         super().save(*args, **kwargs)
 

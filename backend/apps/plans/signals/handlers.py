@@ -11,7 +11,7 @@ from django.db.models.signals import (
 )
 from django.dispatch import receiver
 
-from apps.exercises.models import Exercise
+from apps.exercises.models import DaySteps, Exercise
 from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.plans.models import Day, Intake, WeekPlan
 
@@ -108,6 +108,38 @@ def decrease_day_nutrients(
     day.save()
 
 
+@receiver(post_save, sender=Intake)
+def recalculate_flags_on_save(
+    sender: Intake,  # pylint: disable=unused-argument
+    instance: Intake,
+    **kwargs: Any,
+) -> None:
+    """Recalculate day flags on save.
+
+    Args:
+        sender (Intake): signal sender.
+        instance (Intake): instance to be saved.
+        kwargs (Any): keyword arguments.
+    """
+    instance.day.save()
+
+
+@receiver(post_delete, sender=Intake)
+def recalculate_flags_on_delete(
+    sender: Intake,  # pylint: disable=unused-argument
+    instance: Intake,
+    **kwargs: Any,
+) -> None:
+    """Recalculate day flags on delete.
+
+    Args:
+        sender (Intake): signal sender.
+        instance (Intake): instance to be deleted.
+        kwargs (Any): keyword arguments.
+    """
+    instance.day.save()
+
+
 @receiver(post_save, sender=Exercise)
 def increase_day_goals_and_percs_and_tracked(
     sender: Exercise,  # pylint: disable=unused-argument
@@ -139,3 +171,37 @@ def decrease_day_goals_and_percs(
         kwargs (Any): keyword arguments.
     """
     instance.day.save()
+
+
+@receiver(post_save, sender=DaySteps)
+def enable_steps_flag(
+    sender: DaySteps,  # pylint: disable=unused-argument
+    instance: DaySteps,
+    **kwargs: Any,
+) -> None:
+    """Enable steps flag.
+
+    Args:
+        sender (DayStep): signal sender.
+        instance (DayStep): instance to be saved.
+        kwargs (Any): keyword arguments.
+    """
+    instance.day.save()
+
+
+@receiver(post_delete, sender=DaySteps)
+def disable_steps_flag(
+    sender: DaySteps,  # pylint: disable=unused-argument
+    instance: DaySteps,
+    **kwargs: Any,
+) -> None:
+    """Disable steps flag.
+
+    Args:
+        sender (DayStep): signal sender.
+        instance (DayStep): instance to be deleted.
+        kwargs (Any): keyword arguments.
+    """
+    day = instance.day
+    day.steps = None
+    day.save()
