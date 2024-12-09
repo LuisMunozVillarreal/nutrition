@@ -13,12 +13,15 @@ class Intake(Nutrients):
     day = models.ForeignKey(
         "plans.Day",
         on_delete=models.CASCADE,
-        related_name="intake",
+        related_name="intakes",
     )
 
     food = models.ForeignKey(
         "foods.Serving",
         on_delete=models.CASCADE,
+        default=None,
+        null=True,
+        blank=True,
     )
 
     num_servings = models.DecimalField(
@@ -60,6 +63,7 @@ class Intake(Nutrients):
 
     processed = models.BooleanField(
         default=True,
+        editable=False,
         help_text="Indicates whether the intake's notes have been processed.",
     )
 
@@ -69,10 +73,13 @@ class Intake(Nutrients):
         Returns:
             str: string representation of the object.
         """
-        return (
-            f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
-            f" {self.food.size} ({self.food.unit})"
-        )
+        if self.food:
+            return (
+                f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
+                f" {self.food.size} ({self.food.unit})"
+            )
+
+        return f"{str(self.day)} - {self.meal.title()} (No processed)"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
@@ -82,9 +89,12 @@ class Intake(Nutrients):
             kwargs (dict): keyword arguments.
         """
         self.meal_order = self.MEAL_ORDER[self.meal]
+        self.processed = self.food is not None
 
         for nutrient in NUTRIENT_LIST:
-            value = getattr(self.food, nutrient) or 0
+            value = 0
+            if self.food:
+                value = getattr(self.food, nutrient) or 0
             setattr(self, nutrient, value * self.num_servings)
 
         super().save(*args, **kwargs)
