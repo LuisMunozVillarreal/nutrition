@@ -162,10 +162,24 @@ def test_modify_intake(cupboard_item, serving, intake_factory):
     assert cupboard_item.consumed_perc == 93.75
 
 
-def test_finish_cupboard_item(intake_factory, cupboard_item, serving):
+def test_finish_cupboard_item(
+    intake_factory, cupboard_item_factory, food_product_factory
+):
     """Cupboard item gets finished."""
-    # When a serving as big as the cupboard item is consumed
-    intake_factory(food=serving, num_servings=Decimal("3.2"))
+    # Given a product with 3 servings
+    product = food_product_factory(num_servings=3)
+
+    # And a serving that is a third of the product
+    serving = product.servings.last()
+
+    # And a cupboard item from that product
+    cupboard_item = cupboard_item_factory(food=product)
+
+    # And a cupboard item that is two thirds consumed
+    intake_factory(food=serving, num_servings=2)
+
+    # When the last thrid is consumed
+    intake_factory(food=serving, num_servings=1)
 
     # Then the item appears as finished
     cupboard_item.refresh_from_db()
