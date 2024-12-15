@@ -4,9 +4,12 @@ import copy
 import datetime
 from typing import Any, Dict
 
-from django.contrib import admin
-from django.http import HttpRequest
+from django.contrib import admin, messages
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
+from apps.foods.signals.handlers.cupboard import (
+    CupboardItemConsumptionTooBigError,
+)
 from apps.libs.admin import round_field
 
 from ..models import Day, Intake, IntakePicture
@@ -102,6 +105,39 @@ class IntakeAdmin(admin.ModelAdmin):
             res["meal"] = Intake.MEAL_DINNER
 
         return res
+
+    def changeform_view(
+        self,
+        request: HttpRequest,
+        object_id: str | None = None,
+        form_url: str = "",
+        extra_context: Dict[str, Any] | None = None,
+    ) -> HttpResponse:
+        """Change view.
+
+        Overriden to manage CupboardItemConsumptionTooBigError exceptions.
+
+        Args:
+            request (HttpRequest): request object.
+            object_id (str | None): object id.
+            form_url (str): form url.
+            extra_context (Dict[str, Any]): extra context.
+
+        Returns:
+            HttpResponse: if the request is valid, or
+            HttpResponseRedirect: redirect response.
+        """
+        try:
+            return super().changeform_view(
+                request, object_id, form_url, extra_context
+            )
+        except CupboardItemConsumptionTooBigError:
+            self.message_user(
+                request,
+                "Intake can't be bigger than the cupboard item's quantity.",
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(request.path)
 
 
 class IntakeInlineBase:
