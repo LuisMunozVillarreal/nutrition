@@ -15,6 +15,7 @@ from apps.foods.models import (
     Serving,
 )
 from apps.foods.models.units import UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING
+from apps.libs.utils import round_no_trailing_zeros
 from apps.plans.models import Intake
 
 
@@ -219,5 +220,8 @@ def control_finished_items(
     cupboard_item = instance.item
     consumed_perc = _get_consumed_perc(ureg, cupboard_item.food, consumed_g)
 
-    if cupboard_item.consumed_perc + consumed_perc > 100:
+    if (
+        cupboard_item.consumed_perc + round_no_trailing_zeros(consumed_perc)
+        > 100
+    ):
         raise CupboardItemConsumptionTooBigError()
