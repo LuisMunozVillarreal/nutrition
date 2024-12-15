@@ -36,7 +36,7 @@ class IntakeAdmin(admin.ModelAdmin):
     ordering = [
         "-day__plan",
         "-day__day",
-        "meal_order",
+        "-meal_order",
     ]
 
     autocomplete_fields = [
