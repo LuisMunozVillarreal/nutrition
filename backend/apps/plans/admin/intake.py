@@ -43,6 +43,10 @@ class IntakeAdmin(admin.ModelAdmin):
         "food",
     ]
 
+    list_filter = [
+        "processed",
+    ]
+
     list_display = [
         "id",
         "day",
