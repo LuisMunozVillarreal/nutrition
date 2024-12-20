@@ -47,6 +47,7 @@ class DayAdmin(admin.ModelAdmin):
         "day",
         "weekday",
         "day_num",
+        "completed",
         "breakfast_flag",
         "lunch_flag",
         "snack_flag",
