@@ -1,21 +1,28 @@
 """week admin config module."""
 
 import copy
+import datetime
+from typing import Any, Dict
 
 from django.contrib import admin
-from nested_inline.admin import (  # type: ignore[import]
+from django.http import HttpRequest
+
+# pylint: disable=no-name-in-module
+from nested_admin import (  # type: ignore[import]
     NestedModelAdmin,
     NestedTabularInline,
 )
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
 from apps.libs.admin import round_field
+from apps.measurements.models import Measurement
 
 from ..models import Day, WeekPlan
 from .day import DayAdmin
 from .intake import IntakeInlineBase
 
 
+# pylint: disable=too-few-public-methods
 class IntakeInline(IntakeInlineBase, NestedTabularInline):
     """Intake inline class."""
 
@@ -94,3 +101,42 @@ class WeekPlanAdmin(NestedModelAdmin):
         "calorie_intake_perc",
         "calorie_deficit",
     ]
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
+        """Get initial data for the change form.
+
+        Args:
+            request (HttpRequest): request object.
+
+        Returns:
+            dict: initial data.
+        """
+        res: Dict[str, Any] = {}
+
+        # User
+        res["user"] = request.user
+
+        # Measurement
+        res["measurement"] = (
+            Measurement.objects.filter(user=res["user"])
+            .order_by("-created_at")
+            .first()
+        )
+
+        # Start date
+        last_week = WeekPlan.objects.filter(user=res["user"]).last()
+        if not last_week:
+            return res
+
+        res["start_date"] = last_week.start_date + datetime.timedelta(days=7)
+
+        # Protein
+        res["protein_g_kg"] = last_week.protein_g_kg
+
+        # Fat
+        res["fat_perc"] = last_week.fat_perc
+
+        # Deficit
+        res["deficit"] = last_week.deficit
+
+        return res
