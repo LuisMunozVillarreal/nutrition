@@ -53,7 +53,7 @@ class Day(Nutrients):
     )
 
     completed = models.BooleanField(
-        default=True,
+        default=False,
         editable=False,
         help_text=(
             "Indicates whether the day has been completed and "

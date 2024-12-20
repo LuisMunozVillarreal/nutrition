@@ -205,3 +205,19 @@ def disable_steps_flag(
     day = instance.day
     day.steps = None
     day.save()
+
+
+@receiver(post_save, sender=Day)
+def complete_week(
+    sender: Day,  # pylint: disable=unused-argument
+    instance: Day,
+    **kwargs: Any,
+) -> None:
+    """Complete week.
+
+    Args:
+        sender (Day): signal sender.
+        instance (Day): instance to be saved.
+        kwargs (Any): keyword arguments.
+    """
+    instance.plan.save()

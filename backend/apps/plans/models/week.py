@@ -1,6 +1,7 @@
 """Week model module."""
 
 from decimal import Decimal
+from typing import Any
 
 from django.db import models
 
@@ -63,6 +64,15 @@ class WeekPlan(BaseModel):
         help_text=(
             "This deficit is the average per day. It might be different on "
             "each day of the week if the distribution is not even."
+        ),
+    )
+
+    completed = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text=(
+            "Indicates whether the week has been completed and "
+            "has all the required information inputted."
         ),
     )
 
@@ -149,3 +159,16 @@ class WeekPlan(BaseModel):
             Decimal: calorie deficit.
         """
         return self.twee - self.energy
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save instance into the db.
+
+        Args:
+            args (list): arguments.
+            kwargs (dict): keyword arguments.
+        """
+        self.completed = (
+            bool(self.id) and not self.days.filter(completed=False).exists()
+        )
+
+        super().save(*args, **kwargs)
