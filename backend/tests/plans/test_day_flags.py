@@ -11,6 +11,7 @@ def test_new_day_all_flags_off(day):
     assert not day.dinner_flag
     assert not day.exercises_flag
     assert not day.steps_flag
+    assert not day.completed
 
 
 def test_day_with_all_exc(day_factory):
@@ -32,6 +33,7 @@ def test_day_with_all_exc(day_factory):
     assert day.dinner_flag
     assert day.exercises_flag
     assert day.steps_flag
+    assert day.completed
 
 
 def test_breakfast_intake_flag_on(intake_factory):

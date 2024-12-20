@@ -52,6 +52,15 @@ class Day(Nutrients):
         ),
     )
 
+    completed = models.BooleanField(
+        default=True,
+        editable=False,
+        help_text=(
+            "Indicates whether the day has been completed and "
+            "has all the required information inputted."
+        ),
+    )
+
     breakfast_flag = models.BooleanField(
         default=False,
         help_text=(
@@ -271,6 +280,15 @@ class Day(Nutrients):
             self.exercises_exc or bool(self.id) and self.exercises.exists()
         )
         self.steps_flag = self.steps_exc or hasattr(self, "steps")
+
+        self.completed = (
+            self.breakfast_flag
+            and self.lunch_flag
+            and self.snack_flag
+            and self.dinner_flag
+            and self.exercises_flag
+            and self.steps_flag
+        )
 
         super().save(*args, **kwargs)
 
