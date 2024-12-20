@@ -123,3 +123,29 @@ def zero_calorie_goal(mocker):
 def test_zero_calorie_intake_perc(db, week_plan, zero_calorie_goal):
     """Zero calorie intake percentage works as expected."""
     assert week_plan.calorie_intake_perc == 0
+
+
+def test_new_week_not_completed(db, week_plan_factory):
+    """New week is not completed."""
+    # When a new week is created
+    week = week_plan_factory()
+
+    # Then the week doesn't appear as completed
+    assert not week.completed
+
+
+def test_week_completed(db, week_plan):
+    """Week is completed when all its days are completed."""
+    # When the days of a check are completed
+    for day in week_plan.days.all():
+        day.breakfast_exc = True
+        day.lunch_exc = True
+        day.snack_exc = True
+        day.dinner_exc = True
+        day.exercises_exc = True
+        day.steps_exc = True
+        day.save()
+
+    # Then the week shows as completed
+    week_plan.refresh_from_db()
+    assert week_plan.completed

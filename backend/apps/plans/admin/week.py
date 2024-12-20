@@ -62,6 +62,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         "id",
         "user",
         "start_date",
+        "completed",
         round_field("protein_g_kg"),
         round_field("fat_perc"),
         round_field("deficit"),
