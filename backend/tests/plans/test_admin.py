@@ -91,6 +91,20 @@ def test_add_new_weekplan_renders(logged_in_admin_client):
     assert result.status_code == 200
 
 
+def test_add_new_weekplan_with_previous_week(
+    logged_in_admin_client, week_plan_factory, admin_user
+):
+    """Admin add weekplan renders."""
+    # Given a previous week with the admin user
+    week_plan_factory(user=admin_user)
+
+    # When
+    result = logged_in_admin_client.get("/admin/plans/weekplan/add/")
+
+    # Then
+    assert result.status_code == 200
+
+
 def test_add_new_intake_bigger_serving_than_available(
     logged_in_admin_client, cupboard_item, serving, day
 ):
