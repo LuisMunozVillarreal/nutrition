@@ -1,14 +1,14 @@
-"""measuremnts app admin config module."""
+"""measurements app admin config module."""
 
 from django.contrib import admin
 
-from apps.libs.admin import round_field
+from apps.libs.admin import LoggedUserAsDefaultMixin, round_field
 
 from .models import Measurement
 
 
 @admin.register(Measurement)
-class MeasurementAdmin(admin.ModelAdmin):
+class MeasurementAdmin(LoggedUserAsDefaultMixin, admin.ModelAdmin):
     """MeasurementAdmin class."""
 
     list_display = [

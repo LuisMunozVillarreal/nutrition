@@ -1,6 +1,8 @@
 """Admin libraries."""
 
-from typing import Any, Callable, List, Type
+from typing import Any, Callable, Dict, List, Type
+
+from django.http import HttpRequest
 
 from apps.foods.models.product import FoodProduct
 from apps.foods.models.recipe import Recipe
@@ -55,3 +57,20 @@ def round_field(field_name: str, decimals: int = 2) -> Callable:
     _round_field.short_description = field_name  # type: ignore[attr-defined]
 
     return _round_field
+
+
+class LoggedUserAsDefaultMixin:
+    """Logged User as default mixin."""
+
+    # pylint: disable=too-few-public-methods
+
+    def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
+        """Get initial data for the change form.
+
+        Args:
+            request (HttpRequest): request object.
+
+        Returns:
+            dict: initial data.
+        """
+        return {"user": request.user}

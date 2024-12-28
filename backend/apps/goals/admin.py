@@ -5,14 +5,14 @@ from decimal import Decimal
 
 from django.contrib import admin
 
-from apps.libs.admin import round_field
+from apps.libs.admin import LoggedUserAsDefaultMixin, round_field
 from apps.libs.utils import round_no_trailing_zeros
 
 from .models import FatPercGoal
 
 
 @admin.register(FatPercGoal)
-class FatPercGoalAdmin(admin.ModelAdmin):
+class FatPercGoalAdmin(LoggedUserAsDefaultMixin, admin.ModelAdmin):
     """FatPercGoal admin config class."""
 
     list_display = [
