@@ -15,6 +15,10 @@ class CupboardItemAdmin(admin.ModelAdmin):
         "food",
     ]
 
+    list_filter = [
+        "finished",
+    ]
+
     list_display = [
         "id",
         "food",
