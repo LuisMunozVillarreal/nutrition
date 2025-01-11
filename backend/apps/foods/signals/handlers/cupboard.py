@@ -134,7 +134,7 @@ def calculate_consumption_from_cooked_recipes(
 
 
 @receiver(post_save, sender=Intake)
-def calculate_consumption_from_added_intakes(
+def calculate_consumption_from_intakes(
     sender: Intake,  # pylint: disable=unused-argument
     instance: Intake,
     created: bool,
@@ -145,28 +145,71 @@ def calculate_consumption_from_added_intakes(
     Args:
         sender (Intake): signal sender.
         instance (Intake): instance to be saved.
-        created (bool): whether is created or not.
+        created (bool): whether the instance is created or not.
         kwargs (Any): keyword arguments.
     """
-    if instance.food is None:
+    # New without food -> no action
+    if created and instance.food is None:
         return
 
+    # New with food -> create consumption if there is cupboard item for it
+    if created and instance.food is not None:
+        item = CupboardItem.objects.filter(
+            food=instance.food.food, finished=False
+        ).first()
+        if not item:
+            return
+
+        CupboardItemConsumption.objects.create(
+            item=item,
+            serving=instance.food,
+            intake=instance,
+        )
+        return
+
+    # Existing without food
+    # -> if it had consumption, remove it,
+    # -> no action otherwise
+    if not created and instance.food is None:
+        if hasattr(instance, "cupboard_item_consumption"):
+            instance.cupboard_item_consumption.delete()
+        return
+
+    # Exixting with food
+    # -> if it had consumption, and its food is different from the new one
+    # -> if it didn't have food, add consumption,
+    if hasattr(instance, "cupboard_item_consumption"):
+        instance.cupboard_item_consumption.delete()
+
     item = CupboardItem.objects.filter(
-        food=instance.food.food, finished=False
+        food=instance.food.food, finished=False  # type: ignore
     ).first()
     if not item:
         return
 
-    serving = instance.food
+    CupboardItemConsumption.objects.create(  # type: ignore
+        item=item,
+        serving=instance.food,
+        intake=instance,
+    )
 
-    if created:
-        CupboardItemConsumption.objects.create(
-            item=item,
-            serving=serving,
-            intake=instance,
-        )
 
-    _set_total_consumed_perc(item)
+@receiver(post_save, sender=CupboardItemConsumption)
+def recalculate_consumption_after_creation(
+    sender: CupboardItemConsumption,  # pylint: disable=unused-argument
+    instance: CupboardItemConsumption,
+    created: bool,  # pylint: disable=unused-argument
+    **kwargs: Any,
+) -> None:
+    """Recalculate consumption after a CupboardItemConsumption gets removed.
+
+    Args:
+        sender (CupboardItemConsumption): signal sender.
+        instance (CupboardItemConsumption): instance that will be deleted.
+        created (bool): whether the instance is created or not.
+        kwargs (Any): keyword arguments.
+    """
+    _set_total_consumed_perc(instance.item)
 
 
 @receiver(post_delete, sender=CupboardItemConsumption)
