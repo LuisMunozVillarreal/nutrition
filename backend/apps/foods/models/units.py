@@ -17,6 +17,7 @@ UNIT_CUP = "c"
 UNIT_FLUID_OUNCE = "floz"
 UNIT_TEASPOON = "tsp"
 UNIT_TABLESPOON = "tbsp"
+UNIT_PINT = "pt"
 
 # Other
 UNIT_UNIT = "unit"
@@ -42,6 +43,7 @@ UNIT_CHOICES = (
     (UNIT_FLUID_OUNCE, "fluid ounce(s)"),
     (UNIT_TABLESPOON, "tablespoon(s)"),
     (UNIT_TEASPOON, "teaspoon(s)"),
+    (UNIT_PINT, "pint(s)"),
     #
     # Other
     (UNIT_UNIT, "unit(s)"),
