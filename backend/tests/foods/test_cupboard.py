@@ -304,3 +304,51 @@ def test_cupboard_str_based_on_recipe(cupboard_item_factory, recipe):
 
     # Then the string representation is the same as the recipe
     assert res == str(recipe)
+
+
+def test_unprocessed_intake_that_becomes_processed(
+    intake_factory, serving, cupboard_item
+):
+    """Unprocessed intake that becomes processed consumes the cupboard.
+
+    When an intake is created without a food product, it's considered
+    unprocessed. This is done, usually with some notes or a picture, in order
+    to create and add the food product later on.
+
+    Once the intake is linked to a food product, it needs to taken into account
+    in the cupboard as well.
+    """
+    # Given an unprocessed intake
+    intake = intake_factory(food=None)
+
+    # And the cupboard item is not consumed
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 0
+
+    # When the intake is processed
+    intake.food = serving
+    intake.save()
+
+    # Then the cupboard consumption should increase
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+
+def test_processed_intake_that_becomes_unprocessed(
+    intake_factory, serving, cupboard_item
+):
+    """Processed intake that becomes unprocessed unconsumes the cupboard."""
+    # Given an unprocessed intake
+    intake = intake_factory(food=serving)
+
+    # And the cupboard item is not consumed
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+    # When the intake is processed
+    intake.food = None
+    intake.save()
+
+    # Then the cupboard consumption should increase
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == 0
