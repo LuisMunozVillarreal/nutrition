@@ -21,7 +21,7 @@ class Day(Nutrients):
     # that there is 'protein_g'
 
     class Meta:
-        ordering = ["-plan", "day"]
+        ordering = ["-plan", "-day"]
 
     plan = models.ForeignKey(
         "plans.WeekPlan",

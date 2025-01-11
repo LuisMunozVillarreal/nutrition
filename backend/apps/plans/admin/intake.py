@@ -157,6 +157,10 @@ class IntakeInlineBase:
         "food",
     ]
 
-    ordering = copy.deepcopy(IntakeAdmin.ordering)
+    ordering = [
+        "-day__plan",
+        "-day__day",
+        "meal_order",
+    ]
     fields = copy.deepcopy(IntakeAdmin.fields)
     readonly_fields = copy.deepcopy(IntakeAdmin.readonly_fields)
