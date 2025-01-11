@@ -2,7 +2,6 @@
 
 import ast
 from typing import Any, Dict
-from urllib.parse import urlparse
 
 # TODO: Remove this when the stubs are available - pylint: disable=fixme
 import google.generativeai as genai  # type: ignore[import-untyped]
@@ -11,17 +10,14 @@ from bs4 import BeautifulSoup
 from django.conf import settings
 
 
-def get_ocado_product_details(url: str) -> Dict[str, Any | float]:
-    """Get Ocado Product details.
+def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
+    """Get product nutritional information from URL.
 
     Args:
         url (str): URL to scrape the date from.
 
     Returns:
         Dict[str, str | float]
-
-    Raises:
-        ValueError: If the URL is invalid
     """
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
@@ -36,6 +32,7 @@ def get_ocado_product_details(url: str) -> Dict[str, Any | float]:
             Return that information as a python dictionary.
             Your answer can't contain "```python".
             Provide all values as numbers, except from the size unit.
+            Use international units for the size unit.
             It's python, use None instead of null.
             That python dictionary should contain the following keys:
             - brand
@@ -55,14 +52,6 @@ def get_ocado_product_details(url: str) -> Dict[str, Any | float]:
     )
 
     # Scrape
-    parsed_url = urlparse(url)
-    if (
-        parsed_url.scheme != "https"
-        or parsed_url.netloc != "www.ocado.com"
-        or not parsed_url.path.startswith("/products/")
-    ):
-        raise ValueError("Invalid URL provided")
-
     page = requests.get(url, timeout=60)
     soup = BeautifulSoup(page.content, "html.parser")
     body = soup.find("body")

@@ -98,24 +98,6 @@ def test_ocado_missing_url(gemini_api, ocado_request):
     assert "URL is required" in str(form.errors)
 
 
-def test_non_ocado_url():
-    """Non Ocado URL fails."""
-    # Given a non Ocado URLCONF
-    data = {
-        "scrape_info_from_url": True,
-        "url": "https://anothersite.com/products/tomato",
-    }
-
-    # When the form is created
-    form = FoodProductForm(data)
-
-    # Then the for is not valid
-    assert not form.is_valid()
-
-    # And form shows the related error
-    assert "Only Ocado product URLs are supported" in str(form.errors)
-
-
 @pytest.mark.parametrize(
     "gemini_api",
     (

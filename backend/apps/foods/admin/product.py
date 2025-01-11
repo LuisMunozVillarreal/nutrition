@@ -8,7 +8,7 @@ from django.contrib import admin
 
 from apps.foods.nutrition_facts_finder import (
     get_food_nutrition_facts,
-    get_ocado_product_details,
+    get_product_nutritional_info_from_url,
 )
 from apps.libs.admin import get_remaining_fields, round_field
 
@@ -118,12 +118,7 @@ class FoodProductForm(forms.ModelForm):
                     "URL is required to scrape the info from"
                 )
 
-            try:
-                data = get_ocado_product_details(url)
-            except ValueError as exc:
-                raise forms.ValidationError(
-                    "Only Ocado product URLs are supported"
-                ) from exc
+            data = get_product_nutritional_info_from_url(url)
 
             del self.errors["name"]
 
