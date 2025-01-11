@@ -59,6 +59,15 @@ class CupboardItem(models.Model):
         """
         return self.food.num_servings * self.consumed_perc / 100
 
+    @property
+    def remaining_servings(self) -> Decimal:
+        """Get remaining servings.
+
+        Returns:
+            Decimal: remaining servings.
+        """
+        return self.food.num_servings - self.consumed_servings
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
 
