@@ -118,3 +118,15 @@ def test_delete_steps(day_steps_factory):
 
     # Then the day's steps flag is off
     assert not day.steps_flag
+
+
+def test_unprocessed_intake_is_flagged(day, intake_factory):
+    """Whenever there is an unprocessed intake, the day is flagged."""
+    # Given an unprocessed intake
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST)
+
+    # And a processed intake
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=None)
+
+    # Then the day is flagged
+    assert not day.breakfast_flag

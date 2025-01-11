@@ -239,42 +239,45 @@ class Day(Nutrients):
         self.carbs_g_intake_perc = self._carbs_g_intake_perc
 
         # Flags
-        # TODO: Add tests to cover this
         self.breakfast_flag = (
             self.breakfast_exc
             or bool(self.id)
-            and (
+            and not (
                 self.intakes.filter(meal=Intake.MEAL_BREAKFAST)
-                .filter(processed=True)
+                .filter(processed=False)
                 .exists()
             )
+            and self.intakes.filter(meal=Intake.MEAL_BREAKFAST).exists()
         )
         self.lunch_flag = (
             self.lunch_exc
             or bool(self.id)
-            and (
+            and not (
                 self.intakes.filter(meal=Intake.MEAL_LUNCH)
-                .filter(processed=True)
+                .filter(processed=False)
                 .exists()
             )
+            and self.intakes.filter(meal=Intake.MEAL_LUNCH).exists()
         )
         self.snack_flag = (
             self.snack_exc
             or bool(self.id)
-            and (
+            and not (
                 self.intakes.filter(meal=Intake.MEAL_SNACK)
-                .filter(processed=True)
+                .filter(processed=False)
                 .exists()
             )
+            and self.intakes.filter(meal=Intake.MEAL_SNACK).exists()
         )
         self.dinner_flag = (
             self.dinner_exc
             or bool(self.id)
-            and (
+            and not (
                 self.intakes.filter(meal=Intake.MEAL_DINNER)
-                .filter(processed=True)
+                .filter(processed=False)
                 .exists()
             )
+            and self.intakes.filter(meal=Intake.MEAL_DINNER).exists()
         )
         self.exercises_flag = (
             self.exercises_exc or bool(self.id) and self.exercises.exists()
