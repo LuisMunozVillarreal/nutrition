@@ -2,6 +2,7 @@
 
 import copy
 import datetime
+from decimal import Decimal
 from typing import Any, Dict
 
 from django.contrib import admin
@@ -14,7 +15,7 @@ from nested_admin import (  # type: ignore[import]
 )
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
-from apps.libs.admin import round_field
+from apps.libs.utils import round_no_trailing_zeros
 from apps.measurements.models import Measurement
 
 from ..models import Day, WeekPlan
@@ -70,14 +71,14 @@ class WeekPlanAdmin(NestedModelAdmin):
         "user",
         "start_date",
         "completed",
-        round_field("protein_g_kg"),
-        round_field("fat_perc"),
-        round_field("deficit"),
-        round_field("twee"),
-        round_field("calorie_goal"),
-        round_field("energy"),
-        round_field("calorie_intake_perc"),
-        round_field("calorie_deficit"),
+        "protein_g_kg",
+        "fat_perc",
+        "deficit",
+        "rounded_twee",
+        "rounded_calorie_goal",
+        "rounded_energy",
+        "rounded_calorie_intake_perc",
+        "rounded_calorie_deficit",
     ]
 
     fields = [
@@ -87,19 +88,19 @@ class WeekPlanAdmin(NestedModelAdmin):
         "protein_g_kg",
         "fat_perc",
         "deficit",
-        "twee",
-        "calorie_goal",
-        "energy",
-        "calorie_intake_perc",
-        "calorie_deficit",
+        "rounded_twee",
+        "rounded_calorie_goal",
+        "rounded_energy",
+        "rounded_calorie_intake_perc",
+        "rounded_calorie_deficit",
     ]
 
     readonly_fields = [
-        "twee",
-        "calorie_goal",
-        "energy",
-        "calorie_intake_perc",
-        "calorie_deficit",
+        "rounded_twee",
+        "rounded_calorie_goal",
+        "rounded_energy",
+        "rounded_calorie_intake_perc",
+        "rounded_calorie_deficit",
     ]
 
     def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
@@ -140,3 +141,58 @@ class WeekPlanAdmin(NestedModelAdmin):
         res["deficit"] = last_week.deficit
 
         return res
+
+    def rounded_twee(self, obj: WeekPlan) -> Decimal:
+        """Get rounded twee.
+
+        Args:
+            obj (WeekPlan): instance of the object.
+
+        Returns:
+            str: rounded twee.
+        """
+        return round_no_trailing_zeros(obj.twee)
+
+    def rounded_calorie_goal(self, obj: WeekPlan) -> Decimal:
+        """Get rounded calorie goal.
+
+        Args:
+            obj (WeekPlan): instance of the object.
+
+        Returns:
+            str: rounded calorie goal.
+        """
+        return round_no_trailing_zeros(obj.calorie_goal)
+
+    def rounded_energy(self, obj: WeekPlan) -> Decimal:
+        """Get rounded energy.
+
+        Args:
+            obj (WeekPlan): instance of the object.
+
+        Returns:
+            str: rounded energy.
+        """
+        return round_no_trailing_zeros(obj.energy)
+
+    def rounded_calorie_intake_perc(self, obj: WeekPlan) -> Decimal:
+        """Get rounded calorie intake percentage.
+
+        Args:
+            obj (WeekPlan): instance of the object.
+
+        Returns:
+            str: rounded calorie intake percentage.
+        """
+        return round_no_trailing_zeros(obj.calorie_intake_perc)
+
+    def rounded_calorie_deficit(self, obj: WeekPlan) -> Decimal:
+        """Get rounded calorie deficit.
+
+        Args:
+            obj (WeekPlan): instance of the object.
+
+        Returns:
+            str: rounded calorie deficit.
+        """
+        return round_no_trailing_zeros(obj.calorie_deficit)
