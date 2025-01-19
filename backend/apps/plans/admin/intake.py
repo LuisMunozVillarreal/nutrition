@@ -58,6 +58,7 @@ class IntakeAdmin(admin.ModelAdmin):
         round_field("protein_g"),
         round_field("fat_g"),
         round_field("carbs_g"),
+        "created_at",
     ]
 
     fields = [
@@ -71,6 +72,7 @@ class IntakeAdmin(admin.ModelAdmin):
         "protein_g",
         "fat_g",
         "carbs_g",
+        "created_at",
     ]
 
     readonly_fields = [
@@ -79,6 +81,7 @@ class IntakeAdmin(admin.ModelAdmin):
         "protein_g",
         "fat_g",
         "carbs_g",
+        "created_at",
     ]
 
     def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
