@@ -186,9 +186,9 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         "weight_unit",
         round_field("num_servings"),
         round_field("energy"),
-        round_field("protein_g"),
         round_field("fat_g"),
         round_field("carbs_g"),
+        round_field("protein_g"),
     ]
 
     _main_fields = [

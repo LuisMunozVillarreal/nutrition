@@ -2,6 +2,7 @@
 
 from typing import Any, Callable, Dict, List, Type
 
+from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.foods.models.product import FoodProduct
@@ -47,14 +48,13 @@ def round_field(field_name: str, decimals: int = 2) -> Callable:
         Callable: rounded field.
     """
 
+    @admin.display(description=field_name, ordering=field_name)
     def _round_field(obj: Any) -> str:
         field = getattr(obj, field_name)
         if field is None:
             return "-"
 
         return str(round_no_trailing_zeros(field, decimals))
-
-    _round_field.short_description = field_name  # type: ignore[attr-defined]
 
     return _round_field
 
