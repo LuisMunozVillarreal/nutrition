@@ -68,6 +68,42 @@ class CupboardItem(models.Model):
         """
         return self.food.num_servings - self.consumed_servings
 
+    @property
+    def energy_kcal_per_serving(self) -> Decimal:
+        """Get energy in kcal per serving.
+
+        Returns:
+            Decimal: energy in kcal per serving.
+        """
+        return self.food.energy / self.food.num_servings
+
+    @property
+    def fat_g_per_serving(self) -> Decimal:
+        """Get fat in grams per serving.
+
+        Returns:
+            Decimal: fat in grams per serving.
+        """
+        return self.food.fat_g / self.food.num_servings
+
+    @property
+    def carbs_g_per_serving(self) -> Decimal:
+        """Get carbs in grams per serving.
+
+        Returns:
+            Decimal: carbs in grams per serving.
+        """
+        return self.food.carbs_g / self.food.num_servings
+
+    @property
+    def protein_g_per_serving(self) -> Decimal:
+        """Get protein in grams per serving.
+
+        Returns:
+            Decimal: protein in grams per serving.
+        """
+        return self.food.protein_g / self.food.num_servings
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
 
