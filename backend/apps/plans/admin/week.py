@@ -75,9 +75,9 @@ class WeekPlanAdmin(NestedModelAdmin):
         "fat_perc",
         "deficit",
         "rounded_twee",
-        "rounded_energy_goal",
+        "rounded_energy_kcal_goal",
         "rounded_energy",
-        "rounded_energy_intake_perc",
+        "rounded_energy_kcal_intake_perc",
         "rounded_energy_deficit",
     ]
 
@@ -89,17 +89,17 @@ class WeekPlanAdmin(NestedModelAdmin):
         "fat_perc",
         "deficit",
         "rounded_twee",
-        "rounded_energy_goal",
+        "rounded_energy_kcal_goal",
         "rounded_energy",
-        "rounded_energy_intake_perc",
+        "rounded_energy_kcal_intake_perc",
         "rounded_energy_deficit",
     ]
 
     readonly_fields = [
         "rounded_twee",
-        "rounded_energy_goal",
+        "rounded_energy_kcal_goal",
         "rounded_energy",
-        "rounded_energy_intake_perc",
+        "rounded_energy_kcal_intake_perc",
         "rounded_energy_deficit",
     ]
 
@@ -153,7 +153,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.twee)
 
-    def rounded_energy_goal(self, obj: WeekPlan) -> Decimal:
+    def rounded_energy_kcal_goal(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy goal.
 
         Args:
@@ -162,7 +162,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         Returns:
             str: rounded energy goal.
         """
-        return round_no_trailing_zeros(obj.energy_goal)
+        return round_no_trailing_zeros(obj.energy_kcal_goal)
 
     def rounded_energy(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy.
@@ -175,7 +175,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal)
 
-    def rounded_energy_intake_perc(self, obj: WeekPlan) -> Decimal:
+    def rounded_energy_kcal_intake_perc(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy intake percentage.
 
         Args:
@@ -184,7 +184,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         Returns:
             str: rounded energy intake percentage.
         """
-        return round_no_trailing_zeros(obj.energy_intake_perc)
+        return round_no_trailing_zeros(obj.energy_kcal_intake_perc)
 
     def rounded_energy_deficit(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy deficit.
