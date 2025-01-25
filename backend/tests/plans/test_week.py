@@ -40,6 +40,7 @@ Energy intake < Energy goal
 
    1       2       3       4      5      6      7
 ECG110  ECG110  ECG110  ECG110  ECG90  ECG80  ECG90
+
 UC3:
 ----
 Current day: 1
@@ -54,6 +55,8 @@ CG110  ECG110  ECG110  ECG110  ECG90  ECG80  ECG90
 from decimal import Decimal
 
 import pytest
+
+from apps.plans.models import Intake
 
 
 def test_days_are_created(db, week_plan):
@@ -85,29 +88,6 @@ def test_saving_week_doesnt_create_more_days(db, week_plan):
 
     # Then
     assert week_plan.days.count() == 7
-
-
-def test_energy_goal_with_surplus(db, week_plan, intake_factory, serving):
-    """Energy goal with surplus is correct."""
-    # Given
-    day_one = week_plan.days.all()[6]
-    day_one.tracked = True
-    day_one.save()
-    for _ in range(30):
-        intake_factory(day=day_one, food=serving)
-
-    day_two = week_plan.days.all()[5]
-    day_two.tracked = True
-    day_two.save()
-    for _ in range(30):
-        intake_factory(day=day_two, food=serving)
-
-    day_three = week_plan.days.all()[4]
-
-    # When / Then
-    assert day_three.plan.extra_surplus(day_three.day_num) == Decimal(
-        "456.574"
-    )
 
 
 @pytest.fixture
@@ -149,3 +129,97 @@ def test_week_completed(db, week_plan):
     # Then the week shows as completed
     week_plan.refresh_from_db()
     assert week_plan.completed
+
+
+@pytest.fixture
+def bmr_2000(mocker):
+    """BMR mock."""
+    return mocker.patch(
+        "apps.measurements.models.Measurement.bmr",
+        new_callable=mocker.PropertyMock,
+        return_value=Decimal("2000"),
+    )
+
+
+def test_accumulated_consumed_energy(
+    db, week_plan, bmr_2000, measurement, food_product_factory, intake_factory
+):
+    """Accumulated consumed energy is correct."""
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
+
+    # Given a product
+    food = food_product_factory(energy_kcal=2100)
+
+    # And a serving from the product
+    serving = food.servings.first()
+    assert serving.energy_kcal == 2100
+
+    # When the first day a serving from the product is consumed
+    day = week_plan.days.all()[6]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the second day a serving from the product is consumed
+    day = week_plan.days.all()[5]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the third day a serving from the product is consumed
+    day = week_plan.days.all()[4]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the fourth day a serving from the product is consumed
+    day = week_plan.days.all()[3]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the fifth day a serving from the product is consumed
+    day = week_plan.days.all()[2]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the sixth day a serving from the product is consumed
+    day = week_plan.days.all()[1]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # And the seventh day a serving from the product is consumed
+    day = week_plan.days.all()[0]
+    intake_factory(day=day, meal=Intake.MEAL_BREAKFAST, food=serving)
+
+    # Then the first day has a surplus of 70 kcals
+    day = week_plan.days.all()[6]
+    assert day.tdee == 2210
+    assert day.deficit == 180
+    assert day.energy_kcal_goal == 2030
+    assert day.energy_kcal == 2100
+    assert day.energy_kcal_goal_diff == Decimal("-70")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-70")
+
+    # And the second day has a surplus of 120 kcals
+    day = week_plan.days.all()[5]
+    assert day.energy_kcal_goal_diff == Decimal("-50")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-120")
+
+    # And the third day has a surplus of 70 kcals
+    day = week_plan.days.all()[4]
+    assert day.energy_kcal_goal_diff == Decimal("-70")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-190")
+
+    # And the fourth day has a surplus of 110 kcals
+    day = week_plan.days.all()[3]
+    assert day.energy_kcal_goal_diff == Decimal("-110")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-300")
+
+    # And the fifth day has a surplus of 110 kcals
+    day = week_plan.days.all()[2]
+    assert day.energy_kcal_goal_diff == Decimal("-110")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-410")
+
+    # And the sixth day has a surplus of 110 kcals
+    day = week_plan.days.all()[1]
+    assert day.energy_kcal_goal_diff == Decimal("-110")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-520")
+
+    # And the seventh day has a surplus of 110 kcals
+    day = week_plan.days.all()[0]
+    assert day.energy_kcal_goal_diff == Decimal("-110")
+    assert day.energy_kcal_goal_accumulated_diff == Decimal("-630")
+
+    # And the weekly surplus is 630
+    assert week_plan.energy_kcal_goal_diff == Decimal("-630")
