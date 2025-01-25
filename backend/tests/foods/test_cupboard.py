@@ -210,7 +210,7 @@ def test_plan_or_consume_non_cupboard_item(day, intake_factory):
     intake_factory(day=day)
 
     # Then the consumed calories increase
-    assert day.calorie_intake_perc == Decimal("5.416318915146885050465171863")
+    assert day.calorie_intake_perc == Decimal("5.989596635700075355906352544")
 
     # And the cupboard remains the same
     assert CupboardItem.objects.count() == 0

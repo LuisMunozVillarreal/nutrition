@@ -349,12 +349,12 @@ class Day(Nutrients):
         """Get Thermic Effect of Food.
 
         There is non easy way to calculate this. Literature indicates that a
-        good rule of thumb is to consider it the 10% of the BMR.
+        good rule of thumb is to consider it the 10% of the energy consumed.
 
         Returns:
             Decimal: Thermic Effect of Food.
         """
-        return self.plan.measurement.bmr * Decimal("0.1")
+        return self.energy * Decimal("0.1")
 
     @property
     def eat(self) -> int:
