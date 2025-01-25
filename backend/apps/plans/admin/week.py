@@ -75,10 +75,10 @@ class WeekPlanAdmin(NestedModelAdmin):
         "fat_perc",
         "deficit",
         "rounded_twee",
-        "rounded_calorie_goal",
+        "rounded_energy_goal",
         "rounded_energy",
-        "rounded_calorie_intake_perc",
-        "rounded_calorie_deficit",
+        "rounded_energy_intake_perc",
+        "rounded_energy_deficit",
     ]
 
     fields = [
@@ -89,18 +89,18 @@ class WeekPlanAdmin(NestedModelAdmin):
         "fat_perc",
         "deficit",
         "rounded_twee",
-        "rounded_calorie_goal",
+        "rounded_energy_goal",
         "rounded_energy",
-        "rounded_calorie_intake_perc",
-        "rounded_calorie_deficit",
+        "rounded_energy_intake_perc",
+        "rounded_energy_deficit",
     ]
 
     readonly_fields = [
         "rounded_twee",
-        "rounded_calorie_goal",
+        "rounded_energy_goal",
         "rounded_energy",
-        "rounded_calorie_intake_perc",
-        "rounded_calorie_deficit",
+        "rounded_energy_intake_perc",
+        "rounded_energy_deficit",
     ]
 
     def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
@@ -153,16 +153,16 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.twee)
 
-    def rounded_calorie_goal(self, obj: WeekPlan) -> Decimal:
-        """Get rounded calorie goal.
+    def rounded_energy_goal(self, obj: WeekPlan) -> Decimal:
+        """Get rounded energy goal.
 
         Args:
             obj (WeekPlan): instance of the object.
 
         Returns:
-            str: rounded calorie goal.
+            str: rounded energy goal.
         """
-        return round_no_trailing_zeros(obj.calorie_goal)
+        return round_no_trailing_zeros(obj.energy_goal)
 
     def rounded_energy(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy.
@@ -175,24 +175,24 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal)
 
-    def rounded_calorie_intake_perc(self, obj: WeekPlan) -> Decimal:
-        """Get rounded calorie intake percentage.
+    def rounded_energy_intake_perc(self, obj: WeekPlan) -> Decimal:
+        """Get rounded energy intake percentage.
 
         Args:
             obj (WeekPlan): instance of the object.
 
         Returns:
-            str: rounded calorie intake percentage.
+            str: rounded energy intake percentage.
         """
-        return round_no_trailing_zeros(obj.calorie_intake_perc)
+        return round_no_trailing_zeros(obj.energy_intake_perc)
 
-    def rounded_calorie_deficit(self, obj: WeekPlan) -> Decimal:
-        """Get rounded calorie deficit.
+    def rounded_energy_deficit(self, obj: WeekPlan) -> Decimal:
+        """Get rounded energy deficit.
 
         Args:
             obj (WeekPlan): instance of the object.
 
         Returns:
-            str: rounded calorie deficit.
+            str: rounded energy deficit.
         """
-        return round_no_trailing_zeros(obj.calorie_deficit)
+        return round_no_trailing_zeros(obj.energy_deficit)

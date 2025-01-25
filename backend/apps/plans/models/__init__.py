@@ -12,23 +12,23 @@ A day in the week can be in 3 different "modes":
      the previous surpluses, if any, subtracted.
      Note: the subtracted surplus is divided between the remaining days in the
      plan.
-     : estimated_calorie_goal = estimated_tdee - deficit
-     : calorie_goal = estimated_calorie_goal
+     : estimated_energy_goal = estimated_tdee - deficit
+     : energy_goal = estimated_energy_goal
    - Remaining days: As per the first day, but substracting the incurred
      surpluses from previous days, if any.
-     : estimated_calorie_goal: uses plan.remaing_energy
-     : calorie_goal = estimated_calorie_goal
+     : estimated_energy_goal: uses plan.remaing_energy
+     : energy_goal = estimated_energy_goal
 2. The day is ongoing:
    - No logged exercises
-     : estimated_calorie_goal = estimated_tdee - deficit
-     : calorie_goal = estimated_calorie_goal
+     : estimated_energy_goal = estimated_tdee - deficit
+     : energy_goal = estimated_energy_goal
    - Logged exercises
-     : calorie_goal = tdee - deficit
+     : energy_goal = tdee - deficit
 3. The day is in the past:
    - The taken into account intake is the higher of the estimated goal or the
      actual intake
 
-Fat and carbohydrates are based on the previous calorie goals
+Fat and carbohydrates are based on the previous energy goals
 """
 
 # flake8: noqa: F401
