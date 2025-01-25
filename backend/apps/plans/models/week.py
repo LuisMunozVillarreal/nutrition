@@ -111,7 +111,7 @@ class WeekPlan(BaseModel):
         return twee
 
     @property
-    def energy_goal(self) -> Decimal:
+    def energy_kcal_goal(self) -> Decimal:
         """Get energy goal.
 
         Returns:
@@ -119,7 +119,7 @@ class WeekPlan(BaseModel):
         """
         goal = Decimal("0")
         for day in self.days.all():
-            goal += day.energy_goal
+            goal += day.energy_kcal_goal
         return goal
 
     # Intake
@@ -136,16 +136,16 @@ class WeekPlan(BaseModel):
         return kcals
 
     @property
-    def energy_intake_perc(self) -> Decimal:
+    def energy_kcal_intake_perc(self) -> Decimal:
         """Get energy intake percentage.
 
         Returns:
             Decimal: energy intake percentage.
         """
-        if not self.energy_goal:
+        if not self.energy_kcal_goal:
             return Decimal("0")
 
-        return self.energy_kcal * 100 / self.energy_goal
+        return self.energy_kcal * 100 / self.energy_kcal_goal
 
     @property
     def energy_deficit(self) -> Decimal:

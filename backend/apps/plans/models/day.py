@@ -130,7 +130,7 @@ class Day(Nutrients):
     )
 
     # Goals
-    energy_goal = models.DecimalField(
+    energy_kcal_goal = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         editable=False,
@@ -155,7 +155,7 @@ class Day(Nutrients):
     )
 
     # Intake percentages
-    energy_intake_perc = models.DecimalField(
+    energy_kcal_intake_perc = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         editable=False,
@@ -217,7 +217,7 @@ class Day(Nutrients):
             kwargs (Any): keywork arguments.
         """
         # Goals
-        self.energy_goal = self._energy_goal
+        self.energy_kcal_goal = self._energy_kcal_goal
         self.protein_g_goal = (
             self.plan.protein_g_kg * self.plan.measurement.weight
         )
@@ -225,7 +225,7 @@ class Day(Nutrients):
         self.carbs_g_goal = self._carbs_g_goal
 
         # Intake percentages
-        self.energy_intake_perc = self._energy_intake_perc
+        self.energy_kcal_intake_perc = self._energy_kcal_intake_perc
         self.protein_g_intake_perc = self._protein_g_intake_perc
         self.fat_g_intake_perc = self._fat_g_intake_perc
         self.carbs_g_intake_perc = self._carbs_g_intake_perc
@@ -289,7 +289,7 @@ class Day(Nutrients):
 
     # Goals calculators
     @property
-    def _energy_goal(self) -> Decimal:
+    def _energy_kcal_goal(self) -> Decimal:
         """Get energy goal.
 
         Note that if tracked is False, the estimated TDEE would be taken into
@@ -309,7 +309,7 @@ class Day(Nutrients):
 
     @property
     def _fat_kcal_goal(self) -> Decimal:
-        return self._energy_goal * self.plan.fat_perc / 100
+        return self._energy_kcal_goal * self.plan.fat_perc / 100
 
     @property
     def _fat_g_goal(self) -> Decimal:
@@ -317,7 +317,7 @@ class Day(Nutrients):
 
     @property
     def _carbs_kcal_goal(self) -> Decimal:
-        return self._energy_goal - self._fat_kcal_goal
+        return self._energy_kcal_goal - self._fat_kcal_goal
 
     @property
     def _carbs_g_goal(self) -> Decimal:
@@ -387,16 +387,16 @@ class Day(Nutrients):
 
     # Intakes percentages calculators
     @property
-    def _energy_intake_perc(self) -> Decimal:
+    def _energy_kcal_intake_perc(self) -> Decimal:
         """Get energy intake percentage.
 
         Returns:
              Decimal: energy intake percentage.
         """
-        if not self.energy_goal:
+        if not self.energy_kcal_goal:
             return Decimal("0")
 
-        return self.energy_kcal * 100 / self.energy_goal
+        return self.energy_kcal * 100 / self.energy_kcal_goal
 
     @property
     def _protein_g_intake_perc(self) -> Decimal:
@@ -441,10 +441,10 @@ class Day(Nutrients):
         Returns:
              Decimal: energy deficit.
         """
-        if not self.energy_goal:
+        if not self.energy_kcal_goal:
             return Decimal("0")
 
-        deficit = self.energy_goal - self.energy_kcal
+        deficit = self.energy_kcal_goal - self.energy_kcal
         if deficit > 0:
             return deficit
 
@@ -457,10 +457,10 @@ class Day(Nutrients):
         Returns:
              Decimal: energy surplus.
         """
-        if not self.energy_goal:
+        if not self.energy_kcal_goal:
             return Decimal("0")
 
-        surplus = self.energy_kcal - self.energy_goal
+        surplus = self.energy_kcal - self.energy_kcal_goal
         if surplus > 0:
             return surplus
 
