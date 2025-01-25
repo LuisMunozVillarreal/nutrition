@@ -84,20 +84,6 @@ class WeekPlan(BaseModel):
         """
         return f"Week {self.start_date.isocalendar().week}"
 
-    def extra_surplus(self, day_num: int) -> Decimal:
-        """Calculate extra surplus for the day based on the previous days.
-
-        Args:
-            day_num (int): day number.
-
-        Returns:
-            Decimal: surplus
-        """
-        surplus = Decimal("0")
-        for day in self.days.filter(day_num__lt=day_num):
-            surplus += day.energy_surplus
-        return surplus / (self.PLAN_LENGTH_DAYS - day_num + 1)
-
     @property
     def twee(self) -> Decimal:
         """Get TWEE.
@@ -148,13 +134,30 @@ class WeekPlan(BaseModel):
         return self.energy_kcal * 100 / self.energy_kcal_goal
 
     @property
-    def energy_deficit(self) -> Decimal:
-        """Get energy deficit.
+    def energy_kcal_goal_diff(self) -> Decimal:
+        """Get energy goal diff.
 
         Returns:
-            Decimal: energy deficit.
+            Decimal: energy diff.
         """
-        return self.twee - self.energy_kcal
+        diff = Decimal("0")
+        for day in self.days.all():
+            diff += day.energy_kcal_goal_diff
+        return diff
+
+    def energy_kcal_goal_accumulated_diff(self, day_num: int) -> Decimal:
+        """Get accumulated energy goal diff.
+
+        Args:
+            day_num (int): day number.
+
+        Returns:
+            Decimal: accumulated energy goal diff.
+        """
+        diff = Decimal("0")
+        for day in self.days.filter(day_num__lte=day_num):
+            diff += day.energy_kcal_goal_diff
+        return diff
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
