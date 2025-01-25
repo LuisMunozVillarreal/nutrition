@@ -4,11 +4,11 @@
 def test_recipe_serving(db, recipe_factory):
     """Serving is created on recipe creation."""
     # When
-    recipe = recipe_factory(num_servings=6, energy=600)
+    recipe = recipe_factory(num_servings=6, energy_kcal=600)
 
     # Then
     assert recipe.servings.count() == 1
-    assert recipe.servings.first().energy == 100
+    assert recipe.servings.first().energy_kcal == 100
 
 
 def test_recipe_save_no_more_servings(db, recipe):
@@ -26,11 +26,11 @@ def test_recipe_save_no_more_servings(db, recipe):
 def test_update_recipe_serving_nutrients(db, recipe):
     """Update recipe reflect changes in its serving."""
     # Given
-    assert recipe.servings.first().energy == 530
+    assert recipe.servings.first().energy_kcal == 530
 
     # When
-    recipe.energy = 500
+    recipe.energy_kcal = 500
     recipe.save()
 
     # Then
-    assert recipe.servings.first().energy == 250
+    assert recipe.servings.first().energy_kcal == 250

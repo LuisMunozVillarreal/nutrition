@@ -16,7 +16,7 @@ class FoodFactory(DjangoModelFactory):
     brand = "Ocado"
     name = "Chicken Breast"
     url = "http://food.link"
-    energy = Decimal("106")
+    energy_kcal = Decimal("106")
     weight = Decimal("320")
     weight_unit = "g"
     protein_g = 25

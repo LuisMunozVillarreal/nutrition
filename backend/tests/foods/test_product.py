@@ -11,22 +11,22 @@ def test_proudct_defualt_three_servings(db, food_product):
     serving = food_product.servings.all()[0]
     assert serving.size == 100
     assert serving.unit == "g"
-    assert serving.energy == 106
+    assert serving.energy_kcal == 106
 
     serving = food_product.servings.all()[1]
     assert serving.size == 1
     assert serving.unit == "g"
-    assert serving.energy == Decimal("1.06")
+    assert serving.energy_kcal == Decimal("1.06")
 
     serving = food_product.servings.all()[2]
     assert serving.size == 1
     assert serving.unit == "container"
-    assert serving.energy == Decimal("339.2")
+    assert serving.energy_kcal == Decimal("339.2")
 
     serving = food_product.servings.all()[3]
     assert serving.size == 1
     assert serving.unit == "serving"
-    assert serving.energy == Decimal("169.6")
+    assert serving.energy_kcal == Decimal("169.6")
 
 
 def test_proudct_defualt_two_servings(db, food_product_factory):
@@ -42,12 +42,12 @@ def test_proudct_defualt_two_servings(db, food_product_factory):
     serving = food_product.servings.all()[0]
     assert serving.size == 1
     assert serving.unit == "g"
-    assert serving.energy == Decimal("106")
+    assert serving.energy_kcal == Decimal("106")
 
     serving = food_product.servings.all()[1]
     assert serving.size == 1
     assert serving.unit == "container"
-    assert serving.energy == Decimal("33920")
+    assert serving.energy_kcal == Decimal("33920")
 
 
 def test_product_one_servings(db, food_product_factory):
@@ -70,7 +70,7 @@ def test_product_different_container_unit(db, food_product_factory):
     serving = food_product.servings.all()[2]
     assert serving.size == 1
     assert serving.unit == "container"
-    assert serving.energy == Decimal("339200")
+    assert serving.energy_kcal == Decimal("339200")
 
 
 def test_product_save_no_more_servings(db, food_product):
@@ -93,7 +93,7 @@ def test_product_update_nutrition_on_servings(db, food_product):
 
     # Then
     serving = food_product.servings.all()[0]
-    assert serving.energy == 53
+    assert serving.energy_kcal == 53
 
 
 def test_product_update_weight_on_servings(db, food_product):
@@ -104,4 +104,4 @@ def test_product_update_weight_on_servings(db, food_product):
 
     # Then
     serving = food_product.servings.all()[2]
-    assert serving.energy == Decimal("678.4")
+    assert serving.energy_kcal == Decimal("678.4")

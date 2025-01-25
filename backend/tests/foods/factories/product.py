@@ -19,7 +19,7 @@ class FoodProductFactory(DjangoModelFactory):
     name = "Chicken Breast"
     url = "http://foodproduct.link"
     barcode = "012308980493"
-    energy = Decimal("106")
+    energy_kcal = Decimal("106")
     weight = Decimal("320")
     weight_unit = "g"
     num_servings = 2
