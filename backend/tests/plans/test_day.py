@@ -108,8 +108,7 @@ def test_zero_energy_goal(db, day, zero_energy_kcal_goal):
     # Then
     assert day.energy_kcal_goal == 0
     assert day.energy_kcal_intake_perc == 0
-    assert day.energy_deficit == 0
-    assert day.energy_surplus == 0
+    assert day.energy_kcal_goal_diff == 0
     assert day.fat_g_intake_perc == 0
     assert day.carbs_g_intake_perc == 0
 
@@ -121,13 +120,3 @@ def test_zero_protein_goal(db, day):
 
     # Then
     assert day._protein_g_intake_perc == 0  # pylint: disable=protected-access
-
-
-def test_zero_energy_deficit(db, day):
-    """Zero energy deficit works as expected."""
-    # When
-    day.energy_kcal_goal = 1
-    day.energy_kcal = 2
-
-    # Then
-    assert day.energy_deficit == 0

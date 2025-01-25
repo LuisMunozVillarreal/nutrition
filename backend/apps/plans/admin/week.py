@@ -76,9 +76,9 @@ class WeekPlanAdmin(NestedModelAdmin):
         "deficit",
         "rounded_twee",
         "rounded_energy_kcal_goal",
-        "rounded_energy",
+        "rounded_energy_kcal",
         "rounded_energy_kcal_intake_perc",
-        "rounded_energy_deficit",
+        "rounded_energy_kcal_goal_diff",
     ]
 
     fields = [
@@ -90,17 +90,17 @@ class WeekPlanAdmin(NestedModelAdmin):
         "deficit",
         "rounded_twee",
         "rounded_energy_kcal_goal",
-        "rounded_energy",
+        "rounded_energy_kcal",
         "rounded_energy_kcal_intake_perc",
-        "rounded_energy_deficit",
+        "rounded_energy_kcal_goal_diff",
     ]
 
     readonly_fields = [
         "rounded_twee",
         "rounded_energy_kcal_goal",
-        "rounded_energy",
+        "rounded_energy_kcal",
         "rounded_energy_kcal_intake_perc",
-        "rounded_energy_deficit",
+        "rounded_energy_kcal_goal_diff",
     ]
 
     def get_changeform_initial_data(self, request: HttpRequest) -> Dict:
@@ -164,7 +164,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal_goal)
 
-    def rounded_energy(self, obj: WeekPlan) -> Decimal:
+    def rounded_energy_kcal(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy.
 
         Args:
@@ -186,8 +186,8 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal_intake_perc)
 
-    def rounded_energy_deficit(self, obj: WeekPlan) -> Decimal:
-        """Get rounded energy deficit.
+    def rounded_energy_kcal_goal_diff(self, obj: WeekPlan) -> Decimal:
+        """Get rounded energy goal diff.
 
         Args:
             obj (WeekPlan): instance of the object.
@@ -195,4 +195,4 @@ class WeekPlanAdmin(NestedModelAdmin):
         Returns:
             str: rounded energy deficit.
         """
-        return round_no_trailing_zeros(obj.energy_deficit)
+        return round_no_trailing_zeros(obj.energy_kcal_goal_diff)

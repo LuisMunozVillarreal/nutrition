@@ -295,17 +295,10 @@ class Day(Nutrients):
         Note that if tracked is False, the estimated TDEE would be taken into
         account.
 
-        Day 2 onwards of the plan will take into account any incurred surpluses
-        from previous days.
-
         Returns:
             Decimal: estimated energy goal.
         """
-        return (
-            self.tdee
-            - Decimal(self.deficit)
-            - self.plan.extra_surplus(self.day_num)
-        )
+        return self.tdee - Decimal(self.deficit)
 
     @property
     def _fat_kcal_goal(self) -> Decimal:
@@ -435,33 +428,25 @@ class Day(Nutrients):
         return self.carbs_g * 100 / self.carbs_g_goal
 
     @property
-    def energy_deficit(self) -> Decimal:
-        """Get energy deficit.
+    def energy_kcal_goal_diff(self) -> Decimal:
+        """Get energy goal diff.
+
+        A positive number diff is achieved deficit.
+        A negative number diff is incurred surplus.
 
         Returns:
-             Decimal: energy deficit.
+             Decimal: energy diff.
         """
         if not self.energy_kcal_goal:
             return Decimal("0")
 
-        deficit = self.energy_kcal_goal - self.energy_kcal
-        if deficit > 0:
-            return deficit
-
-        return Decimal("0")
+        return self.energy_kcal_goal - self.energy_kcal
 
     @property
-    def energy_surplus(self) -> Decimal:
-        """Get energy surplus.
+    def energy_kcal_goal_accumulated_diff(self) -> Decimal:
+        """Get accumulated energy goal diff.
 
         Returns:
-             Decimal: energy surplus.
+            Decimal: accumulated energy goal diff.
         """
-        if not self.energy_kcal_goal:
-            return Decimal("0")
-
-        surplus = self.energy_kcal - self.energy_kcal_goal
-        if surplus > 0:
-            return surplus
-
-        return Decimal("0")
+        return self.plan.energy_kcal_goal_accumulated_diff(self.day_num)
