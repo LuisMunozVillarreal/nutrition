@@ -17,7 +17,7 @@ def test_estimated_energy_goal(db, day):
     day.save()
 
     # When / Then
-    assert day.energy_goal == Decimal("2501.3109")
+    assert day.energy_kcal_goal == Decimal("2501.3109")
 
 
 def test_estimated_fat_g_goal(db, day):
@@ -42,12 +42,12 @@ def test_estimated_carb_g_goal(db, day):
 
 def test_tracked_energy_goal(db, day_steps, exercise):
     """Tracked energy goal is correct."""
-    assert day_steps.day.energy_goal == Decimal("1889.1352")
+    assert day_steps.day.energy_kcal_goal == Decimal("1889.1352")
 
 
 def test_tracked_energy_goal_no_steps(db, day, exercise):
     """Tracked energy goal with no steps is correct."""
-    assert day.energy_goal == Decimal("1859.1352")
+    assert day.energy_kcal_goal == Decimal("1859.1352")
 
 
 def test_increase_day_nutrients(db, intake):
@@ -80,34 +80,34 @@ def test_decrease_day_exercise(db, exercise):
     day = exercise.day
     day.tracked = True
     day.save()
-    assert day.energy_goal == Decimal("1859.1352")
+    assert day.energy_kcal_goal == Decimal("1859.1352")
 
     # When
     exercise.delete()
 
     # Then
     day.refresh_from_db()
-    assert day.energy_goal == Decimal("1759.14")
+    assert day.energy_kcal_goal == Decimal("1759.14")
 
 
 @pytest.fixture
-def zero_energy_goal(mocker):
-    """Zero energy goal mock."""
+def zero_energy_kcal_goal(mocker):
+    """Zero energy kcal goal mock."""
     return mocker.patch(
-        "apps.plans.models.Day._energy_goal",
+        "apps.plans.models.Day._energy_kcal_goal",
         new_callable=mocker.PropertyMock,
         return_value=Decimal("0"),
     )
 
 
-def test_zero_energy_goal(db, day, zero_energy_goal):
-    """Zero energy goal works as expected."""
+def test_zero_energy_goal(db, day, zero_energy_kcal_goal):
+    """Zero energy kcal goal works as expected."""
     # When
     day.save()
 
     # Then
-    assert day.energy_goal == 0
-    assert day.energy_intake_perc == 0
+    assert day.energy_kcal_goal == 0
+    assert day.energy_kcal_intake_perc == 0
     assert day.energy_deficit == 0
     assert day.energy_surplus == 0
     assert day.fat_g_intake_perc == 0
@@ -126,7 +126,7 @@ def test_zero_protein_goal(db, day):
 def test_zero_energy_deficit(db, day):
     """Zero energy deficit works as expected."""
     # When
-    day.energy_goal = 1
+    day.energy_kcal_goal = 1
     day.energy_kcal = 2
 
     # Then

@@ -111,18 +111,18 @@ def test_energy_goal_with_surplus(db, week_plan, intake_factory, serving):
 
 
 @pytest.fixture
-def zero_energy_goal(mocker):
-    """Zero energy goal mock."""
+def zero_energy_kcal_goal(mocker):
+    """Zero energy kcal goal mock."""
     return mocker.patch(
-        "apps.plans.models.WeekPlan.energy_goal",
+        "apps.plans.models.WeekPlan.energy_kcal_goal",
         new_callable=mocker.PropertyMock,
         return_value=Decimal("0"),
     )
 
 
-def test_zero_energy_intake_perc(db, week_plan, zero_energy_goal):
+def test_zero_energy_intake_perc(db, week_plan, zero_energy_kcal_goal):
     """Zero energy intake percentage works as expected."""
-    assert week_plan.energy_intake_perc == 0
+    assert week_plan.energy_kcal_intake_perc == 0
 
 
 def test_new_week_not_completed(db, week_plan_factory):
