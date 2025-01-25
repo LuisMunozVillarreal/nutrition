@@ -19,13 +19,13 @@ class WeekPlan(BaseModel):
     user = models.ForeignKey(
         "users.User",
         on_delete=models.CASCADE,
-        related_name="calorie_plans",
+        related_name="week_plans",
     )
 
     measurement = models.ForeignKey(
         "measurements.Measurement",
         on_delete=models.CASCADE,
-        related_name="calorie_plans",
+        related_name="week_plans",
     )
 
     # Parameters
@@ -52,7 +52,7 @@ class WeekPlan(BaseModel):
         decimal_places=1,
         verbose_name="Fat (%)",
         help_text=(
-            "Fat percentage of the total calorie goal. "
+            "Fat percentage of the total energy goal. "
             "The recommended value is 15-25% for cutting and "
             "20-30% for bulking."
         ),
@@ -99,7 +99,7 @@ class WeekPlan(BaseModel):
         """
         surplus = Decimal("0")
         for day in self.days.filter(day_num__lt=day_num):
-            surplus += day.calorie_surplus
+            surplus += day.energy_surplus
         return surplus / (self.PLAN_LENGTH_DAYS - day_num + 1)
 
     @property
@@ -115,24 +115,24 @@ class WeekPlan(BaseModel):
         return twee
 
     @property
-    def calorie_goal(self) -> Decimal:
-        """Get calorie goal.
+    def energy_goal(self) -> Decimal:
+        """Get energy goal.
 
         Returns:
-            Decimal: calorie goal.
+            Decimal: energy goal.
         """
         goal = Decimal("0")
         for day in self.days.all():
-            goal += day.calorie_goal
+            goal += day.energy_goal
         return goal
 
     # Intake
     @property
     def energy_kcal(self) -> Decimal:
-        """Get calorie intake.
+        """Get energy intake.
 
         Returns:
-            Decimal: calorie intake.
+            Decimal: energy intake.
         """
         kcals = Decimal("0")
         for day in self.days.all():
@@ -140,23 +140,23 @@ class WeekPlan(BaseModel):
         return kcals
 
     @property
-    def calorie_intake_perc(self) -> Decimal:
-        """Get calorie intake percentage.
+    def energy_intake_perc(self) -> Decimal:
+        """Get energy intake percentage.
 
         Returns:
-            Decimal: calorie intake percentage.
+            Decimal: energy intake percentage.
         """
-        if not self.calorie_goal:
+        if not self.energy_goal:
             return Decimal("0")
 
-        return self.energy_kcal * 100 / self.calorie_goal
+        return self.energy_kcal * 100 / self.energy_goal
 
     @property
-    def calorie_deficit(self) -> Decimal:
-        """Get calorie deficit.
+    def energy_deficit(self) -> Decimal:
+        """Get energy deficit.
 
         Returns:
-            Decimal: calorie deficit.
+            Decimal: energy deficit.
         """
         return self.twee - self.energy_kcal
 
