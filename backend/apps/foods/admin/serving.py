@@ -26,7 +26,7 @@ class ServingAdmin(admin.ModelAdmin):
         "food__name",
         "size",
         "unit",
-        round_field("energy"),
+        round_field("energy_kcal"),
         round_field("protein_g"),
         round_field("fat_g"),
         round_field("carbs_g"),
@@ -58,7 +58,7 @@ class ServingInline(admin.TabularInline):
     list_fields = [
         "size",
         "unit",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
@@ -67,7 +67,7 @@ class ServingInline(admin.TabularInline):
     fields = [
         "size",
         "unit",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",

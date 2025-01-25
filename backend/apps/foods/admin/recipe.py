@@ -25,14 +25,14 @@ class RecipeIngredientInline(admin.TabularInline):
     fields = [
         "food",
         "num_servings",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
     ]
 
     readonly_fields = [
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
@@ -57,7 +57,7 @@ class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
         "protein_p_s",
         "fat_p_s",
         "carbs_p_s",
-        round_field("energy"),
+        round_field("energy_kcal"),
         round_field("protein_g"),
         round_field("fat_g"),
         round_field("carbs_g"),
@@ -67,7 +67,7 @@ class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
         "brand",
         "name",
         "tags",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
@@ -105,7 +105,7 @@ class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
         Returns:
             Decimal: Energy per serving.
         """
-        return round_no_trailing_zeros(obj.energy / obj.num_servings, 1)
+        return round_no_trailing_zeros(obj.energy_kcal / obj.num_servings, 1)
 
     @admin.display(description="Protein p/s")
     def protein_p_s(self, obj: Recipe) -> Decimal:

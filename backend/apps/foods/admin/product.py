@@ -33,9 +33,13 @@ class FoodProductForm(forms.ModelForm):
         Args:
             data (Dict[str, float]): nutrition facts.
         """
-        self.cleaned_data["energy"] = round(
+        self.cleaned_data["energy_kcal"] = round(
             Decimal(
-                str(data["kcal"] or self.cleaned_data.get("energy", 0) or 0)
+                str(
+                    data["kcal"]
+                    or self.cleaned_data.get("energy_kcal", 0)
+                    or 0
+                )
             ),
             1,
         )
@@ -185,7 +189,7 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         "weight",
         "weight_unit",
         round_field("num_servings"),
-        round_field("energy"),
+        round_field("energy_kcal"),
         round_field("fat_g"),
         round_field("carbs_g"),
         round_field("protein_g"),
@@ -194,7 +198,7 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
     _main_fields = [
         "brand",
         "name",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
@@ -231,7 +235,7 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
                     "get_info_with_gemini",
                     "nutritional_info_size",
                     "nutritional_info_unit",
-                    "energy",
+                    "energy_kcal",
                     "fat_g",
                     "carbs_g",
                     "protein_g",

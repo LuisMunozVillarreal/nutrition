@@ -14,7 +14,7 @@ class Nutrients(BaseModel):
     class Meta:
         abstract = True
 
-    energy = models.DecimalField(
+    energy_kcal = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         default=0,

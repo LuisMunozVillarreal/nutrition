@@ -1,7 +1,7 @@
 """nutrition facts finder package."""
 
 DEFAULT_FORM_DATA = {
-    "energy": 0,
+    "energy_kcal": 0,
     "protein_g": 0,
     "fat_g": 0,
     "carbs_g": 0,

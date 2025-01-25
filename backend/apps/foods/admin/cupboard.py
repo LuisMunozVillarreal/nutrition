@@ -101,7 +101,7 @@ class CupboardItemAdmin(admin.ModelAdmin):
 
     @admin.display(
         description="Energy/s",
-        ordering=F("food__energy") / F("food__num_servings"),
+        ordering=F("food__energy_kcal") / F("food__num_servings"),
     )
     def round_energy_kcal_per_serving(self, obj: CupboardItem) -> Decimal:
         """Get energy kcal per serving with displayed description.

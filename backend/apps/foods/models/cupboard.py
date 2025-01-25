@@ -75,7 +75,7 @@ class CupboardItem(models.Model):
         Returns:
             Decimal: energy in kcal per serving.
         """
-        return self.food.energy / self.food.num_servings
+        return self.food.energy_kcal / self.food.num_servings
 
     @property
     def fat_g_per_serving(self) -> Decimal:

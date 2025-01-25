@@ -54,7 +54,7 @@ class IntakeAdmin(admin.ModelAdmin):
         round_field("num_servings"),
         "meal",
         "processed",
-        round_field("energy"),
+        round_field("energy_kcal"),
         round_field("protein_g"),
         round_field("fat_g"),
         round_field("carbs_g"),
@@ -68,7 +68,7 @@ class IntakeAdmin(admin.ModelAdmin):
         "meal",
         "notes",
         "processed",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",
@@ -77,7 +77,7 @@ class IntakeAdmin(admin.ModelAdmin):
 
     readonly_fields = [
         "processed",
-        "energy",
+        "energy_kcal",
         "protein_g",
         "fat_g",
         "carbs_g",

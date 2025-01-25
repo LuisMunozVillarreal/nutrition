@@ -173,7 +173,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         Returns:
             str: rounded energy.
         """
-        return round_no_trailing_zeros(obj.energy)
+        return round_no_trailing_zeros(obj.energy_kcal)
 
     def rounded_calorie_intake_perc(self, obj: WeekPlan) -> Decimal:
         """Get rounded calorie intake percentage.

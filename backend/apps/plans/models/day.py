@@ -17,8 +17,6 @@ class Day(Nutrients):
     # pylint: disable=too-many-instance-attributes
 
     # TODO: rename calorie fields by energy  # pylint: disable=fixme
-    # Also consider renaming 'energy' to 'energy_kcal', the same way
-    # that there is 'protein_g'
 
     class Meta:
         ordering = ["-plan", "-day"]
@@ -354,7 +352,7 @@ class Day(Nutrients):
         Returns:
             Decimal: Thermic Effect of Food.
         """
-        return self.energy * Decimal("0.1")
+        return self.energy_kcal * Decimal("0.1")
 
     @property
     def eat(self) -> int:
@@ -404,7 +402,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        return self.energy * 100 / self.calorie_goal
+        return self.energy_kcal * 100 / self.calorie_goal
 
     @property
     def _protein_g_intake_perc(self) -> Decimal:
@@ -452,7 +450,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        deficit = self.calorie_goal - self.energy
+        deficit = self.calorie_goal - self.energy_kcal
         if deficit > 0:
             return deficit
 
@@ -468,7 +466,7 @@ class Day(Nutrients):
         if not self.calorie_goal:
             return Decimal("0")
 
-        surplus = self.energy - self.calorie_goal
+        surplus = self.energy_kcal - self.calorie_goal
         if surplus > 0:
             return surplus
 

@@ -127,7 +127,7 @@ def test_zero_calorie_deficit(db, day):
     """Zero calorie deficit works as expected."""
     # When
     day.calorie_goal = 1
-    day.energy = 2
+    day.energy_kcal = 2
 
     # Then
     assert day.calorie_deficit == 0
