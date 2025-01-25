@@ -8,19 +8,19 @@ Estimated TDEE = 2647.15
 Deficit (kcals/day) = 300
 Deficit distribution = 110, 110, 110, 110, 90, 80, 90
 
-ECG110: Estimated Calorie Goal w Deficit 110 = ETDEE - 300 * 1.1 = 2317.15
-ECG90: Estimated Calorie Goal w Deficit 90 = ETDEE - 300 * 0.9 = 2377.15
-ECG80: Estimated Calorie Goal w Deficit 80 = ETDEE - 300 * 0.8 = 2407.15
+ECG110: Estimated Energy Goal w Deficit 110 = ETDEE - 300 * 1.1 = 2317.15
+ECG90: Estimated Energy Goal w Deficit 90 = ETDEE - 300 * 0.9 = 2377.15
+ECG80: Estimated Energy Goal w Deficit 80 = ETDEE - 300 * 0.8 = 2407.15
 
 TDEE = 3000
 
-CG110: Calorie Goal w Deficit 110 = TDEE - 300 * 1.1 = 2670
-CG90: Calorie Goal w Deficit 90 = TDEE - 300 * 0.9 = 2730
-CG80: Calorie Goal w Deficit 80 = TDEE - 300 * 0.8 = 2760
+CG110: Energy Goal w Deficit 110 = TDEE - 300 * 1.1 = 2670
+CG90: Energy Goal w Deficit 90 = TDEE - 300 * 0.9 = 2730
+CG80: Energy Goal w Deficit 80 = TDEE - 300 * 0.8 = 2760
 
-Calorie goal & intake
+Energy goal & intake
 =====================
-Calorie goal would be the ETDEE if  calorie intake
+Energy goal would be the ETDEE if  energy intake
 
 Use cases
 =========
@@ -36,7 +36,7 @@ UC2:
 ----
 Current day 1
 TDEE < ETDEE
-Calorie intake < Calorie goal
+Energy intake < Energy goal
 
    1       2       3       4      5      6      7
 ECG110  ECG110  ECG110  ECG110  ECG90  ECG80  ECG90
@@ -44,7 +44,7 @@ UC3:
 ----
 Current day: 1
 TDEE > ETDEE
-Calorie intake < Calorie goal
+Energy intake < Energy goal
 
   1       2       3       4      5      6      7
 CG110  ECG110  ECG110  ECG110  ECG90  ECG80  ECG90
@@ -87,8 +87,8 @@ def test_saving_week_doesnt_create_more_days(db, week_plan):
     assert week_plan.days.count() == 7
 
 
-def test_calorie_goal_with_surplus(db, week_plan, intake_factory, serving):
-    """Calorie goal with surplus is correct."""
+def test_energy_goal_with_surplus(db, week_plan, intake_factory, serving):
+    """Energy goal with surplus is correct."""
     # Given
     day_one = week_plan.days.all()[6]
     day_one.tracked = True
@@ -111,18 +111,18 @@ def test_calorie_goal_with_surplus(db, week_plan, intake_factory, serving):
 
 
 @pytest.fixture
-def zero_calorie_goal(mocker):
-    """Zero calorie goal mock."""
+def zero_energy_goal(mocker):
+    """Zero energy goal mock."""
     return mocker.patch(
-        "apps.plans.models.WeekPlan.calorie_goal",
+        "apps.plans.models.WeekPlan.energy_goal",
         new_callable=mocker.PropertyMock,
         return_value=Decimal("0"),
     )
 
 
-def test_zero_calorie_intake_perc(db, week_plan, zero_calorie_goal):
-    """Zero calorie intake percentage works as expected."""
-    assert week_plan.calorie_intake_perc == 0
+def test_zero_energy_intake_perc(db, week_plan, zero_energy_goal):
+    """Zero energy intake percentage works as expected."""
+    assert week_plan.energy_intake_perc == 0
 
 
 def test_new_week_not_completed(db, week_plan_factory):

@@ -203,14 +203,14 @@ def test_plan_or_consume_non_cupboard_item(day, intake_factory):
     # Given an empty cupboard
     assert CupboardItem.objects.count() == 0
 
-    # And no calories consumed
-    assert day.calorie_intake_perc == 0
+    # And no energy consumed
+    assert day.energy_intake_perc == 0
 
     # When a non cupboard item is linked to an intake
     intake_factory(day=day)
 
-    # Then the consumed calories increase
-    assert day.calorie_intake_perc == Decimal("5.989596635700075355906352544")
+    # Then the consumed energy increase
+    assert day.energy_intake_perc == Decimal("5.989596635700075355906352544")
 
     # And the cupboard remains the same
     assert CupboardItem.objects.count() == 0
