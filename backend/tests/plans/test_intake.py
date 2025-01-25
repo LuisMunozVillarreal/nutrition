@@ -13,7 +13,7 @@ def test_no_food_intake(day, intake_factory):
     assert day.intakes.count() == 1
 
     # And the day doesn't get its nutrients increased
-    assert day.energy == 0
+    assert day.energy_kcal == 0
 
 
 def test_add_food_to_existing_intake(intake_factory, serving):
@@ -27,7 +27,7 @@ def test_add_food_to_existing_intake(intake_factory, serving):
 
     # Then the day gets its nutrients increased
     intake.day.refresh_from_db()
-    assert intake.day.energy == 106
+    assert intake.day.energy_kcal == 106
 
 
 def test_remove_food_from_existing_intake(intake):
@@ -38,20 +38,20 @@ def test_remove_food_from_existing_intake(intake):
 
     # Then the day gets its nutrients decreased
     intake.day.refresh_from_db()
-    assert intake.day.energy == 0
+    assert intake.day.energy_kcal == 0
 
 
 def test_delete_intake_with_food(intake):
     """Deleting an intake decreases the day's nutrients."""
     # Given a day with some energy consumed
-    assert intake.day.energy == 106
+    assert intake.day.energy_kcal == 106
 
     # When the intake with food is deleted
     intake.delete()
 
     # Then the day gets its nutrients decreased
     intake.day.refresh_from_db()
-    assert intake.day.energy == 0
+    assert intake.day.energy_kcal == 0
 
 
 def test_delete_intake_without_food(intake_factory):
@@ -63,7 +63,7 @@ def test_delete_intake_without_food(intake_factory):
     intake.delete()
 
     # Then the day doesn't get its nutrients decreased
-    assert intake.day.energy == 0
+    assert intake.day.energy_kcal == 0
 
 
 def test_no_food_str(intake_factory):

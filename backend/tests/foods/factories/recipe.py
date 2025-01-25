@@ -21,7 +21,7 @@ class RecipeFactory(DjangoModelFactory):
     url = "http://recipe.link"
     nutrients_from_ingredients = False
     num_servings = 2.0
-    energy = Decimal("1060")
+    energy_kcal = Decimal("1060")
     protein_g = 250
     fat_g = 5
     saturated_fat_g = 0
