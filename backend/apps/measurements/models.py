@@ -61,7 +61,13 @@ class Measurement(BaseModel):
 
         return 370 + (
             Decimal("21.6")
-            * ((self.weight * (100 - self.body_fat_perc) / 100))
+            * (
+                (
+                    self.weight
+                    * (Decimal("100") - self.body_fat_perc)
+                    / Decimal("100")
+                )
+            )
         )
 
     @property
