@@ -82,10 +82,6 @@ class WeekPlan(BaseModel):
         Returns:
             str: string representation.
         """
-        # For some reason pylint_django it's failing.
-        # I believe it's due to protobuf being downgraded due to google-genai
-        # pylint: disable=no-member,fixme
-        # TODO: Remove this ones protobuf is back to 5.x.x
         return f"Week {self.start_date.isocalendar().week}"
 
     def extra_surplus(self, day_num: int) -> Decimal:
