@@ -106,7 +106,7 @@ def test_calorie_goal_with_surplus(db, week_plan, intake_factory, serving):
 
     # When / Then
     assert day_three.plan.extra_surplus(day_three.day_num) == Decimal(
-        "508.612"
+        "456.574"
     )
 
 

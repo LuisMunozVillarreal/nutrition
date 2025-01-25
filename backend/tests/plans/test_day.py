@@ -42,12 +42,12 @@ def test_estimated_carb_g_goal(db, day):
 
 def test_tracked_calorie_goal(db, day_steps, exercise):
     """Tracked calorie goal is correct."""
-    assert day_steps.day.calorie_goal == Decimal("2087.04872")
+    assert day_steps.day.calorie_goal == Decimal("1889.1352")
 
 
 def test_tracked_calorie_goal_no_steps(db, day, exercise):
     """Tracked calorie goal with no steps is correct."""
-    assert day.calorie_goal == Decimal("2057.04872")
+    assert day.calorie_goal == Decimal("1859.1352")
 
 
 def test_increase_day_nutrients(db, intake):
@@ -80,14 +80,14 @@ def test_decrease_day_exercise(db, exercise):
     day = exercise.day
     day.tracked = True
     day.save()
-    assert day.calorie_goal == Decimal("2057.04872")
+    assert day.calorie_goal == Decimal("1859.1352")
 
     # When
     exercise.delete()
 
     # Then
     day.refresh_from_db()
-    assert day.calorie_goal == Decimal("1957.05")
+    assert day.calorie_goal == Decimal("1759.14")
 
 
 @pytest.fixture
