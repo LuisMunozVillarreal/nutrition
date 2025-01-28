@@ -60,15 +60,15 @@ class DayAdmin(admin.ModelAdmin):
         round_field("energy_kcal_intake_perc"),
         "energy_kcal_goal_diff",
         "energy_kcal_goal_accumulated_diff",
-        round_field("protein_g_goal"),
-        round_field("protein_g"),
-        round_field("protein_g_intake_perc"),
         round_field("fat_g_goal"),
         round_field("fat_g"),
         round_field("fat_g_intake_perc"),
         round_field("carbs_g_goal"),
         round_field("carbs_g"),
         round_field("carbs_g_intake_perc"),
+        round_field("protein_g_goal"),
+        round_field("protein_g"),
+        round_field("protein_g_intake_perc"),
     ]
 
     fields = [
@@ -98,15 +98,15 @@ class DayAdmin(admin.ModelAdmin):
         "energy_kcal_intake_perc",
         "energy_kcal_goal_diff",
         "energy_kcal_goal_accumulated_diff",
-        "protein_g_goal",
-        "protein_g",
-        "protein_g_intake_perc",
         "fat_g_goal",
         "fat_g",
         "fat_g_intake_perc",
         "carbs_g_goal",
         "carbs_g",
         "carbs_g_intake_perc",
+        "protein_g_goal",
+        "protein_g",
+        "protein_g_intake_perc",
     ]
 
     readonly_fields = [
@@ -127,15 +127,15 @@ class DayAdmin(admin.ModelAdmin):
         "energy_kcal_intake_perc",
         "energy_kcal_goal_diff",
         "energy_kcal_goal_accumulated_diff",
-        "protein_g_goal",
-        "protein_g",
-        "protein_g_intake_perc",
         "fat_g_goal",
         "fat_g",
         "fat_g_intake_perc",
         "carbs_g_goal",
         "carbs_g",
         "carbs_g_intake_perc",
+        "protein_g_goal",
+        "protein_g",
+        "protein_g_intake_perc",
     ]
 
     def has_add_permission(self, request: HttpRequest) -> bool:
