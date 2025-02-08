@@ -133,6 +133,14 @@ class Nutrients(BaseModel):
         null=True,
     )
 
+    abv_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Alcohol by volume (%)",
+    )
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
 
