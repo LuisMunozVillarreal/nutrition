@@ -16,16 +16,16 @@ class ServingAdmin(admin.ModelAdmin):
         "food__brand",
         "food__name",
         "food__tags__name",
-        "size",
-        "unit",
+        "serving_size",
+        "serving_unit",
     ]
 
     list_display = [
         "id",
         "food__brand",
         "food__name",
-        "size",
-        "unit",
+        "serving_size",
+        "serving_unit",
         round_field("energy_kcal"),
         round_field("protein_g"),
         round_field("fat_g"),
@@ -56,8 +56,8 @@ class ServingInline(admin.TabularInline):
     extra = 0
 
     list_fields = [
-        "size",
-        "unit",
+        "serving_size",
+        "serving_unit",
         "energy_kcal",
         "protein_g",
         "fat_g",
@@ -65,8 +65,8 @@ class ServingInline(admin.TabularInline):
     ]
 
     fields = [
-        "size",
-        "unit",
+        "serving_size",
+        "serving_unit",
         "energy_kcal",
         "protein_g",
         "fat_g",

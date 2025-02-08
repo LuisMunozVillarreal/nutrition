@@ -19,8 +19,8 @@ def test_intake_e2e(
     salmon = food_product_factory(
         brand="Ocado",
         name="Scottish Salmon Fillets Skin On",
-        weight=240,
-        weight_unit="g",
+        size=240,
+        size_unit="g",
         num_servings=2,
         energy_kcal=236,
         protein_g=18.6,
@@ -30,8 +30,8 @@ def test_intake_e2e(
     potatoes = food_product_factory(
         brand="Ocado",
         name="British Baby Potatoes",
-        weight=1000,
-        weight_unit="g",
+        size=1000,
+        size_unit="g",
         num_servings=2,
         energy_kcal=288,
         protein_g=1.8,
@@ -41,8 +41,8 @@ def test_intake_e2e(
     mascarpone = food_product_factory(
         brand="Ocado",
         name="Italian Mascarpone",
-        weight=250,
-        weight_unit="g",
+        size=250,
+        size_unit="g",
         num_servings=1,
         energy_kcal=404,
         protein_g=4.2,
@@ -52,8 +52,8 @@ def test_intake_e2e(
     leeks = food_product_factory(
         brand="Ocado",
         name="Organic Leeks",
-        weight=400,
-        weight_unit="g",
+        size=400,
+        size_unit="g",
         num_servings=1,
         energy_kcal=61,
         protein_g=1.5,
@@ -63,8 +63,8 @@ def test_intake_e2e(
     dill = food_product_factory(
         brand="M&S",
         name="Dill",
-        weight=25,
-        weight_unit="g",
+        size=25,
+        size_unit="g",
         num_servings=1,
         energy_kcal=43,
         protein_g=3.5,
@@ -81,31 +81,31 @@ def test_intake_e2e(
 
     salmon = recipe_ingredient_factory(
         recipe=recipe,
-        food=salmon.servings.get(unit=UNIT_CONTAINER),
+        food=salmon.servings.get(serving_unit=UNIT_CONTAINER),
         num_servings=Decimal("3"),
     )
     assert salmon.energy_kcal == Decimal("1699.2")
     potatoes = recipe_ingredient_factory(
         recipe=recipe,
-        food=potatoes.servings.get(unit=UNIT_SERVING),
+        food=potatoes.servings.get(serving_unit=UNIT_SERVING),
         num_servings=Decimal("1"),
     )
     assert potatoes.energy_kcal == Decimal("1440")
     mascarpone = recipe_ingredient_factory(
         recipe=recipe,
-        food=mascarpone.servings.get(size=100),
+        food=mascarpone.servings.get(serving_size=100),
         num_servings=Decimal("1.8"),
     )
     assert mascarpone.energy_kcal == Decimal("727.2")
     leeks = recipe_ingredient_factory(
         recipe=recipe,
-        food=leeks.servings.get(size=100),
+        food=leeks.servings.get(serving_size=100),
         num_servings=Decimal("4.5"),
     )
     assert leeks.energy_kcal == Decimal("274.5")
     dill = recipe_ingredient_factory(
         recipe=recipe,
-        food=dill.servings.get(size=1, unit=UNIT_GRAM),
+        food=dill.servings.get(serving_size=1, serving_unit=UNIT_GRAM),
         num_servings=Decimal("10"),
     )
     assert dill.energy_kcal == Decimal("4.30")

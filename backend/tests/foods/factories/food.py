@@ -17,8 +17,8 @@ class FoodFactory(DjangoModelFactory):
     name = "Chicken Breast"
     url = "http://food.link"
     energy_kcal = Decimal("106")
-    weight = Decimal("320")
-    weight_unit = "g"
+    size = Decimal("320")
+    size_unit = "g"
     protein_g = 25
     fat_g = Decimal("0.5")
     saturated_fat_g = 0

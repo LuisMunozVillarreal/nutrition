@@ -1,5 +1,8 @@
 """Food model module."""
 
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
 from django.db import models
 
 # TODO: Remove this when the stubs are available - pylint: disable=fixme
@@ -30,7 +33,10 @@ class Food(Nutrients):
         blank=True,
     )
 
-    nutritional_info_size = models.PositiveIntegerField(
+    nutritional_info_size = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        validators=[MinValueValidator(Decimal("0"))],
         default=100,
     )
 
@@ -40,11 +46,14 @@ class Food(Nutrients):
         default=UNIT_GRAM,
     )
 
-    weight = models.PositiveIntegerField(
+    size = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        validators=[MinValueValidator(Decimal("0"))],
         default=100,
     )
 
-    weight_unit = models.CharField(
+    size_unit = models.CharField(
         max_length=20,
         choices=UNIT_CHOICES,
         default=UNIT_GRAM,

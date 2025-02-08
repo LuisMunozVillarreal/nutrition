@@ -9,23 +9,23 @@ def test_proudct_defualt_three_servings(db, food_product):
     assert food_product.servings.count() == 4
 
     serving = food_product.servings.all()[0]
-    assert serving.size == 100
-    assert serving.unit == "g"
+    assert serving.serving_size == 100
+    assert serving.serving_unit == "g"
     assert serving.energy_kcal == 106
 
     serving = food_product.servings.all()[1]
-    assert serving.size == 1
-    assert serving.unit == "g"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "g"
     assert serving.energy_kcal == Decimal("1.06")
 
     serving = food_product.servings.all()[2]
-    assert serving.size == 1
-    assert serving.unit == "container"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "container"
     assert serving.energy_kcal == Decimal("339.2")
 
     serving = food_product.servings.all()[3]
-    assert serving.size == 1
-    assert serving.unit == "serving"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "serving"
     assert serving.energy_kcal == Decimal("169.6")
 
 
@@ -40,13 +40,13 @@ def test_proudct_defualt_two_servings(db, food_product_factory):
     assert food_product.servings.count() == 3
 
     serving = food_product.servings.all()[0]
-    assert serving.size == 1
-    assert serving.unit == "g"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "g"
     assert serving.energy_kcal == Decimal("106")
 
     serving = food_product.servings.all()[1]
-    assert serving.size == 1
-    assert serving.unit == "container"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "container"
     assert serving.energy_kcal == Decimal("33920")
 
 
@@ -64,12 +64,12 @@ def test_product_one_servings(db, food_product_factory):
 def test_product_different_container_unit(db, food_product_factory):
     """Serving is created correctly when the container unit is different."""
     # When
-    food_product = food_product_factory(weight_unit="kg")
+    food_product = food_product_factory(size_unit="kg")
 
     # Then
     serving = food_product.servings.all()[2]
-    assert serving.size == 1
-    assert serving.unit == "container"
+    assert serving.serving_size == 1
+    assert serving.serving_unit == "container"
     assert serving.energy_kcal == Decimal("339200")
 
 
@@ -96,10 +96,10 @@ def test_product_update_nutrition_on_servings(db, food_product):
     assert serving.energy_kcal == 53
 
 
-def test_product_update_weight_on_servings(db, food_product):
-    """Weight change is reflected on the nutrients."""
+def test_product_update_size_on_servings(db, food_product):
+    """Size change is reflected on the nutrients."""
     # When
-    food_product.weight = 640
+    food_product.size = 640
     food_product.save()
 
     # Then

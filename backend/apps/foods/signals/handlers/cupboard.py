@@ -33,16 +33,12 @@ def _get_consumed_g(serving: Serving, num_servings: Decimal) -> Decimal:
     Returns:
         Decimal: consumed grams.
     """
-    unit = serving.unit
+    unit = serving.serving_unit
     if unit in (UNIT_CONTAINER, UNIT_SERVING):
-        unit = serving.weight_unit
+        unit = serving.size_unit
 
     return (
-        (
-            UREG.Quantity(Decimal(str(serving.weight)))
-            * num_servings
-            * UREG(unit)
-        )
+        (UREG.Quantity(Decimal(str(serving.size))) * num_servings * UREG(unit))
         .to(UNIT_GRAM)
         .m
     )
@@ -59,7 +55,7 @@ def _get_consumed_perc(food: Food, consumed_g: Decimal) -> Decimal:
         Decimal: consumed percentage.
     """
     item_g = (
-        UREG.Quantity(Decimal(str(food.weight)) * UREG(food.weight_unit))
+        UREG.Quantity(Decimal(str(food.size)) * UREG(food.size_unit))
         .to(UNIT_GRAM)
         .m
     )
