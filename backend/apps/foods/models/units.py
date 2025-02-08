@@ -1,5 +1,9 @@
 """units module."""
 
+from pint import UnitRegistry
+
+UREG = UnitRegistry()
+
 # Weight
 UNIT_MILLIGRAM = "mg"
 UNIT_GRAM = "g"

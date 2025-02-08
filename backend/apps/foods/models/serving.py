@@ -4,20 +4,17 @@ from decimal import Decimal
 from typing import Any
 
 from django.db import models
-from pint import UnitRegistry
 
 from apps.libs.utils import round_no_trailing_zeros
 
 from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
 from .product import FoodProduct
-from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING
+from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING, UREG
 
 
 class Serving(Nutrients):
     """Serving model class."""
-
-    UREG = UnitRegistry()
 
     food = models.ForeignKey(
         "foods.Food",
@@ -125,9 +122,9 @@ class Serving(Nutrients):
                 size = Decimal(self.food.num_servings)
 
         if unit != food.nutritional_info_unit:
-            new_size = self.UREG.Quantity(
+            new_size = UREG.Quantity(
                 Decimal(str(food.nutritional_info_size))
-            ) * self.UREG(food.nutritional_info_unit)
+            ) * UREG(food.nutritional_info_unit)
             new_size = new_size.to(unit).m
             size = Decimal(new_size)
 

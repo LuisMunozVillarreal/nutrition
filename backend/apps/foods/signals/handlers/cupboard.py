@@ -5,7 +5,6 @@ from typing import Any
 
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
-from pint import UnitRegistry
 
 from apps.foods.models import (
     CupboardItem,
@@ -14,18 +13,20 @@ from apps.foods.models import (
     Recipe,
     Serving,
 )
-from apps.foods.models.units import UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING
+from apps.foods.models.units import (
+    UNIT_CONTAINER,
+    UNIT_GRAM,
+    UNIT_SERVING,
+    UREG,
+)
 from apps.libs.utils import round_no_trailing_zeros
 from apps.plans.models import Intake
 
 
-def _get_consumed_g(
-    ureg: UnitRegistry, serving: Serving, num_servings: Decimal
-) -> Decimal:
+def _get_consumed_g(serving: Serving, num_servings: Decimal) -> Decimal:
     """Get consumed grams.
 
     Args:
-        ureg (UnitRegistry): UnitRegistry instance.
         serving (Serving): serving to get the consumed grams from.
         num_servings (Decimal): number of servings.
 
@@ -38,22 +39,19 @@ def _get_consumed_g(
 
     return (
         (
-            ureg.Quantity(Decimal(str(serving.weight)))
+            UREG.Quantity(Decimal(str(serving.weight)))
             * num_servings
-            * ureg(unit)
+            * UREG(unit)
         )
         .to(UNIT_GRAM)
         .m
     )
 
 
-def _get_consumed_perc(
-    ureg: UnitRegistry, food: Food, consumed_g: Decimal
-) -> Decimal:
+def _get_consumed_perc(food: Food, consumed_g: Decimal) -> Decimal:
     """Get consumed percentage.
 
     Args:
-        ureg (UnitRegistry): UnitRegistry instance.
         food (Food): food to get the consumed percentage from.
         consumed_g (Decimal): consumed grams.
 
@@ -61,7 +59,7 @@ def _get_consumed_perc(
         Decimal: consumed percentage.
     """
     item_g = (
-        ureg.Quantity(Decimal(str(food.weight)) * ureg(food.weight_unit))
+        UREG.Quantity(Decimal(str(food.weight)) * UREG(food.weight_unit))
         .to(UNIT_GRAM)
         .m
     )
@@ -77,17 +75,15 @@ def _set_total_consumed_perc(cupboard_item: CupboardItem) -> None:
     """
     consumed_g = Decimal("0")
     for consumption in cupboard_item.consumptions.all():
-        ureg = consumption.serving.UREG
-
         num_servings = Decimal("1")
         if consumption.intake:
             num_servings = consumption.intake.num_servings
 
-        consumed_g += _get_consumed_g(ureg, consumption.serving, num_servings)
+        consumed_g += _get_consumed_g(consumption.serving, num_servings)
 
     if consumed_g:
         cupboard_item.consumed_perc = _get_consumed_perc(
-            ureg, cupboard_item.food, consumed_g
+            cupboard_item.food, consumed_g
         )
     else:
         cupboard_item.consumed_perc = 0
@@ -253,15 +249,14 @@ def control_finished_items(
         return
 
     serving = instance.serving
-    ureg = serving.UREG
     num_servings = 1
     if instance.intake:
         num_servings = instance.intake.num_servings
 
-    consumed_g = _get_consumed_g(ureg, serving, num_servings)
+    consumed_g = _get_consumed_g(serving, num_servings)
 
     cupboard_item = instance.item
-    consumed_perc = _get_consumed_perc(ureg, cupboard_item.food, consumed_g)
+    consumed_perc = _get_consumed_perc(cupboard_item.food, consumed_g)
 
     if (
         cupboard_item.consumed_perc + round_no_trailing_zeros(consumed_perc)
