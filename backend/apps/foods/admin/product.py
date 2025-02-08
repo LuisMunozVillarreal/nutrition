@@ -132,17 +132,15 @@ class FoodProductForm(forms.ModelForm):
             self.cleaned_data["name"] = (
                 data["name"] or self.cleaned_data.get("name", "") or ""
             )
-            self.cleaned_data["weight"] = round(
+            self.cleaned_data["size"] = round(
                 Decimal(
-                    str(
-                        data["size"] or self.cleaned_data.get("weight", 0) or 0
-                    )
+                    str(data["size"] or self.cleaned_data.get("size", 0) or 0)
                 ),
                 1,
             )
-            self.cleaned_data["weight_unit"] = (
+            self.cleaned_data["size_unit"] = (
                 data["size unit"]
-                or self.cleaned_data.get("weight_unit", "g")
+                or self.cleaned_data.get("size_unit", "g")
                 or "g"
             )
             self.cleaned_data["num_servings"] = (
@@ -186,8 +184,8 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         "brand",
         "name",
         "tag_list",
-        "weight",
-        "weight_unit",
+        "size",
+        "size_unit",
         round_field("num_servings"),
         round_field("energy_kcal"),
         round_field("fat_g"),
@@ -206,8 +204,8 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         "barcode",
         "nutritional_info_size",
         "nutritional_info_unit",
-        "weight",
-        "weight_unit",
+        "size",
+        "size_unit",
         "num_servings",
     ]
 
@@ -222,8 +220,8 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
                     "url",
                     "scrape_info_from_url",
                     "barcode",
-                    "weight",
-                    "weight_unit",
+                    "size",
+                    "size_unit",
                     "num_servings",
                 ],
             },

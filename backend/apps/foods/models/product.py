@@ -2,6 +2,8 @@
 
 from django.db import models
 
+from apps.libs.utils import round_no_trailing_zeros
+
 from .food import Food
 
 
@@ -21,7 +23,10 @@ class FoodProduct(Food):
         Returns:
             str: string representation.
         """
-        res = f"{self.name} ({self.weight}{self.weight_unit})"
+        res = (
+            f"{self.name} ({round_no_trailing_zeros(self.size)}"
+            f"{self.size_unit})"
+        )
 
         if self.brand:
             res = f"{self.brand} {res}"

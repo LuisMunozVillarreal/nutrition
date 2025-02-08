@@ -32,8 +32,8 @@ def add_recipe_serving(
 
     Serving.objects.create(
         food=food,
-        size=1,
-        unit=UNIT_SERVING,
+        serving_size=1,
+        serving_unit=UNIT_SERVING,
     )
 
 

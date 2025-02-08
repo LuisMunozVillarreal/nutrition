@@ -30,7 +30,7 @@ def increase_recipe_nutrients(
     created = instance.id is None
     ingredient = instance
 
-    for nutrient in NUTRIENT_LIST + ["weight"]:
+    for nutrient in NUTRIENT_LIST + ["size"]:
         old_ingredient_value = 0
         new_ingredient_value = getattr(ingredient, nutrient)
         if not new_ingredient_value:
@@ -66,7 +66,7 @@ def decrease_recipe_nutrients(
 
     ingredient = instance
 
-    for nutrient in NUTRIENT_LIST + ["weight"]:
+    for nutrient in NUTRIENT_LIST + ["size"]:
         recipe_value = getattr(recipe, nutrient)
         ingredient_value = getattr(ingredient, nutrient)
         if ingredient_value:
@@ -99,7 +99,7 @@ def calculate_recipe_nutrients(
     if db_recipe.nutrients_from_ingredients:
         return
 
-    for nutrient in NUTRIENT_LIST + ["weight"]:
+    for nutrient in NUTRIENT_LIST + ["size"]:
         recipe_value = Decimal("0")
         for ingredient in recipe.ingredients.all():
             recipe_value += getattr(ingredient, nutrient)

@@ -68,17 +68,18 @@ class RecipeIngredient(Nutrients):
         """
         return (
             f"{self.recipe.name} - {str(self.food)}"
-            f" {self.food.size * self.num_servings} ({self.food.unit})"
+            f" {self.food.serving_size * self.num_servings} "
+            f"({self.food.serving_unit})"
         )
 
     @property
-    def weight(self) -> Decimal:
-        """Get the weight of the serving.
+    def size(self) -> Decimal:
+        """Get the size of the serving.
 
         Returns:
-            Decimal: the weight of the serving.
+            Decimal: the size of the serving.
         """
-        return self.food.weight
+        return self.food.size
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.

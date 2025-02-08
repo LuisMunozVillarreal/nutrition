@@ -7,7 +7,7 @@ DEFAULT_FORM_DATA = {
     "carbs_g": 0,
     "nutritional_info_size": 0,
     "nutritional_info_unit": "ml",
-    "weight": 0,
-    "weight_unit": "ml",
+    "size": 0,
+    "size_unit": "ml",
     "num_servings": 0,
 }

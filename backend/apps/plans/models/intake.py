@@ -76,7 +76,7 @@ class Intake(Nutrients):
         if self.food:
             return (
                 f"{str(self.day)} - {str(self.food)} - {self.meal.title()} -"
-                f" {self.food.size} ({self.food.unit})"
+                f" {self.food.serving_size} ({self.food.serving_unit})"
             )
 
         return f"{str(self.day)} - {self.meal.title()} (No processed)"
