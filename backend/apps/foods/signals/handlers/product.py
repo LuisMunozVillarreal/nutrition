@@ -31,28 +31,28 @@ def add_default_servings(
 
     Serving.objects.create(
         food=food,
-        size=food.nutritional_info_size,
-        unit=food.nutritional_info_unit,
+        serving_size=food.nutritional_info_size,
+        serving_unit=food.nutritional_info_unit,
     )
 
     if food.nutritional_info_size != 1:
         Serving.objects.create(
             food=food,
-            size=1,
-            unit=food.nutritional_info_unit,
+            serving_size=1,
+            serving_unit=food.nutritional_info_unit,
         )
 
     Serving.objects.create(
         food=food,
-        size=1,
-        unit=UNIT_CONTAINER,
+        serving_size=1,
+        serving_unit=UNIT_CONTAINER,
     )
 
     if food.num_servings > 1:
         Serving.objects.create(
             food=food,
-            size=1,
-            unit=UNIT_SERVING,
+            serving_size=1,
+            serving_unit=UNIT_SERVING,
         )
 
 

@@ -47,10 +47,12 @@ def test_add_cooked_recipe_to_cupboard(
     # And a recipe made of those products
     recipe = recipe_factory()
     recipe_ingredient_factory(
-        recipe=recipe, food=fp1.servings.filter(unit=UNIT_CONTAINER).first()
+        recipe=recipe,
+        food=fp1.servings.filter(serving_unit=UNIT_CONTAINER).first(),
     )
     recipe_ingredient_factory(
-        recipe=recipe, food=fp2.servings.filter(unit=UNIT_SERVING).first()
+        recipe=recipe,
+        food=fp2.servings.filter(serving_unit=UNIT_SERVING).first(),
     )
     recipe_ingredient_factory(recipe=recipe, food=fp2.servings.first())
 
