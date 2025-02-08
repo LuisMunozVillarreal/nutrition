@@ -81,10 +81,6 @@ types-requests = "^2.32.0.20241016"
 types-beautifulsoup4 = "^4.12.0.20250204"
 debugpy = "^1.8.12"
 
-# [tool.poetry.requires-plugins]
-# poetry-plugin-shell = "*"
-# poetry-plugin-up = "*"
-
 [tool.poetry.scripts]
 nutrition = "manage:main"
 
