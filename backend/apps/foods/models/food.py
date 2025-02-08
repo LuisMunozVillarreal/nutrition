@@ -1,6 +1,7 @@
 """Food model module."""
 
 from decimal import Decimal
+from typing import Any
 
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -9,7 +10,7 @@ from django.db import models
 from taggit.managers import TaggableManager  # type: ignore[import-untyped]
 
 from .nutrients import Nutrients
-from .units import UNIT_CHOICES, UNIT_GRAM
+from .units import UNIT_CHOICES, UNIT_FLUID_OUNCE, UNIT_GRAM, UREG
 
 
 class Food(Nutrients):
@@ -75,3 +76,24 @@ class Food(Nutrients):
             return f"{self.brand} {self.name}"
 
         return self.name
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save instance into the db.
+
+        Args:
+            args (list): arguments.
+            kwargs (dict): keyword arguments.
+        """
+        if self.abv_perc:
+            self.energy_kcal = (
+                (
+                    UREG.Quantity(self.nutritional_info_size)
+                    * UREG(self.nutritional_info_unit)
+                )
+                .to(UNIT_FLUID_OUNCE)
+                .m
+                * Decimal("2.5")
+                * self.abv_perc
+            )
+
+        super().save(*args, **kwargs)
