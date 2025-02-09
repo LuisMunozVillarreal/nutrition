@@ -22,6 +22,7 @@ class Intake(Nutrients):
         default=None,
         null=True,
         blank=True,
+        related_name="intakes",
     )
 
     num_servings = models.DecimalField(

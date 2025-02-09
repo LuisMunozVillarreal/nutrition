@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.http import HttpRequest
 
 from apps.libs.admin import round_field
+from apps.plans.admin.day import IntakeInline
 
 from ..models import Serving
 
@@ -11,6 +12,10 @@ from ..models import Serving
 @admin.register(Serving)
 class ServingAdmin(admin.ModelAdmin):
     """ServingAdmin class."""
+
+    inlines = [
+        IntakeInline,
+    ]
 
     search_fields = [
         "food__brand",
