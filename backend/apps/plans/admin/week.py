@@ -142,6 +142,7 @@ class WeekPlanAdmin(NestedModelAdmin):
 
         return res
 
+    @admin.display(description="TWEE")
     def rounded_twee(self, obj: WeekPlan) -> Decimal:
         """Get rounded twee.
 
@@ -153,6 +154,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.twee)
 
+    @admin.display(description="Energy KCal Goal")
     def rounded_energy_kcal_goal(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy goal.
 
@@ -164,6 +166,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal_goal)
 
+    @admin.display(description="Energy Kcal Consumed")
     def rounded_energy_kcal(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy.
 
@@ -175,6 +178,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal)
 
+    @admin.display(description="Energy Consumed %")
     def rounded_energy_kcal_intake_perc(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy intake percentage.
 
@@ -186,6 +190,7 @@ class WeekPlanAdmin(NestedModelAdmin):
         """
         return round_no_trailing_zeros(obj.energy_kcal_intake_perc)
 
+    @admin.display(description="Energy Kcal Goal Diff")
     def rounded_energy_kcal_goal_diff(self, obj: WeekPlan) -> Decimal:
         """Get rounded energy goal diff.
 
