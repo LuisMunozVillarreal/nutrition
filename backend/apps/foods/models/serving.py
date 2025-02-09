@@ -57,10 +57,7 @@ class Serving(Nutrients):
         res += self.serving_unit
 
         if self.serving_unit in (UNIT_CONTAINER, UNIT_SERVING):
-            res += (
-                f" ({round_no_trailing_zeros(self.serving_size)}"
-                f"{self.size_unit})"
-            )
+            res += f" ({round_no_trailing_zeros(self.size)}{self.size_unit})"
 
         return res
 
