@@ -17,6 +17,10 @@ class FoodProduct(Food):
         default=0,
     )
 
+    notes = models.TextField(
+        blank=True,
+    )
+
     def __str__(self) -> str:
         """Get string representation.
 
