@@ -213,7 +213,7 @@ def complete_week(
     instance: Day,
     **kwargs: Any,
 ) -> None:
-    """Complete week.
+    """Recalculate week's complete flag.
 
     Args:
         sender (Day): signal sender.
