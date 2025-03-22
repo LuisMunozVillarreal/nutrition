@@ -1,3 +1,10 @@
+environments:
+  default:
+    values:
+      - traefik.values.yaml
+
+---
+
 repositories:
   - name: traefik
     url: https://helm.traefik.io/traefik
@@ -8,36 +15,22 @@ releases:
     namespace: traefik
     version: 26.0.0
     values:
-      - additionalArguments:
-          - "--certificatesresolvers.letsencrypt.acme.email=luis.munoz.villarreal+traefik@gmail.com"
-          - "--certificatesresolvers.letsencrypt.acme.storage=/data/acme.json"
-          - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
-          - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-          - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-          - "--accesslog=true"
-          - "--log.level=DEBUG"
+      - certResolvers:
+          letsencrypt:
+            email: {{ .Values.email }}
+            storage: /data/acme.json
+            caserver: https://acme-v02.api.letsencrypt.org/directory
+            httpchallenge:
+              entrypoint: web
 
-        providers:
-          file:
-            enabled: true
-            content: |-
-              http:
-                routers:
-                  to-homeassistant:
-                    rule: "Host(`feex.ddns.net`)"
-                    service: homeassistant
-                    entryPoints:
-                      - websecure
-                services:
-                  homeassistant:
-                    loadBalancer:
-                      servers:
-                        - url: http://192.168.100.197:8123
+        logs:
+          general:
+            level: DEBUG
+          access:
+            enable: true
 
-          kubernetesIngress:
-            endpoint: "http://localhost:8001"
-            publishedService:
-              enabled: true
+        providers: {{- toYaml $.Values.providers | nindent 10 }}
+
 
         ports:
           web:
@@ -48,8 +41,7 @@ releases:
             tls:
               enabled: true
               certResolver: letsencrypt
-              domains:
-                - main: "feex.ddns.net"
+              domains: {{- toYaml $.Values.domains | nindent 14 }}
 
         persistence:
           enabled: true

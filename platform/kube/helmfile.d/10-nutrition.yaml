@@ -1,13 +1,20 @@
+environments:
+  production:
+    values:
+    - production.values.yaml
+  staging:
+    values:
+    - staging.values.yaml
 releases:
 - chart: ../../../backend/platform/kube
   name: backend
-  namespace: nutrition-staging
+  namespace: '{{ .Values.namespace }}'
   values:
   - env:
     - name: ALLOWED_HOSTS
-      value: staging.nutfeex.ddns.net
+      value: '{{ .Values.domain }}'
     - name: ENVIRONMENT
-      value: staging
+      value: '{{ .Values.environment }}'
     - name: GEMINI_API_KEY
       valueFrom:
         secretKeyRef:
@@ -31,10 +38,11 @@ releases:
         traefik.ingress.kubernetes.io/router.entrypoints: websecure
         traefik.ingress.kubernetes.io/router.tls: 'true'
         traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
-        traefik.ingress.kubernetes.io/router.tls.domains.0.main: staging.nutfeex.ddns.net
+        traefik.ingress.kubernetes.io/router.tls.domains.0.main: '{{ .Values.domain
+          }}'
       hosts:
-      - host: staging.nutfeex.ddns.net
+      - host: '{{ .Values.domain }}'
         paths:
         - path: /
           pathType: Prefix
-  version: 0.61.0+build-0644d38-1736626816
+  version: 0.78.0
