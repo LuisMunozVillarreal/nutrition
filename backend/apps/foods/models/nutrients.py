@@ -32,7 +32,7 @@ class Nutrients(BaseModel):
         max_digits=10,
         decimal_places=2,
         default=0,
-        verbose_name="Total Fat (g)",
+        verbose_name="Fat (g)",
     )
 
     saturated_fat_g = models.DecimalField(
@@ -66,7 +66,7 @@ class Nutrients(BaseModel):
     carbs_g = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        verbose_name="Total Carbs (g)",
+        verbose_name="Carbs (g)",
         default=0,
     )
 
