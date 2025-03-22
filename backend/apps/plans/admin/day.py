@@ -1,10 +1,12 @@
 """Day admin config module."""
 
+from django import forms
 from django.contrib import admin
+from django.db import models
 from django.http import HttpRequest
 
 from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
-from apps.libs.admin import round_field
+from apps.libs.admin import progress_bar_field, round_field
 
 from ..models import Day
 from .intake import IntakeInlineBase
@@ -15,6 +17,10 @@ class IntakeInline(  # type: ignore[misc]
     admin.TabularInline,
 ):
     """Intake inline class."""
+
+    formfield_overrides = {
+        models.TextField: {"widget": forms.Textarea(attrs={"rows": 1})},
+    }
 
 
 class ExerciseInline(  # type: ignore[misc]
@@ -48,6 +54,24 @@ class DayAdmin(admin.ModelAdmin):
         "weekday",
         "day_num",
         "completed",
+        progress_bar_field("energy_kcal_intake_perc", "Energy"),
+        progress_bar_field("fat_g_intake_perc", "Fat"),
+        progress_bar_field("carbs_g_intake_perc", "Carbs"),
+        progress_bar_field("protein_g_intake_perc", "Protein"),
+        round_field("energy_kcal_goal", 2, "Energy Goal"),
+        round_field("energy_kcal", 2, "Intake"),
+        round_field("energy_kcal_intake_perc", 2, "%"),
+        round_field("energy_kcal_goal_diff", 2, "Diff"),
+        round_field("energy_kcal_goal_accumulated_diff", 2, "Acc Diff"),
+        round_field("fat_g_goal", 2, "Fat Goal"),
+        round_field("fat_g", 2, "Intake"),
+        round_field("fat_g_intake_perc", 2, "%"),
+        round_field("carbs_g_goal", 2, "Carbs Goal"),
+        round_field("carbs_g", 2, "Intake"),
+        round_field("carbs_g_intake_perc", 2, "%"),
+        round_field("protein_g_goal", 2, "Protein Goal"),
+        round_field("protein_g", 2, "Intake"),
+        round_field("protein_g_intake_perc", 2, "%"),
         "breakfast_flag",
         "lunch_flag",
         "snack_flag",
@@ -55,55 +79,28 @@ class DayAdmin(admin.ModelAdmin):
         "exercises_flag",
         "steps_flag",
         "deficit",
-        round_field("energy_kcal_goal"),
-        round_field("energy_kcal"),
-        round_field("energy_kcal_intake_perc"),
-        "energy_kcal_goal_diff",
-        "energy_kcal_goal_accumulated_diff",
-        round_field("fat_g_goal"),
-        round_field("fat_g"),
-        round_field("fat_g_intake_perc"),
-        round_field("carbs_g_goal"),
-        round_field("carbs_g"),
-        round_field("carbs_g_intake_perc"),
-        round_field("protein_g_goal"),
-        round_field("protein_g"),
-        round_field("protein_g_intake_perc"),
     ]
 
     fields = [
-        "plan",
-        "day",
-        "weekday",
-        "day_num",
-        "completed",
-        "tdee",
-        "energy_kcal_goal",
-        "energy_kcal",
-        "energy_kcal_intake_perc",
-        "energy_kcal_goal_diff",
+        ("plan", "day", "weekday", "day_num", "completed"),
+        (
+            "energy_kcal_intake_progress_bar",
+            "fat_g_intake_progress_bar",
+            "carbs_g_intake_progress_bar",
+            "protein_g_intake_progress_bar",
+        ),
+        "round_tdee",
+        ("energy_kcal", "energy_kcal_goal", "energy_kcal_goal_diff"),
         "energy_kcal_goal_accumulated_diff",
-        "fat_g_goal",
-        "fat_g",
-        "fat_g_intake_perc",
-        "carbs_g_goal",
-        "carbs_g",
-        "carbs_g_intake_perc",
-        "protein_g_goal",
-        "protein_g",
-        "protein_g_intake_perc",
-        "breakfast_flag",
-        "breakfast_exc",
-        "lunch_flag",
-        "lunch_exc",
-        "snack_flag",
-        "snack_exc",
-        "dinner_flag",
-        "dinner_exc",
-        "exercises_flag",
-        "exercises_exc",
-        "steps_flag",
-        "steps_exc",
+        ("fat_g_goal", "fat_g", "fat_g_intake_perc"),
+        ("carbs_g_goal", "carbs_g", "carbs_g_intake_perc"),
+        ("protein_g_goal", "protein_g", "protein_g_intake_perc"),
+        ("breakfast_flag", "breakfast_exc"),
+        ("lunch_flag", "lunch_exc"),
+        ("snack_flag", "snack_exc"),
+        ("dinner_flag", "dinner_exc"),
+        ("exercises_flag", "exercises_exc"),
+        ("steps_flag", "steps_exc"),
         "deficit",
         "tracked",
         "num_foods",
@@ -121,21 +118,24 @@ class DayAdmin(admin.ModelAdmin):
         "exercises_flag",
         "steps_flag",
         "num_foods",
-        "tdee",
+        "round_tdee",
+        "energy_kcal_intake_progress_bar",
         "energy_kcal",
         "energy_kcal_goal",
-        "energy_kcal_intake_perc",
         "energy_kcal_goal_diff",
         "energy_kcal_goal_accumulated_diff",
         "fat_g_goal",
         "fat_g",
         "fat_g_intake_perc",
+        "fat_g_intake_progress_bar",
         "carbs_g_goal",
         "carbs_g",
         "carbs_g_intake_perc",
+        "carbs_g_intake_progress_bar",
         "protein_g_goal",
         "protein_g",
         "protein_g_intake_perc",
+        "protein_g_intake_progress_bar",
     ]
 
     def has_add_permission(self, request: HttpRequest) -> bool:

@@ -168,3 +168,33 @@ def test_edit_week_plan_renders(logged_in_admin_client, week_plan):
 
     # Then
     assert result.status_code == 200
+
+
+#
+# Progress bar
+#
+
+
+def test_progress_bar_lt_100(logged_in_admin_client, day, intake_factory):
+    """Progress bar less than 100."""
+    # Given an intake with energy at 50%
+    intake_factory(day=day)
+
+    # When the day is rendered
+    result = logged_in_admin_client.get(f"/admin/plans/day/{day.pk}/change/")
+
+    # Then the result code is 200
+    assert result.status_code == 200
+
+
+def test_progress_bar_gt_100(logged_in_admin_client, day, intake_factory):
+    """Progress bar less than 100."""
+    # Given several intakes with energy higher than 100%
+    for _ in range(20):
+        intake_factory(day=day)
+
+    # When the day is rendered
+    result = logged_in_admin_client.get(f"/admin/plans/day/{day.pk}/change/")
+
+    # Then the result code is 200
+    assert result.status_code == 200

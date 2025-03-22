@@ -4,9 +4,12 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
+from django.contrib import admin
 from django.db import models
 
 from apps.foods.models.nutrients import Nutrients
+from apps.libs.admin import progress_bar
+from apps.libs.utils import round_no_trailing_zeros
 
 from .intake import Intake
 
@@ -134,24 +137,28 @@ class Day(Nutrients):
         max_digits=10,
         decimal_places=2,
         editable=False,
+        verbose_name="Energy (kcal) Goal",
     )
 
     protein_g_goal = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         editable=False,
+        verbose_name="Protein (g) Goal",
     )
 
     fat_g_goal = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         editable=False,
+        verbose_name="Fat (g) Goal",
     )
 
     carbs_g_goal = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         editable=False,
+        verbose_name="Carbs (g) Goal",
     )
 
     # Intake percentages
@@ -428,6 +435,7 @@ class Day(Nutrients):
         return self.carbs_g * 100 / self.carbs_g_goal
 
     @property
+    @admin.display(description="Energy (kcal) Goal Diff")
     def energy_kcal_goal_diff(self) -> Decimal:
         """Get energy goal diff.
 
@@ -443,6 +451,7 @@ class Day(Nutrients):
         return self.energy_kcal_goal - self.energy_kcal
 
     @property
+    @admin.display(description="Energy (kcal) Goal Acc. Diff")
     def energy_kcal_goal_accumulated_diff(self) -> Decimal:
         """Get accumulated energy goal diff.
 
@@ -450,3 +459,48 @@ class Day(Nutrients):
             Decimal: accumulated energy goal diff.
         """
         return self.plan.energy_kcal_goal_accumulated_diff(self.day_num)
+
+    @admin.display(description="Energy")
+    def energy_kcal_intake_progress_bar(self) -> str:
+        """Get energy intake progress bar.
+
+        Returns:
+            str: progress bar.
+        """
+        return progress_bar(self, "energy_kcal_intake_perc")
+
+    @admin.display(description="Fat")
+    def fat_g_intake_progress_bar(self) -> str:
+        """Get fat intake progress bar.
+
+        Returns:
+            str: progress bar.
+        """
+        return progress_bar(self, "fat_g_intake_perc")
+
+    @admin.display(description="Carbs")
+    def carbs_g_intake_progress_bar(self) -> str:
+        """Get carbs intake progress bar.
+
+        Returns:
+            str: progress bar.
+        """
+        return progress_bar(self, "carbs_g_intake_perc")
+
+    @admin.display(description="Protein")
+    def protein_g_intake_progress_bar(self) -> str:
+        """Get protein intake progress bar.
+
+        Returns:
+            str: progress bar.
+        """
+        return progress_bar(self, "protein_g_intake_perc")
+
+    @admin.display(description="TDEE")
+    def round_tdee(self) -> Decimal:
+        """Round TDEE.
+
+        Returns:
+            Decimal: rounded TDEE.
+        """
+        return round_no_trailing_zeros(self.tdee)
