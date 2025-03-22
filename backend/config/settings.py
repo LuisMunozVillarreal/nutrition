@@ -34,7 +34,7 @@ SITE_ID = 1
 
 ENVIRONMENT = ENV("ENVIRONMENT", default="development")
 if ENVIRONMENT == "development":  # pragma: no cover
-    ALLOWED_HOSTS = ["192.168.0.2", "localhost"]
+    ALLOWED_HOSTS = ["192.168.1.101", "localhost"]
     DEBUG = True
 
 
