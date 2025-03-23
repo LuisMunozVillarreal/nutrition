@@ -112,6 +112,7 @@ def progress_bar(obj: Any, field_name: str) -> str:
     while True:
         if perc > 100:
             progress_bars += """
+                <br />
                 <progress style="accent-color: red" value="100" max="100">
                 </progress>
                 """
@@ -120,6 +121,7 @@ def progress_bar(obj: Any, field_name: str) -> str:
             break
 
     progress_bars += """
+        <br />
         <progress style="accent-color: red" value="{0}" max="100">
         </progress>
         """
