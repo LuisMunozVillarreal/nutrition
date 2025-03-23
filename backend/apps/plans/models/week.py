@@ -156,7 +156,13 @@ class WeekPlan(BaseModel):
         """
         diff = Decimal("0")
         for day in self.days.filter(day_num__lte=day_num):
-            diff += day.energy_kcal_goal_diff
+            if day.completed:
+                diff += day.energy_kcal_goal_diff
+
+            # If the day isn't completed, only adds difference if it's surplus
+            elif day.energy_kcal_goal_diff < 0:
+                diff += day.energy_kcal_goal_diff
+
         return diff
 
     def save(self, *args: Any, **kwargs: Any) -> None:

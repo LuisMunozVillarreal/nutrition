@@ -141,10 +141,10 @@ def bmr_2000(mocker):
     )
 
 
-def test_accumulated_consumed_energy(
+def test_accumulated_consumed_diff_energy(
     db, week_plan, bmr_2000, measurement, food_product_factory, intake_factory
 ):
-    """Accumulated consumed energy is correct."""
+    """Accumulated consumed diff energy is correct."""
     # pylint: disable=too-many-arguments,too-many-positional-arguments
 
     # Given a product
@@ -223,3 +223,44 @@ def test_accumulated_consumed_energy(
 
     # And the weekly surplus is 630
     assert week_plan.energy_kcal_goal_diff == Decimal("-630")
+
+
+def test_accumulated_diff_with_completed_days(db, week_plan_factory):
+    """Accumulated consumed diff energy is correct with completed days."""
+    # Given a week plan
+    week = week_plan_factory()
+
+    # And a completed day
+    day = week.days.all()[6]
+    day.breakfast_exc = True
+    day.lunch_exc = True
+    day.snack_exc = True
+    day.dinner_exc = True
+    day.exercises_exc = True
+    day.steps_exc = True
+    day.save()
+    assert day.completed
+
+    # When the accumulated consumed energy is calculated
+    accumulated = week.energy_kcal_goal_accumulated_diff(7)
+
+    # Then the accumulated consumed energy is correct
+    assert accumulated == Decimal("1799.14")  # day.tdee - day.deficit
+
+
+def test_accumulated_diff_with_no_completed_days(
+    db, week_plan_factory, intake_factory
+):
+    """Accumulated consumed diff energy is correct with not completed days."""
+    # Given a week plan
+    week = week_plan_factory()
+
+    # And a not completed day with an intake
+    day = week.days.all()[6]
+    intake_factory(day=day)
+
+    # When the accumulated consumed energy is calculated
+    accumulated = week.energy_kcal_goal_accumulated_diff(7)
+
+    # Then the accumulated consumed energy is correct
+    assert accumulated == 0
