@@ -20,6 +20,11 @@ class IntakeInline(  # type: ignore[misc]
 
     formfield_overrides = {
         models.TextField: {"widget": forms.Textarea(attrs={"rows": 1})},
+        models.DecimalField: {
+            "widget": forms.NumberInput(
+                attrs={"step": 1, "style": "width: 40px"}
+            )
+        },
     }
 
 
@@ -81,34 +86,78 @@ class DayAdmin(admin.ModelAdmin):
         "deficit",
     ]
 
-    fields = [
-        ("plan", "day", "weekday", "day_num", "completed"),
+    fieldsets = [
         (
-            "energy_kcal_intake_progress_bar",
-            "fat_g_intake_progress_bar",
-            "carbs_g_intake_progress_bar",
-            "protein_g_intake_progress_bar",
+            "General",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    (
+                        "plan",
+                        "day",
+                        "weekday",
+                        "day_num",
+                        "deficit",
+                    ),
+                ],
+            },
         ),
-        "round_tdee",
         (
-            "energy_kcal",
-            "energy_kcal_goal",
-            "energy_kcal_intake_perc",
-            "energy_kcal_goal_diff",
-            "energy_kcal_goal_accumulated_diff",
+            None,
+            {
+                "fields": [
+                    "completed",
+                    (
+                        "energy_kcal_intake_progress_bar",
+                        "fat_g_intake_progress_bar",
+                        "carbs_g_intake_progress_bar",
+                        "protein_g_intake_progress_bar",
+                    ),
+                ],
+            },
         ),
-        ("fat_g_goal", "fat_g", "fat_g_intake_perc"),
-        ("carbs_g_goal", "carbs_g", "carbs_g_intake_perc"),
-        ("protein_g_goal", "protein_g", "protein_g_intake_perc"),
-        ("breakfast_flag", "breakfast_exc"),
-        ("lunch_flag", "lunch_exc"),
-        ("snack_flag", "snack_exc"),
-        ("dinner_flag", "dinner_exc"),
-        ("exercises_flag", "exercises_exc"),
-        ("steps_flag", "steps_exc"),
-        "deficit",
-        "tracked",
-        "num_foods",
+        (
+            "Stats",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    (
+                        "round_tdee",
+                        "energy_kcal_goal_diff",
+                        "energy_kcal_goal_accumulated_diff",
+                        "num_foods",
+                    ),
+                    (
+                        "energy_kcal",
+                        "energy_kcal_goal",
+                        "energy_kcal_intake_perc",
+                    ),
+                    ("fat_g_goal", "fat_g", "fat_g_intake_perc"),
+                    ("carbs_g_goal", "carbs_g", "carbs_g_intake_perc"),
+                    ("protein_g_goal", "protein_g", "protein_g_intake_perc"),
+                ],
+            },
+        ),
+        (
+            "Flags",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    ("breakfast_flag", "breakfast_exc"),
+                    ("lunch_flag", "lunch_exc"),
+                    ("snack_flag", "snack_exc"),
+                    ("dinner_flag", "dinner_exc"),
+                    ("exercises_flag", "exercises_exc"),
+                    ("steps_flag", "steps_exc"),
+                ],
+            },
+        ),
+        (
+            None,
+            {
+                "fields": ["tracked"],
+            },
+        ),
     ]
 
     readonly_fields = [
