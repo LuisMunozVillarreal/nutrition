@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "apps.plans",
     "apps.users",
     "dbbackup",
+    "django_sql_dashboard",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -103,8 +104,14 @@ DB_CONFIG = ENV.db(
     )
 )
 
+# Django requires a "default" DB, then
+# same connection is used for Django Dahsboard, finally
+# the alias "nutrition" is used to help command dbrestore to find the backups.
 DATABASES = {
     "default": DB_CONFIG,
+    # TODO: use read-only user for this as per the docs - pylint: disable=fixme
+    "dashboard": DB_CONFIG,
+    NUTRITION: DB_CONFIG,
 }
 
 
@@ -202,7 +209,7 @@ DBBACKUP_STORAGE_OPTIONS = {
     "default_acl": None,
 }
 DBBACKUP_CONNECTORS = {
-    "default": {
+    "nutrition": {
         "RESTORE_SUFFIX": "--if-exists",
     },
 }
@@ -252,3 +259,7 @@ LOGGING = {
         "propagate": True,
     },
 }
+
+
+# Django SQL Dashboard
+DASHBOARD_ENABLE_FULL_EXPORT = True
