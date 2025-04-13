@@ -14,7 +14,7 @@ add-ignore = "D107,D104,D106"
 plugins = "mypy_django_plugin.main"
 
 [[tool.mypy.overrides]]
-module = "taggit.models"
+module = "taggit.models,django_sql_dashboard,django_sql_dashboard.models"
 ignore_missing_imports = true
 
 [tool.django-stubs]
@@ -42,6 +42,7 @@ django-dotenv = "^1.4.2"
 django-environ = ">=0.11.2,<0.13.0"
 django-extensions = "^3.2.3"
 django-nested-admin = "^4.1.1"
+django-sql-dashboard = "^1.2"
 django-storages = {extras = ["google"], version = "^1.14.4"}
 django-taggit = "^6.1.0"
 django = "^5.1.6"
