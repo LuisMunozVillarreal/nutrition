@@ -31,7 +31,7 @@ releases:
           key: secret-key
           name: nutrition-django-secret-key
     - name: DEBUG
-      value: 'True'
+      value: '{{ .Values.debug }}'
     ingress:
       annotations:
         kubernetes.io/ingress.class: traefik
@@ -45,4 +45,4 @@ releases:
         paths:
         - path: /
           pathType: Prefix
-  version: 0.81.0
+  version: 0.82.0
