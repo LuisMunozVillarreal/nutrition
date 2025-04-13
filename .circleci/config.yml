@@ -3,10 +3,13 @@ version: 2.1
 parameters:
   backend-image:
     type: string
-    default: "luismunozvillarreal/nutrition-backend:0.66.0"
+    default: "luismunozvillarreal/nutrition-backend:0.84.0"
   poetry-venv:
     type: string
     default: "/home/backend/project/backend/.venv/"
+  postgresql-image:
+    type: string
+    default: "cimg/postgres:17.4"
 
 executors:
   python:
@@ -17,7 +20,7 @@ executors:
   python-postgresql:
     docker:
       - image: << pipeline.parameters.backend-image >>
-      - image: cimg/postgres:17.0
+      - image: << pipeline.parameters.postgresql-image >>
         environment:
           POSTGRES_USER: nutrition
 
@@ -152,16 +155,17 @@ jobs:
         environment:
           GEMINI_API_KEY: "ApiKey"
           SECRET_KEY: "SecretKey"
-      - image: cimg/postgres:17.0
+      - image: << pipeline.parameters.postgresql-image >>
         environment:
           POSTGRES_DB: nutrition
           POSTGRES_USER: nutrition
+          POSTGRES_PASSWORD: nutrition
     steps:
       - python-dependencies
       - gcp-credentials
       - run:
           name: Restore latest production DB
-          command: poetry run ./manage.py dbrestore --noinput
+          command: poetry run ./manage.py dbrestore --noinput -d nutrition
       - run:
           name: Check there is no standing Django models migrations
           command: poetry run ./manage.py makemigrations --check
