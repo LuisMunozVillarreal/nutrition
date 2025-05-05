@@ -128,8 +128,8 @@ class DayAdmin(admin.ModelAdmin):
                         "num_foods",
                     ),
                     (
-                        "energy_kcal",
                         "energy_kcal_goal",
+                        "energy_kcal",
                         "energy_kcal_intake_perc",
                     ),
                     ("fat_g_goal", "fat_g", "fat_g_intake_perc"),
