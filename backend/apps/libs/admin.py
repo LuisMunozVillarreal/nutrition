@@ -1,41 +1,12 @@
 """Admin libraries."""
 
-from typing import Any, Callable, Dict, List, Type
+from typing import Any, Callable, Dict
 
 from django.contrib import admin
 from django.http import HttpRequest
 from django.utils.html import format_html
 
-from apps.foods.models.product import FoodProduct
-from apps.foods.models.recipe import Recipe
-
 from .utils import round_no_trailing_zeros
-
-
-def get_remaining_fields(
-    model: Type[FoodProduct | Recipe], fields: List[str]
-) -> List[str]:
-    """Get remaining fields of the model.
-
-    Args:
-        model (Model): Django model.
-        fields (List[str]): list of fields.
-
-    Returns:
-        List[str]: list of extra fields.
-    """
-    field_names = []
-
-    for field in model._meta.fields:
-        if (
-            field.editable
-            and field.name != "id"
-            and "ptr" not in field.name
-            and field.name not in fields
-        ):
-            field_names.append(field.name)
-
-    return field_names
 
 
 def round_field(
