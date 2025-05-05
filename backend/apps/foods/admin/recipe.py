@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.contrib import admin
 
-from apps.libs.admin import get_remaining_fields, round_field
+from apps.libs.admin import round_field
 from apps.libs.utils import round_no_trailing_zeros
 
 from ..models import Recipe, RecipeIngredient
@@ -63,34 +63,49 @@ class RecipeAdmin(TagsAdminMixin, admin.ModelAdmin):
         round_field("carbs_g"),
     ]
 
-    _main_fields = [
-        "brand",
-        "name",
-        "tags",
-        "energy_kcal",
-        "protein_g",
-        "fat_g",
-        "carbs_g",
-        "size",
-        "size_unit",
-        "num_servings",
-        "url",
-        "description",
-        "nutrients_from_ingredients",
-    ]
-
     fieldsets = [
         (
             None,
             {
-                "fields": _main_fields,
+                "fields": [
+                    "brand",
+                    "name",
+                    "tags",
+                    "energy_kcal",
+                    "protein_g",
+                    "fat_g",
+                    "carbs_g",
+                    "size",
+                    "size_unit",
+                    "num_servings",
+                    "url",
+                    "description",
+                    "nutrients_from_ingredients",
+                ],
             },
         ),
         (
             "Extra nutrients",
             {
                 "classes": ["collapse"],
-                "fields": get_remaining_fields(Recipe, _main_fields),
+                "fields": [
+                    "saturated_fat_g",
+                    "polyunsaturated_fat_g",
+                    "monosaturated_fat_g",
+                    "trans_fat_g",
+                    "fibre_carbs_g",
+                    "salt_g",
+                    "sugar_carbs_g",
+                    "sodium_mg",
+                    "potassium_mg",
+                    "vitamin_a_perc",
+                    "vitamin_c_perc",
+                    "calcium_perc",
+                    "iron_perc",
+                    "abv_perc",
+                    "nutritional_info_size",
+                    "nutritional_info_unit",
+                ],
             },
         ),
     ]
