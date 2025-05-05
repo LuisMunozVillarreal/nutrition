@@ -1,4 +1,4 @@
-FROM debian:trixie-20250407-slim
+FROM debian:trixie-20250428-slim
 
 USER root
 
@@ -26,7 +26,7 @@ RUN \
     python-is-python3 \
     python3-dev \
     python3-poetry \
-    ntp && \
+    openntpd && \
   # Clean
   apt-get purge -y --auto-remove git && \
   apt-get autoclean && \
