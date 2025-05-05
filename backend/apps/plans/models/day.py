@@ -316,8 +316,16 @@ class Day(Nutrients):
         return self._fat_kcal_goal / settings.FAT_KCAL_GRAM
 
     @property
+    def _protein_kcal_goal(self) -> Decimal:
+        return self.protein_g_goal * settings.PROTEIN_KCAL_GRAM
+
+    @property
     def _carbs_kcal_goal(self) -> Decimal:
-        return self._energy_kcal_goal - self._fat_kcal_goal
+        return (
+            self._energy_kcal_goal
+            - self._fat_kcal_goal
+            - self._protein_kcal_goal
+        )
 
     @property
     def _carbs_g_goal(self) -> Decimal:
@@ -430,7 +438,7 @@ class Day(Nutrients):
              Decimal: carbs intake percentage.
         """
         if not self.carbs_g_goal:
-            return Decimal("0")
+            return Decimal("0")  # pragma: no cover
 
         return self.carbs_g * 100 / self.carbs_g_goal
 

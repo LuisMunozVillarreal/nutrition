@@ -4,6 +4,18 @@ from decimal import Decimal
 
 import pytest
 
+from config.settings import CARB_KCAL_GRAM, FAT_KCAL_GRAM, PROTEIN_KCAL_GRAM
+
+
+def test_energy_goal_meets_macros(db, day):
+    """Energy goal meets macros."""
+    assert (
+        day.energy_kcal_goal
+        == day.protein_g_goal * PROTEIN_KCAL_GRAM
+        + day.fat_g_goal * FAT_KCAL_GRAM
+        + day.carbs_g_goal * CARB_KCAL_GRAM
+    )
+
 
 def test_protein_g_goal(db, day):
     """Protein goal is correct."""
@@ -37,7 +49,7 @@ def test_estimated_carb_g_goal(db, day):
     day.save()
 
     # When / Then
-    assert day.carbs_g_goal == Decimal("468.99579375")
+    assert day.carbs_g_goal == Decimal("233.24579375")
 
 
 def test_tracked_energy_goal(db, day_steps, exercise):
