@@ -10,7 +10,7 @@ from apps.foods.nutrition_facts_finder import (
     get_food_nutrition_facts,
     get_product_nutritional_info_from_url,
 )
-from apps.libs.admin import get_remaining_fields, round_field
+from apps.libs.admin import round_field
 
 from ..models import FoodProduct
 from .base import TagsAdminMixin
@@ -193,28 +193,6 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
         round_field("protein_g"),
     ]
 
-    _main_fields = [
-        "brand",
-        "name",
-        "energy_kcal",
-        "protein_g",
-        "fat_g",
-        "saturated_fat_g",
-        "carbs_g",
-        "sugar_carbs_g",
-        "protein_g",
-        "fibre_carbs_g",
-        "salt_g",
-        "url",
-        "notes",
-        "barcode",
-        "nutritional_info_size",
-        "nutritional_info_unit",
-        "size",
-        "size_unit",
-        "num_servings",
-    ]
-
     fieldsets = [
         (
             "General",
@@ -255,7 +233,18 @@ class FoodProductAdmin(TagsAdminMixin, admin.ModelAdmin):
             "Extra nutrients",
             {
                 "classes": ["collapse"],
-                "fields": get_remaining_fields(FoodProduct, _main_fields),
+                "fields": [
+                    "polyunsaturated_fat_g",
+                    "monosaturated_fat_g",
+                    "trans_fat_g",
+                    "sodium_mg",
+                    "potassium_mg",
+                    "vitamin_a_perc",
+                    "vitamin_c_perc",
+                    "calcium_perc",
+                    "iron_perc",
+                    "abv_perc",
+                ],
             },
         ),
     ]
