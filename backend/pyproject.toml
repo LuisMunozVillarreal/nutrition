@@ -34,7 +34,7 @@ packages = [
 [tool.poetry.dependencies]
 beautifulsoup4 = "^4.13.3"
 django-admin-sortable2 = "^2.2.4"
-django-allow-cidr = "^0.7.1"
+django-allow-cidr = ">=0.7.1,<0.9.0"
 django-compressor = "^4.5.1"
 django-cors-headers = "^4.7.0"
 django-dbbackup = "^4.2.1"
