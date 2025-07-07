@@ -1,4 +1,4 @@
-FROM debian:trixie-20250610-slim
+FROM debian:trixie-20250630-slim
 
 USER root
 
