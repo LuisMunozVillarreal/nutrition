@@ -500,14 +500,14 @@ files = [
 
 [[package]]
 name = "django"
-version = "5.2.4"
+version = "5.2.5"
 description = "A high-level Python web framework that encourages rapid development and clean, pragmatic design."
 optional = false
 python-versions = ">=3.10"
 groups = ["main", "dev"]
 files = [
-    {file = "django-5.2.4-py3-none-any.whl", hash = "sha256:60c35bd96201b10c6e7a78121bd0da51084733efa303cc19ead021ab179cef5e"},
-    {file = "django-5.2.4.tar.gz", hash = "sha256:a1228c384f8fa13eebc015196db7b3e08722c5058d4758d20cb287503a540d8f"},
+    {file = "django-5.2.5-py3-none-any.whl", hash = "sha256:2b2ada0ee8a5ff743a40e2b9820d1f8e24c11bac9ae6469cd548f0057ea6ddcd"},
+    {file = "django-5.2.5.tar.gz", hash = "sha256:0745b25681b129a77aae3d4f6549b62d3913d74407831abaa0d9021a03954bae"},
 ]
 
 [package.dependencies]
@@ -660,14 +660,14 @@ django = ">=4.2"
 
 [[package]]
 name = "django-nested-admin"
-version = "4.1.1"
+version = "4.1.2"
 description = "Django admin classes that allow for nested inlines"
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "django-nested-admin-4.1.1.tar.gz", hash = "sha256:645d63b38d579b034a65e0983f1f8cbb8824c75b4232f8d62a1583fa7a9f568f"},
-    {file = "django_nested_admin-4.1.1-py3-none-any.whl", hash = "sha256:7e72ab7a8ae4c91074f6f709ce38fdf54f9c5f78d19e68772e0f05b83090ec9f"},
+    {file = "django_nested_admin-4.1.2-py3-none-any.whl", hash = "sha256:d34a8ee931989eff6dd52fc33e6a459e93ce5bb4316f82d6c473ec91716755e2"},
+    {file = "django_nested_admin-4.1.2.tar.gz", hash = "sha256:77a9b981119d77a56603ba499c83fff00fa76c282883b4aa0f88f0ca3a22e0da"},
 ]
 
 [package.dependencies]
