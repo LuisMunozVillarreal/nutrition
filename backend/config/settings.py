@@ -215,7 +215,7 @@ DBBACKUP_CONNECTORS = {
 }
 
 
-# Default Storage
+# Storages
 STORAGES = {
     "default": {
         "BACKEND": "storages.backends.gcloud.GoogleCloudStorage",
@@ -227,6 +227,10 @@ STORAGES = {
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+    "dbbackup": {
+        "BACKEND": DBBACKUP_STORAGE,
+        "OPTIONS": DBBACKUP_STORAGE_OPTIONS,
     },
 }
 
