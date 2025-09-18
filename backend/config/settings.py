@@ -12,9 +12,13 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 from pathlib import Path
 from warnings import filterwarnings
 
+import dotenv
+
 # TODO: Remove this when the stubs are available - pylint: disable=fixme
 import environ  # type: ignore
 from google.oauth2 import service_account
+
+dotenv.load_dotenv()
 
 ENV = environ.Env()
 
