@@ -2,7 +2,7 @@
 
 from pint import UnitRegistry
 
-UREG = UnitRegistry()
+UREG: UnitRegistry = UnitRegistry()
 
 # Weight
 UNIT_MILLIGRAM = "mg"

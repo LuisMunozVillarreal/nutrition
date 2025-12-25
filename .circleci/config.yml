@@ -3,8 +3,8 @@ version: 2.1
 parameters:
   backend-image:
     type: string
-    default: "luismunozvillarreal/nutrition-backend:0.84.0"
-  poetry-venv:
+    default: "luismunozvillarreal/nutrition-backend:0.101.0"
+  uv-venv:
     type: string
     default: "/home/backend/project/backend/.venv/"
   postgresql-image:
@@ -17,12 +17,17 @@ executors:
       - image: << pipeline.parameters.backend-image >>
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
+      GEMINI_API_KEY: "TestingApiKey"
+      SECRET_KEY: "TestingSecretKey"
   python-postgresql:
     docker:
       - image: << pipeline.parameters.backend-image >>
       - image: << pipeline.parameters.postgresql-image >>
         environment:
           POSTGRES_USER: nutrition
+    environment:
+      GEMINI_API_KEY: "TestingApiKey"
+      SECRET_KEY: "TestingSecretKey"
 
 commands:
   python-dependencies:
@@ -32,15 +37,15 @@ commands:
       - restore_cache:
           name: Restore Python Dependencies
           keys:
-            - python-packages-{{ checksum "poetry.lock" }}-v3
+            - python-packages-{{ checksum "uv.lock" }}-v1
       - run:
           name: Install Python Dependencies
-          command: poetry install --no-ansi
+          command: uv sync
       - save_cache:
           name: Save Python Dependencies
-          key: python-packages-{{ checksum "poetry.lock" }}-v3
+          key: python-packages-{{ checksum "uv.lock" }}-v1
           paths:
-            - << pipeline.parameters.poetry-venv >>
+            - << pipeline.parameters.uv-venv >>
 
   gcp-credentials:
     steps:
@@ -53,18 +58,9 @@ commands:
       env:
         type: string
     steps:
-      - restore_cache:
-          name: Restore Tox Dependencies
-          keys:
-            - tox-<< parameters.env >>-{{ checksum "poetry.lock" }}-v1
       - run:
           name: << parameters.env >>
-          command: poetry run tox -e << parameters.env >>
-      - save_cache:
-          name: Save Tox Dependencies
-          key: tox-<< parameters.env >>-{{ checksum "poetry.lock" }}-v1
-          paths:
-            - .tox/<< parameters.env >>/lib
+          command: make << parameters.env >>
 
 jobs:
   pytest:
@@ -147,7 +143,8 @@ jobs:
       - run:
           name: Docker build
           command: |
-            docker build . -f platform/docker/Dockerfile
+            apk add --no-cache make
+            make docker-build
   migrations:
     working_directory: ~/project/backend
     docker:
@@ -165,13 +162,13 @@ jobs:
       - gcp-credentials
       - run:
           name: Restore latest production DB
-          command: poetry run ./manage.py dbrestore --noinput -d nutrition
+          command: make restore-db
       - run:
           name: Check there is no standing Django models migrations
-          command: poetry run ./manage.py makemigrations --check
+          command: make migrations-check
       - run:
           name: Check all Django model migrations can be applied
-          command: poetry run ./manage.py migrate
+          command: make migrate
 
 
 workflows:

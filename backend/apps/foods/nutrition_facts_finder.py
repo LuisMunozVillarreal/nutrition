@@ -3,11 +3,11 @@
 import ast
 from typing import Any, Dict
 
-# TODO: Remove this when the stubs are available - pylint: disable=fixme
-import google.generativeai as genai  # type: ignore[import-untyped]
 import requests
 from bs4 import BeautifulSoup
 from django.conf import settings
+from google import genai
+from google.genai import types
 
 
 def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
@@ -21,12 +21,27 @@ def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
     Returns:
         Dict[str, str | float]
     """
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    # Create the model
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        system_instruction="""
+    # Scrape
+    page = requests.get(
+        url,
+        timeout=60,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+            ),
+        },
+    )
+    soup = BeautifulSoup(page.content, "html.parser")
+    html = soup.find("html")
+
+    # Analyse
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction="""
             You will receive an HTML page.
             This page might contain javascript.
             That page contains information of a food product.
@@ -51,28 +66,13 @@ def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
             - fibre
             - protein
             - salt
-        """,
+        """
+        ),
+        contents=[str(html)],  # type: ignore[arg-type]
     )
 
-    # Scrape
-    page = requests.get(
-        url,
-        timeout=60,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
-            ),
-        },
-    )
-    soup = BeautifulSoup(page.content, "html.parser")
-    html = soup.find("html")
-    print(html)
-
-    # Analyse
-    chat_session = model.start_chat()
-    response = chat_session.send_message(str(html))
-
+    if response.text is None:  # pragma: no cover
+        return {}
     return ast.literal_eval(response.text)
 
 
@@ -85,12 +85,13 @@ def get_food_nutrition_facts(food: str) -> Dict[str, float]:
     Returns:
         Dict[str, float]
     """
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-    # Create the model
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
-        system_instruction="""
+    # Analyse
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        config=types.GenerateContentConfig(
+            system_instruction="""
             I'll give you the name of a food and I need you to give me a
             python dictionary with the nutritional facts for 100 grams of
             such food.
@@ -105,11 +106,11 @@ def get_food_nutrition_facts(food: str) -> Dict[str, float]:
             - fibre
             - protein
             - salt
-        """,
+        """
+        ),
+        contents=[food],  # type: ignore[arg-type]
     )
 
-    # Analyse
-    chat_session = model.start_chat()
-    response = chat_session.send_message(food)
-
+    if response.text is None:  # pragma: no cover
+        return {}
     return ast.literal_eval(response.text)
