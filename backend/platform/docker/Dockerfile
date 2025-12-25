@@ -1,4 +1,4 @@
-FROM debian:trixie-20250929-slim
+FROM debian:trixie-20251208-slim
 
 USER root
 
@@ -11,27 +11,30 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN \
   apt-get update && \
   apt-get install -y --no-install-recommends \
-    # Postgresql
-    libpq-dev \
-    gcc \
-    libc6-dev \
-    postgresql-client \
-    # Locales
-    locales \
-    # Sudo
-    sudo \
-    # Server
-    nginx \
-    libnginx-mod-http-lua \
-    python-is-python3 \
-    python3-dev \
-    python3-poetry \
-    openntpd && \
+  make \
+  # Postgresql
+  libpq-dev \
+  gcc \
+  libc6-dev \
+  postgresql-client \
+  # Locales
+  locales \
+  # Sudo
+  sudo \
+  # Server
+  nginx \
+  libnginx-mod-http-lua \
+  python-is-python3 \
+  python3-dev \
+  openntpd && \
   # Clean
   apt-get purge -y --auto-remove git && \
   apt-get autoclean && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.18 /uv /uvx /bin/
 
 # Set the locale
 ENV LANG=en_GB.UTF-8
@@ -67,7 +70,7 @@ RUN \
   apt-get update && \
   # Install ansible
   apt-get install -y --no-install-recommends \
-    ansible-core && \
+  ansible-core && \
   # Install config
   ansible-playbook "ansible/$NAME.yml" && \
   # Uninstall ansible & clean
@@ -92,18 +95,17 @@ EXPOSE 80
 
 # Entry point
 COPY platform/docker/entrypoint.sh \
-    /usr/local/bin/docker-entrypoint.sh
+  /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Paths
-ENV PATH="/home/$USER_NAME/.local/bin:$PATH"
-ENV PYTHONPATH="/home/$USER_NAME/.local/bin:$SRC_DIR/.venv/lib/python3.11/site-packages/"
+ENV PATH="/home/$USER_NAME/.local/bin:$SRC_DIR/.venv/bin:$PATH"
+ENV PYTHONPATH="/home/$USER_NAME/.local/bin:$SRC_DIR/.venv/lib/python3.13/site-packages/"
 
 # Project deps
 COPY pyproject.toml .
-COPY poetry.lock .
-RUN poetry config virtualenvs.in-project true
-RUN poetry install --no-root --no-directory --without dev
+COPY uv.lock .
+RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy app
 COPY manage.py .
