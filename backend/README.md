@@ -28,43 +28,20 @@
     SECRET_KEY=<django-secret-key>
     ```
 
-1. Install poetry
+1. Install uv
 
     ```bash
-    sudo apt install python3-poetry
-    ```
-
-1. Install poetry plugins
-
-    ```bash
-    pip install --user --break-system-packages poetry-plugin-shell poetry-plugin-up poetry-plugin-dotenv
-    ```
-   `--breadk-system-packages` is needed to install this in Debian.
-
-    Ideally, the following should be added to `pyproject.toml`, and packages
-    would be installed from there. However, for some reason, it doesn't work.
-
-    ```toml
-    [tool.poetry.requires-plugins]
-    poetry-plugin-shell = "*"
-    poetry-plugin-up = "*"
-    poetry-plugin-dotenv = "*"
+    curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
 1. Install dependencies
 
     ```bash
-    poetry install
-    ```
-
-1. Start poetry shell
-
-    ```bash
-    poetry shell
+    uv sync
     ```
 
 1. Run local server
 
     ```bash
-    ./manage.py runserver 0:8000
+    uv run ./manage.py runserver 0:8000
     ```
