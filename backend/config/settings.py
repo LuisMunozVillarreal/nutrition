@@ -12,20 +12,20 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 from pathlib import Path
 from warnings import filterwarnings
 
-import dotenv
+import dotenv  # type: ignore
 
 # TODO: Remove this when the stubs are available - pylint: disable=fixme
 import environ  # type: ignore
 from google.oauth2 import service_account
 
-dotenv.load_dotenv()
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+dotenv.read_dotenv(BASE_DIR / ".env")
 
 ENV = environ.Env()
 
 NUTRITION = "nutrition"
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = ENV("SECRET_KEY")
 
