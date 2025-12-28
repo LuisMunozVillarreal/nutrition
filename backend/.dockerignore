@@ -5,5 +5,6 @@
 !manage.py
 !apps
 !config
+!static
 !platform/docker/entrypoint.sh
 !platform/docker/ansible

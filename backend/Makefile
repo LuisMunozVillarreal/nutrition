@@ -46,3 +46,6 @@ migrations-check:
 
 migrate:
 	uv run ./manage.py migrate
+
+start-server:
+	uv run ./manage.py runserver 0:8000
