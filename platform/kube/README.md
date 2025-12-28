@@ -73,6 +73,12 @@ Remove the password from the file.
     kubectl create secret generic nutrition-gemini-api-key --namespace nutrition-<environment> --from-literal=gemini-api-key=<my-gemini-api-key-here>
     ```
 
+##### NextAuth Secret
+
+    ```bash
+    kubectl create secret generic nutrition-webapp-nextauth-secret --namespace nutrition-<environment> --from-literal=nextauth-secret=<my-nextauth-secret-here>
+    ```
+
 #### Templates
 
 Copy the templates:

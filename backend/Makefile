@@ -1,4 +1,7 @@
-.PHONY: install pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build restore-db migrations-check migrate ci-migrations
+IMAGE_NAME := luismunozvillarreal/nutrition-backend
+TAG := latest
+
+.PHONY: install pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push restore-db migrations-check migrate ci-migrations
 
 install:
 	uv sync
@@ -36,7 +39,14 @@ pydocstyle-tests:
 	uv run pydocstyle tests --count $(ARGS)
 
 docker-build:
-	docker build . -f platform/docker/Dockerfile
+	docker build . -f platform/docker/Dockerfile -t $(IMAGE_NAME):$(TAG)
+
+docker-tag:
+	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):latest
+
+docker-push:
+	docker push $(IMAGE_NAME):$(TAG)
+	docker push $(IMAGE_NAME):latest
 
 restore-db:
 	uv run ./manage.py dbrestore --noinput -d nutrition

@@ -43,6 +43,40 @@ releases:
       hosts:
       - host: '{{ .Values.domain }}'
         paths:
+        - path: /admin
+          pathType: Prefix
+        - path: /graphql
+          pathType: Prefix
+        - path: /dashboard
+          pathType: Prefix
+        - path: /_nested_admin
+          pathType: Prefix
+        - path: /static
+          pathType: Prefix
+  version: 0.99.0+build-fb5d838-1766969108
+- chart: ../../../webapp/platform/kube
+  name: webapp
+  namespace: '{{ .Values.namespace }}'
+  values:
+  - env:
+    - name: GRAPHQL_ENDPOINT
+      value: https://{{ .Values.domain }}/graphql/
+    - name: NEXTAUTH_SECRET
+      valueFrom:
+        secretKeyRef:
+          key: nextauth-secret
+          name: nutrition-webapp-nextauth-secret
+    ingress:
+      annotations:
+        kubernetes.io/ingress.class: traefik
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+        traefik.ingress.kubernetes.io/router.tls: 'true'
+        traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+        traefik.ingress.kubernetes.io/router.tls.domains.0.main: '{{ .Values.domain
+          }}'
+      hosts:
+      - host: '{{ .Values.domain }}'
+        paths:
         - path: /
           pathType: Prefix
-  version: 0.99.0+build-9868966-1766951627
+  version: 0.1.0
