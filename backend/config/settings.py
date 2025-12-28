@@ -25,6 +25,10 @@ DEBUG = ENV("DEBUG", default=False)
 ALLOWED_HOSTS = ENV("ALLOWED_HOSTS", default=[])
 ALLOWED_CIDR_NETS = ["10.0.0.0/8"]
 
+CORS_ALLOWED_ORIGINS = ENV.list(
+    "DJANGO_CORS_ALLOWED_ORIGINS", default=["http://localhost:3000"]
+)
+
 SITE_ID = 1
 
 ENVIRONMENT = ENV("ENVIRONMENT", default="development")
@@ -53,7 +57,9 @@ INSTALLED_APPS = [
     "django_extensions",
     "nested_admin",
     "taggit",
+    "strawberry.django",
 ]
+
 
 MIDDLEWARE = [
     "allow_cidr.middleware.AllowCIDRMiddleware",
@@ -189,12 +195,14 @@ filterwarnings(
 )
 FORMS_URLFIELD_ASSUME_HTTPS = True
 
-
 # GS Credentials
-GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
-    "nutrition-gcp-db-backup-credentials.json"
-)
+GS_CREDENTIALS_FILE_NAME = "nutrition-gcp-db-backup-credentials.json"
 
+GS_CREDENTIALS = None
+if Path(GS_CREDENTIALS_FILE_NAME).exists():  # pragma: no cover
+    GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
+        GS_CREDENTIALS_FILE_NAME
+    )
 
 # DB Backup
 DBBACKUP_FILENAME_TEMPLATE = (
