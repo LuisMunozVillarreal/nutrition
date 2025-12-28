@@ -108,6 +108,7 @@ COPY uv.lock .
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy app
+COPY static static
 COPY manage.py .
 COPY config config
 COPY apps apps

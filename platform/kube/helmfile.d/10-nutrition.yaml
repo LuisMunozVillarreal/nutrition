@@ -45,4 +45,4 @@ releases:
         paths:
         - path: /
           pathType: Prefix
-  version: 0.99.0
+  version: 0.99.0+build-9868966-1766951627
