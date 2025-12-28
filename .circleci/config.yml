@@ -53,6 +53,7 @@ commands:
           name: Create GCP credential JSON
           command: echo $GCLOUD_SERVICE_KEY > nutrition-gcp-db-backup-credentials.json
 
+
   validate:
     parameters:
       env:
@@ -130,8 +131,23 @@ jobs:
       - python-dependencies
       - validate:
           env: pydocstyle-tests
-  docker-build:
+  backend-docker-build:
     working_directory: ~/project/backend
+    docker:
+      - image: docker:24.0.9-git
+    steps:
+      - checkout:
+          path: ~/project
+      - setup_remote_docker:
+          version: docker24
+          docker_layer_caching: true
+      - run:
+          name: Docker build
+          command: |
+            apk add --no-cache make
+            make docker-build
+  webapp-docker-build:
+    working_directory: ~/project/webapp
     docker:
       - image: docker:24.0.9-git
     steps:
@@ -171,6 +187,7 @@ jobs:
           command: make migrate
 
 
+
 workflows:
   version: 2
   ValidationWorkflow:
@@ -184,5 +201,6 @@ workflows:
       - pylint-tests
       - pydocstyle
       - pydocstyle-tests
-      - docker-build
+      - backend-docker-build
+      - webapp-docker-build
       - migrations
