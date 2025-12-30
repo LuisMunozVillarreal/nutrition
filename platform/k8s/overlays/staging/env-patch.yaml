@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-backend
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: ENVIRONMENT
+              value: "staging"
+            - name: DEBUG
+              value: "True"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-webapp
+spec:
+  replicas: 1

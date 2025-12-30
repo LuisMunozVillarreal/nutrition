@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-backend
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: db-restore
+          image: luismunozvillarreal/nutrition-backend:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ENVIRONMENT
+              value: "staging"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: postgresql-password
+                  name: nutrition-postgresql
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: secret-key
+                  name: nutrition-django-secret-key
+            - name: POSTGRESQL_HOST
+              value: "nutrition-postgres"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: gemini-api-key
+                  name: nutrition-gemini-api-key
+          volumeMounts:
+            - mountPath: "/mnt/secret/"
+              name: nutrition-gcp-db-backup-credentials
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Checking if DB is empty...";
+              # Symlink credentials first
+              ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json;
+              
+              TABLE_COUNT=$(/srv/www/backend/.venv/bin/python -c "import django; django.setup(); from django.db import connection; cursor = connection.cursor(); cursor.execute(\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'\"); print(cursor.fetchone()[0])");
+              
+              echo "Found $TABLE_COUNT tables.";
+              
+              if [ "$TABLE_COUNT" -eq "0" ]; then
+                echo "DB is empty. Restoring from backup...";
+                make restore-db;
+              else
+                echo "DB is not empty. Skipping restore.";
+              fi

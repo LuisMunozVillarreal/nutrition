@@ -1,0 +1,34 @@
+name: Cleanup Preview Environment
+
+on:
+  delete:
+
+jobs:
+  cleanup:
+    if: github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install click
+
+      - name: Setup Kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_DATA_BASE64 }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Run Cleanup Script
+        run: |
+          # The deleted branch name is in github.event.ref
+          BRANCH_NAME="${{ github.event.ref }}"
+          echo "Cleaning up environment for deleted branch: $BRANCH_NAME"
+          python3 .circleci/scripts/cleanup_flux_preview.py "$BRANCH_NAME"
