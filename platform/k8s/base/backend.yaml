@@ -1,0 +1,163 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+      app.kubernetes.io/instance: nutrition
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backend
+        app.kubernetes.io/instance: nutrition
+    spec:
+      serviceAccountName: default
+      volumes:
+        - name: nutrition-gcp-db-backup-credentials
+          secret:
+            secretName: nutrition-gcp-db-backup-credentials
+      containers:
+        - name: backend
+          image: luismunozvillarreal/nutrition-backend:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /admin/login/
+              port: 8080
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /admin/login/
+              port: 8080
+          startupProbe:
+            httpGet:
+              path: /admin/login/
+              port: 8080
+            initialDelaySeconds: 15
+            failureThreshold: 600
+            periodSeconds: 5
+          env:
+            - name: ALLOWED_HOSTS
+              value: "nutrition.localhost"
+            - name: ENVIRONMENT
+              value: "staging"
+            - name: DEBUG
+              value: "True"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: gemini-api-key
+                  name: nutrition-gemini-api-key
+            - name: POSTGRESQL_HOST
+              value: "nutrition-postgres"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: postgresql-password
+                  name: nutrition-postgresql
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: secret-key
+                  name: nutrition-django-secret-key
+          volumeMounts:
+            - mountPath: "/mnt/secret/"
+              name: nutrition-gcp-db-backup-credentials
+              readOnly: true
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nutrition-backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nutrition-backend
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: nutrition.localhost
+spec:
+  rules:
+    - host: nutrition.localhost
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80
+          - path: /graphql
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80
+          - path: /_nested_admin
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80
+          - path: /static
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80

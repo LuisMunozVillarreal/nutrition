@@ -4,16 +4,6 @@
 
 ### Pre-requisites
 
-#### Helm 3
-
-Make sure you have `helm` 3 installed.
-
-#### Helm diff plugin
-
-    ```bash
-    helm plugin install https://github.com/databus23/helm-diff
-    ```
-
 #### Install Traefik Resource Definitions:
 
     ```bash
@@ -67,7 +57,7 @@ Remove the password from the file.
     kubectl create secret generic nutrition-django-secret-key --namespace nutrition-<environment> --from-literal=secret-key=<my-django-secret-key-here>
     ```
 
-##### Django Secret Key
+##### Gemini API Key
 
     ```bash
     kubectl create secret generic nutrition-gemini-api-key --namespace nutrition-<environment> --from-literal=gemini-api-key=<my-gemini-api-key-here>
@@ -96,36 +86,6 @@ Fill the values appropriately.
     ```bash
     cd platform/kube
     helmfile --debug -f helmfile.d/00-traefik.yaml apply --wait-for-jobs
-    ```
-
-#### NTC
-
-Install NTC within the `backend` virtual environment.
-Check [these instructions](../../backend/README.md) to set it up.
-
-    ```bash
-    poetry shell
-    cd ~/repos/ntc
-    pip install . --break-system-packages
-    cd -
-    ```
-
-### Deploy to production
-
-    ```bash
-    ntc -e production cloud apply
-    ```
-
-## Uninstall
-
-    ```bash
-    helmfile --debug destroy
-    ```
-
-### Per workspace
-
-    ```bash
-    helmfile --debug destroy -n <namespace>
     ```
 
 # Traefik dashboard

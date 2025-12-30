@@ -1,34 +1,17 @@
-# Install k3s
+# Platform (GitOps)
 
-On a server terminal:
+This directory contains the Infrastructure as Code (IaC) for the project, managed by **Flux CD**.
 
-    ```bash
-    curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--tls-san <domain> --disable=traefik" sh -
-    sudo k3s kubectl config view --raw > "$KUBECONFIG"
-    ```
+## Directory Structure
 
+### `clusters/k3s/`
+The entry point for Flux.
+- **`flux-system/`**: Flux components and synchronization logic.
+- **`apps.yaml`**: Main entry point for deploying applications.
 
-On the client:
-
-    ```bash
-    scp -P <port> <domain>:/home/<user>/.kube/config /home/<user>/.kube/
-    ```
-
-Then edit `/home/<user>/.kube/config` and change the IP by the domain you're
-using.
-
-## Test installation
-
-    ```bash
-    kubectl get pods --all-namespaces
-    ```
-
-# Deploy platform
-
-Check [these instructions](kube/README.md).
-
-# Uninstall k3s
-
-    ```bash
-    /usr/local/bin/k3s-killall.sh
-    ```
+### `k8s/`
+Kubernetes manifests structured using **Kustomize**.
+- **`base/`**: Common resources (Deployment, Service, Ingress) for Backend, Webapp, and Postgres.
+- **`overlays/`**
+    - **`staging`**: Configuration for Preview environments (dynamic namespace, secrets cloning).
+    - **`production`**: Configuration for the Production environment (stable domain, high availability).
