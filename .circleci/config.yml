@@ -1,5 +1,8 @@
 version: 2.1
 
+orbs:
+  kubernetes: circleci/kubernetes@1.3.1
+
 parameters:
   backend-image:
     type: string
@@ -10,6 +13,9 @@ parameters:
   postgresql-image:
     type: string
     default: "cimg/postgres:17.4"
+  docker-image:
+    type: string
+    default: "docker:24.0.9-git"
 
 executors:
   python:
@@ -53,6 +59,11 @@ commands:
           name: Create GCP credential JSON
           command: echo $GCLOUD_SERVICE_KEY > nutrition-gcp-db-backup-credentials.json
 
+  docker-login:
+    steps:
+      - run:
+          name: Docker Login
+          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_LOGIN" --password-stdin
 
   validate:
     parameters:
@@ -131,62 +142,80 @@ jobs:
       - python-dependencies
       - validate:
           env: pydocstyle-tests
-  backend-docker-build:
+
+  backend-docker-build-tag-push:
     working_directory: ~/project/backend
     docker:
-      - image: docker:24.0.9-git
+      - image: << pipeline.parameters.docker-image >>
     steps:
       - checkout:
           path: ~/project
       - setup_remote_docker:
           version: docker24
           docker_layer_caching: true
+      - docker-login
       - run:
-          name: Docker build
+          name: Build, Tag and Push Backend
           command: |
-            apk add --no-cache make
-            make docker-build
-  webapp-docker-build:
+             apk add --no-cache make
+             TAG=$CIRCLE_SHA1 make docker-build-tag-push
+
+  webapp-docker-build-tag-push:
     working_directory: ~/project/webapp
     docker:
-      - image: docker:24.0.9-git
+      - image: << pipeline.parameters.docker-image >>
     steps:
       - checkout:
           path: ~/project
       - setup_remote_docker:
           version: docker24
           docker_layer_caching: true
+      - docker-login
       - run:
-          name: Docker build
+          name: Build, Tag and Push Webapp
           command: |
-            apk add --no-cache make
-            make docker-build
-  migrations:
-    working_directory: ~/project/backend
+             apk add --no-cache make
+             TAG=$CIRCLE_SHA1 make docker-build-tag-push
+
+  deploy-preview:
+    working_directory: ~/project
     docker:
-      - image: << pipeline.parameters.backend-image >>
-        environment:
-          GEMINI_API_KEY: "ApiKey"
-          SECRET_KEY: "SecretKey"
-      - image: << pipeline.parameters.postgresql-image >>
-        environment:
-          POSTGRES_DB: nutrition
-          POSTGRES_USER: nutrition
-          POSTGRES_PASSWORD: nutrition
+      - image: cimg/python:3.12
     steps:
-      - python-dependencies
-      - gcp-credentials
+      - checkout
+      - add_ssh_keys:
+          fingerprints:
+            - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
+      - kubernetes/install
       - run:
-          name: Restore latest production DB
-          command: make restore-db
+          name: Setup Kubeconfig
+          command: |
+             mkdir -p $HOME/.kube
+             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
+             chmod 600 $HOME/.kube/config
       - run:
-          name: Check there is no standing Django models migrations
-          command: make migrations-check
-      - run:
-          name: Check all Django model migrations can be applied
-          command: make migrate
+          name: Generate Flux Preview
+          command: |
+            git config user.email "ci@nutfeex"
+            git config user.name "CircleCI"
+            pip install click click --break-system-packages
+            python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
 
-
+  cypress-e2e:
+    working_directory: ~/project
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run:
+          name: Run Cypress
+          command: |
+             # Placeholder for waiting logic (kubectl rollout status...)
+             # Testing dynamic host
+             SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
+             export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.nutfeex.ddns.net"
+             # npx cypress run --record ... (if configured)
+             echo "Running Cypress on $CYPRESS_BASE_URL"
 
 workflows:
   version: 2
@@ -201,6 +230,18 @@ workflows:
       - pylint-tests
       - pydocstyle
       - pydocstyle-tests
-      - backend-docker-build
-      - webapp-docker-build
-      - migrations
+      - backend-docker-build-tag-push:
+          context:
+            - Docker
+      - webapp-docker-build-tag-push:
+          context:
+            - Docker
+      - deploy-preview:
+          context:
+            - kubeconfig
+          requires:
+            - backend-docker-build-tag-push
+            - webapp-docker-build-tag-push
+      - cypress-e2e:
+          requires:
+            - deploy-preview

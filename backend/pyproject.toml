@@ -67,7 +67,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.bandit]
-exclude_dirs = ["tests", ".tox"]
+exclude_dirs = [
+    "tests",
+    "../.circleci/scripts/test_generate_preview.py",
+    "../.circleci/scripts/test_cleanup_preview.py",
+]
 
 [tool.black]
 line-length = 79
@@ -107,6 +111,7 @@ skip_glob = ["**/migrations/*"]
 
 [tool.mypy]
 plugins = "mypy_django_plugin.main"
+exclude = ["test_generate_preview\\.py", "test_cleanup_preview\\.py", "migrations"]
 
 [[tool.mypy.overrides]]
 module = "taggit.models,django_sql_dashboard,django_sql_dashboard.models"
@@ -123,7 +128,10 @@ max-line-length = 79
 
 [tool.pylint.MAIN]
 django-settings-module = "config.settings"
-
+ignore-paths = [
+    "../.circleci/scripts/test_generate_preview.py",
+    "../.circleci/scripts/test_cleanup_preview.py",
+]
 [tool.pylint.MASTER]
 load-plugins = [
     "pylint.extensions.docparams",
