@@ -114,10 +114,16 @@ def main(branch, tag, domain, dry_run):
     file_path = f"{previews_dir}/{file_name}"
     kustomization_path = f"{previews_dir}/kustomization.yaml"
     
+    
     if dry_run:
         click.echo(f"--- Dry Run: {file_path} ---")
         click.echo(manifest_content)
         return
+
+    # Write Manifest to File
+    os.makedirs(previews_dir, exist_ok=True)
+    with open(file_path, "w") as f:
+        f.write(manifest_content)
 
     # Git Commit Logic
     try:
