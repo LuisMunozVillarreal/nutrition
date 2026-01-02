@@ -128,6 +128,7 @@ def main(branch, tag, domain, dry_run):
             click.echo("No changes to commit.")
         else:
             subprocess.run(["git", "commit", "-m", f"[CI] Create preview env for {branch} [skip ci]"], check=True)
+            subprocess.run(["git", "push", "origin", branch], check=True)
             click.echo("Pushed changes to git.")
             
         # Hybrid Flux: Inject GitRepository/Kustomization into Cluster (Unconditional)
