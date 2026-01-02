@@ -154,6 +154,8 @@ spec:
   url: {repo_url}
   ref:
     branch: {branch}
+  secretRef:
+    name: flux-system
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
