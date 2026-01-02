@@ -8,7 +8,7 @@ source $SRC_DIR/.venv/bin/activate
 ./manage.py collectstatic --no-input
 
 # Start services
-sudo ntpd
+
 sudo service nginx start
 
 # Star django
