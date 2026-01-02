@@ -127,17 +127,17 @@ def main(branch, tag, domain, dry_run):
             subprocess.run(["git", "commit", "-m", f"[CI] Create preview env for {branch} [skip ci]"], check=True)
             click.echo("Pushed changes to git.")
             
-            # Hybrid Flux: Inject GitRepository/Kustomization into Cluster
-            click.echo("Hybrid Flux: Applying Flux Source to Cluster...")
-            
-            # We need the repo URL. We can infer it or hardcode it.
-            # Assuming 'origin' remote is the one.
-            try:
-                repo_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
-            except:
-                repo_url = "https://github.com/LuisMunozVillarreal/nutrition" # Fallback
+        # Hybrid Flux: Inject GitRepository/Kustomization into Cluster (Unconditional)
+        click.echo("Hybrid Flux: Applying Flux Source to Cluster...")
+        
+        # We need the repo URL. We can infer it or hardcode it.
+        # Assuming 'origin' remote is the one.
+        try:
+            repo_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
+        except:
+            repo_url = "https://github.com/LuisMunozVillarreal/nutrition" # Fallback
 
-            flux_source_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
+        flux_source_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: GitRepository
 metadata:
   name: source-{sanitized_branch}
@@ -162,9 +162,9 @@ spec:
     name: source-{sanitized_branch}
   targetNamespace: flux-system # Where the nested Kustomizations live
 """
-            # Apply via kubectl
-            subprocess.run(["kubectl", "apply", "-f", "-"], input=flux_source_manifest.encode('utf-8'), check=True)
-            click.echo(f"Applied Flux Source 'source-{sanitized_branch}' watching branch '{branch}'.")
+        # Apply via kubectl
+        subprocess.run(["kubectl", "apply", "-f", "-"], input=flux_source_manifest.encode('utf-8'), check=True)
+        click.echo(f"Applied Flux Source 'source-{sanitized_branch}' watching branch '{branch}'.")
 
     except subprocess.CalledProcessError as e:
         click.echo(f"Operation failed: {e}", err=True)
