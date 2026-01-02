@@ -46,7 +46,7 @@ spec:
               # Simple check: Does 'uv run ./manage.py showmigrations' show unapplied migrations?
               # Better: Try to count tables. If 0, restore.
               
-              TABLE_COUNT=$(uv run python -c "import django; django.setup(); from django.db import connection; cursor = connection.cursor(); cursor.execute(\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'\"); print(cursor.fetchone()[0])");
+              TABLE_COUNT=$(/srv/www/backend/.venv/bin/python -c "import django; django.setup(); from django.db import connection; cursor = connection.cursor(); cursor.execute(\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'\"); print(cursor.fetchone()[0])");
               
               echo "Found $TABLE_COUNT tables.";
               
