@@ -36,8 +36,18 @@ def main(branch, dry_run):
              click.echo("No changes to commit.")
         else:
             subprocess.run(["git", "commit", "-m", f"[CI] Cleanup preview env for {branch} [skip ci]"], check=True)
-            subprocess.run(["git", "push", "origin", "HEAD"], check=True)
             click.echo("Pushed cleanup commit to git.")
+            
+            # Hybrid Flux: Cleanup Flux Source
+            click.echo("Hybrid Flux: Removing Flux Source from Cluster...")
+            sanitized_branch = sanitize_branch_name(branch)
+            try:
+                subprocess.run(["kubectl", "delete", "kustomization", f"preview-{sanitized_branch}", "-n", "flux-system"], check=False)
+                subprocess.run(["kubectl", "delete", "gitrepository", f"source-{sanitized_branch}", "-n", "flux-system"], check=False)
+                click.echo(f"Cleaned up Flux Source for '{branch}'.")
+            except Exception as e:
+                click.echo(f"Kubectl cleanup failed (ignored): {e}")
+
     except subprocess.CalledProcessError as e:
         click.echo(f"Git operation failed: {e}", err=True)
         sys.exit(1)
