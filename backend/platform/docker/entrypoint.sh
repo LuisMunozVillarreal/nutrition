@@ -7,9 +7,9 @@ source $SRC_DIR/.venv/bin/activate
 ./manage.py migrate
 ./manage.py collectstatic --no-input
 
+
 # Start services
+# Removed nginx and supervisord to allow running as non-root (UID 1001)
 
-sudo service nginx start
-
-# Star django
-sudo -E env PATH=$PATH supervisord -n -c /etc/supervisor/supervisord.conf "$@"
+# Start Gunicorn directly
+exec gunicorn config.wsgi:application --bind 0.0.0.0:9000 --workers 3
