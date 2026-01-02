@@ -19,9 +19,9 @@ spec:
         name: cluster-settings
   images:
     - name: luismunozvillarreal/nutrition-backend
-      newTag: 26bf4a786d842adb90b423350ede5995e2cef76f
+      newTag: 8504ecf10cdb79badf928ce6010e17e77a90df51
     - name: luismunozvillarreal/nutrition-webapp
-      newTag: 26bf4a786d842adb90b423350ede5995e2cef76f
+      newTag: 8504ecf10cdb79badf928ce6010e17e77a90df51
   patches:
     - patch: |
         - op: replace
