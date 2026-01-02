@@ -1,4 +1,6 @@
 
+version: 2.1
+
 orbs:
   kubernetes: circleci/kubernetes@1.3.1
 
