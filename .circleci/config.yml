@@ -189,6 +189,13 @@ jobs:
       - add_ssh_keys:
           fingerprints:
             - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
+      - kubernetes/install
+      - run:
+          name: Setup Kubeconfig
+          command: |
+             mkdir -p $HOME/.kube
+             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
+             chmod 600 $HOME/.kube/config
       - run:
           name: Generate Flux Preview
           command: |
