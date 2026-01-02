@@ -202,7 +202,7 @@ jobs:
   cypress-e2e:
     working_directory: ~/project
     docker:
-      - image: cypress/included:13.6.0
+      - image: cimg/python:3.12
     steps:
       - checkout
       - run:
