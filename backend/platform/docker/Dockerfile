@@ -51,7 +51,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Add user and group
 ENV USER_NAME=$NAME
-RUN useradd -ms /bin/bash $USER_NAME
+RUN useradd -u 1001 -ms /bin/bash $USER_NAME
 
 # Add user to sudo group
 RUN echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -84,7 +84,7 @@ RUN \
 # Add user to tty group for logging purposes
 RUN usermod -a -G tty "$USER_NAME"
 
-USER $USER_NAME
+USER 1001
 
 # Static dir
 RUN mkdir static
