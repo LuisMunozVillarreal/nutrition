@@ -190,10 +190,7 @@ jobs:
             sudo apt update && sudo apt install git python3-yaml python3-click -y
             git config user.email "ci@nutfeex"
             git config user.name "CircleCI"
-<<<<<<< HEAD
             pip install click pyyaml
-=======
->>>>>>> 121e3999 (fix(flux): Refactor CI scripts and fix broken kustomization)
             python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
 
   # Cleanup Job (Triggered on branch deletion? CircleCI doesn't support 'on delete' natively well without API calls or Webhooks.
