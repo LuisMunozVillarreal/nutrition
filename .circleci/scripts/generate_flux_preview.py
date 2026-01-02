@@ -36,7 +36,7 @@ spec:
   targetNamespace: {target_namespace}
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: source-{sanitized_branch}
   postBuild:
     substituteFrom:
       - kind: ConfigMap
