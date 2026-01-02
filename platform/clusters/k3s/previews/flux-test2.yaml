@@ -12,16 +12,16 @@ spec:
   targetNamespace: nutrition-staging--flux-test2
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: source-flux-test2
   postBuild:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
   images:
     - name: luismunozvillarreal/nutrition-backend
-      newTag: 0bd5253843a34384e4c9c003acb8a34e69323cc7
+      newTag: 23de698526dc26ef9781f4046d0aa61efc0f132b
     - name: luismunozvillarreal/nutrition-webapp
-      newTag: 0bd5253843a34384e4c9c003acb8a34e69323cc7
+      newTag: 23de698526dc26ef9781f4046d0aa61efc0f132b
   patches:
     - patch: |
         - op: replace
