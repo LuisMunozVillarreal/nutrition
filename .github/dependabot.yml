@@ -17,3 +17,12 @@ updates:
       updates:
         patterns:
           - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/webapp/"
+    schedule:
+      interval: "weekly"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
