@@ -134,6 +134,10 @@ def main(branch, tag, domain, dry_run):
         # Assuming 'origin' remote is the one.
         try:
             repo_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
+            # Fix for Flux GitRepository validation: must be http/s or ssh
+            if repo_url.startswith("git@"):
+                 # Convert start 'git@github.com:' -> 'ssh://git@github.com/'
+                 repo_url = "ssh://" + repo_url.replace(":", "/", 1)
         except:
             repo_url = "https://github.com/LuisMunozVillarreal/nutrition" # Fallback
 
