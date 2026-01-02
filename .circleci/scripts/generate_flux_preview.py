@@ -116,43 +116,18 @@ def main(branch, tag, domain, dry_run):
         click.echo(manifest_content)
         return
 
-    # Write file
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    with open(file_path, "w") as f:
-        f.write(manifest_content)
-    
-    click.echo(f"Generated {file_path}")
-
-    # Add to kustomization.yaml
-    if os.path.exists(kustomization_path):
-        try:
-            with open(kustomization_path, 'r') as f:
-                kust_data = yaml.safe_load(f) or {}
-            
-            resources = kust_data.get('resources', [])
-            if file_name not in resources:
-                resources.append(file_name)
-                # Sort for consistency?
-                resources.sort()
-                kust_data['resources'] = resources
-                with open(kustomization_path, 'w') as f:
-                    yaml.dump(kust_data, f, default_flow_style=False)
-                click.echo(f"Added {file_name} to {kustomization_path}")
-        except Exception as e:
-             click.echo(f"Error updating kustomization.yaml: {e}", err=True)
-
-    
     # Git Commit Logic
     try:
         subprocess.run(["git", "add", file_path, kustomization_path], check=True)
         # Check for changes
         status = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
         if status.returncode == 0:
-             click.echo("No changes to commit.")
+            click.echo("No changes to commit.")
         else:
             subprocess.run(["git", "commit", "-m", f"[CI] Create preview env for {branch} [skip ci]"], check=True)
             subprocess.run(["git", "push", "origin", "HEAD"], check=True)
             click.echo("Pushed changes to git.")
+            
     except subprocess.CalledProcessError as e:
         click.echo(f"Git operation failed: {e}", err=True)
         sys.exit(1)
