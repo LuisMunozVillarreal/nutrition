@@ -240,6 +240,8 @@ workflows:
           context:
             - Docker
       - deploy-preview:
+          context:
+            - kubeconfig
           requires:
             - backend-docker-build-tag-push
             - webapp-docker-build-tag-push
