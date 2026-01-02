@@ -17,7 +17,10 @@ def generate_manifest(branch_name, image_tag, preview_domain=None):
     # We use Flux Variable Substitution. The domain is NOT hardcoded here.
     # It is injected by Flux at runtime from the 'cluster-settings' ConfigMap.
     # The default fallback in the script is just the variable string.
-    preview_host = f"staging--{sanitized_branch}.${{BASE_DOMAIN}}"
+    if preview_domain:
+        preview_host = preview_domain
+    else:
+        preview_host = f"staging--{sanitized_branch}.${{BASE_DOMAIN}}"
 
     manifest = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
