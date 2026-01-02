@@ -17,6 +17,20 @@ spec:
                 secretKeyRef:
                   key: postgresql-password
                   name: nutrition-postgresql
+            - name: DJANGO_SETTINGS_MODULE
+              value: "config.settings"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: secret-key
+                  name: nutrition-django-secret-key
+            - name: POSTGRESQL_HOST
+              value: "nutrition-postgres"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: gemini-api-key
+                  name: nutrition-gemini-api-key
           volumeMounts:
             - mountPath: "/mnt/secret/"
               name: nutrition-gcp-db-backup-credentials
