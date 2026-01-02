@@ -10,6 +10,9 @@ parameters:
   postgresql-image:
     type: string
     default: "cimg/postgres:17.4"
+  docker-image:
+    type: string
+    default: "docker:24.0.9-git"
 
 executors:
   python:
@@ -140,7 +143,7 @@ jobs:
   backend-docker-build-tag-push:
     working_directory: ~/project/backend
     docker:
-      - image: docker:24.0.9-git
+      - image: << pipeline.parameters.docker-image >>
     steps:
       - checkout:
           path: ~/project
@@ -157,7 +160,7 @@ jobs:
   webapp-docker-build-tag-push:
     working_directory: ~/project/webapp
     docker:
-      - image: docker:24.0.9-git
+      - image: << pipeline.parameters.docker-image >>
     steps:
       - checkout:
           path: ~/project
@@ -175,7 +178,7 @@ jobs:
   deploy-preview:
     working_directory: ~/project
     docker:
-      - image: cimg/base:stable
+      - image: cimg/python:3.12
     steps:
       - checkout
       - add_ssh_keys:
@@ -184,9 +187,13 @@ jobs:
       - run:
           name: Generate Flux Preview
           command: |
+            sudo apt update && sudo apt install git python3-yaml python3-click -y
             git config user.email "ci@nutfeex"
             git config user.name "CircleCI"
-            pip install click
+<<<<<<< HEAD
+            pip install click pyyaml
+=======
+>>>>>>> 121e3999 (fix(flux): Refactor CI scripts and fix broken kustomization)
             python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
 
   # Cleanup Job (Triggered on branch deletion? CircleCI doesn't support 'on delete' natively well without API calls or Webhooks.

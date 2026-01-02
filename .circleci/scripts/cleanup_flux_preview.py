@@ -1,15 +1,9 @@
 import os
 import sys
 import subprocess
-import shutil
 import click
-
-def sanitize_branch_name(branch_name):
-    """Sanitizes the branch name to be K8s/DNS compatible."""
-    s = branch_name.lower()
-    s = s.replace('/', '-')
-    s = s.replace('_', '-')
-    return s
+import yaml
+from common import sanitize_branch_name
 
 @click.command()
 @click.argument('branch')
@@ -21,23 +15,55 @@ def main(branch, dry_run):
         sys.exit(0)
 
     sanitized_branch = sanitize_branch_name(branch)
-    file_path = f"platform/clusters/k3s/previews/{sanitized_branch}.yaml"
+    file_name = f"{sanitized_branch}.yaml"
+    previews_dir = "platform/clusters/k3s/previews"
+    file_path = f"{previews_dir}/{file_name}"
+    kustomization_path = f"{previews_dir}/kustomization.yaml"
     
     if not os.path.exists(file_path):
-        click.echo(f"Preview manifest {file_path} not found. Nothing to cleanup.")
-        sys.exit(0)
+        click.echo(f"Preview manifest {file_path} not found. Checking if needs removal from kustomization.")
+    else:
+        if dry_run:
+            click.echo(f"--- Dry Run: Delete {file_path} ---")
+        else:
+            os.remove(file_path)
+            click.echo(f"Deleted {file_path}")
+
+    # Remove from kustomization.yaml
+    if os.path.exists(kustomization_path):
+        try:
+            with open(kustomization_path, 'r') as f:
+                kust_data = yaml.safe_load(f) or {}
+            
+            resources = kust_data.get('resources', [])
+            if file_name in resources:
+                if dry_run:
+                    click.echo(f"--- Dry Run: Remove {file_name} from {kustomization_path} ---")
+                else:
+                    resources.remove(file_name)
+                    kust_data['resources'] = resources
+                    with open(kustomization_path, 'w') as f:
+                        yaml.dump(kust_data, f, default_flow_style=False)
+                    click.echo(f"Removed {file_name} from {kustomization_path}")
+                    
+                    # Add kustomization.yaml to git
+                    if not dry_run:
+                        subprocess.run(["git", "add", kustomization_path], check=True)
+
+        except Exception as e:
+            click.echo(f"Error updating kustomization.yaml: {e}", err=True)
 
     if dry_run:
-        click.echo(f"--- Dry Run: Delete {file_path} ---")
         return
 
-    # Delete file
-    os.remove(file_path)
-    click.echo(f"Deleted {file_path}")
-    
     # Git Commit Logic
     try:
-        subprocess.run(["git", "add", file_path], check=True)
+        if os.path.exists(file_path): # Should be gone, but check if we need to git rm
+             subprocess.run(["git", "add", file_path], check=True)
+        else:
+             # It's deleted, git add will record the deletion
+             subprocess.run(["git", "add", file_path], check=False) # check=False in case it was already untracked
+
         # Check for changes (deletion is a change)
         status = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
         if status.returncode == 0:

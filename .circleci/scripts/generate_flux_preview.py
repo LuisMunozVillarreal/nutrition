@@ -4,13 +4,8 @@ import subprocess
 import re
 from pathlib import Path
 import click
-
-def sanitize_branch_name(branch_name):
-    """Sanitizes the branch name to be K8s/DNS compatible."""
-    s = branch_name.lower()
-    s = s.replace('/', '-')
-    s = s.replace('_', '-')
-    return s
+import yaml
+from common import sanitize_branch_name
 
 def generate_manifest(branch_name, image_tag, preview_domain=None):
     """Generates the content of the Flux Kustomization manifest."""
@@ -111,7 +106,10 @@ def main(branch, tag, domain, dry_run):
 
     manifest_content, sanitized_branch = generate_manifest(branch, tag, domain)
     
-    file_path = f"platform/clusters/k3s/previews/{sanitized_branch}.yaml"
+    file_name = f"{sanitized_branch}.yaml"
+    previews_dir = "platform/clusters/k3s/previews"
+    file_path = f"{previews_dir}/{file_name}"
+    kustomization_path = f"{previews_dir}/kustomization.yaml"
     
     if dry_run:
         click.echo(f"--- Dry Run: {file_path} ---")
@@ -124,14 +122,33 @@ def main(branch, tag, domain, dry_run):
         f.write(manifest_content)
     
     click.echo(f"Generated {file_path}")
+
+    # Add to kustomization.yaml
+    if os.path.exists(kustomization_path):
+        try:
+            with open(kustomization_path, 'r') as f:
+                kust_data = yaml.safe_load(f) or {}
+            
+            resources = kust_data.get('resources', [])
+            if file_name not in resources:
+                resources.append(file_name)
+                # Sort for consistency?
+                resources.sort()
+                kust_data['resources'] = resources
+                with open(kustomization_path, 'w') as f:
+                    yaml.dump(kust_data, f, default_flow_style=False)
+                click.echo(f"Added {file_name} to {kustomization_path}")
+        except Exception as e:
+             click.echo(f"Error updating kustomization.yaml: {e}", err=True)
+
     
     # Git Commit Logic
     try:
-        subprocess.run(["git", "add", file_path], check=True)
+        subprocess.run(["git", "add", file_path, kustomization_path], check=True)
         # Check for changes
         status = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
         if status.returncode == 0:
-            click.echo("No changes to commit.")
+             click.echo("No changes to commit.")
         else:
             subprocess.run(["git", "commit", "-m", f"[CI] Create preview env for {branch} [skip ci]"], check=True)
             subprocess.run(["git", "push", "origin", "HEAD"], check=True)
