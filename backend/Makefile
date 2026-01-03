@@ -1,5 +1,5 @@
-IMAGE_NAME := luismunozvillarreal/nutrition-backend
-TAG := latest
+IMAGE_NAME?=luismunozvillarreal/nutrition-backend
+TAG?=latest
 
 .PHONY: install pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push restore-db migrations-check migrate ci-migrations
 
@@ -47,6 +47,8 @@ docker-tag:
 docker-push:
 	docker push $(IMAGE_NAME):$(TAG)
 	docker push $(IMAGE_NAME):latest
+
+docker-build-tag-push: docker-build docker-tag docker-push
 
 restore-db:
 	uv run ./manage.py dbrestore --noinput -d nutrition

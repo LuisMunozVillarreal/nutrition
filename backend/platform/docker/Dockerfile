@@ -51,7 +51,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Add user and group
 ENV USER_NAME=$NAME
-RUN useradd -ms /bin/bash $USER_NAME
+RUN useradd -u 1001 -ms /bin/bash $USER_NAME
 
 # Add user to sudo group
 RUN echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -83,6 +83,9 @@ RUN \
 
 # Add user to tty group for logging purposes
 RUN usermod -a -G tty "$USER_NAME"
+
+# Fix permissions for nginx (run as non-root)
+RUN chown -R $USER_NAME:$USER_NAME /var/lib/nginx /var/log/nginx /etc/nginx/conf.d
 
 USER $USER_NAME
 
