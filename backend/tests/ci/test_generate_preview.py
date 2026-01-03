@@ -1,8 +1,8 @@
 """Tests for the CircleCI flux preview generation script."""
 
 import sys
-import unittest
 from pathlib import Path
+import pytest
 
 # Add .circleci/scripts to path to allow importing from hidden directory
 scripts_path = (
@@ -19,36 +19,51 @@ from generate_flux_preview import (  # noqa: E402
 )
 
 
-class TestGeneratePreview(unittest.TestCase):
+class TestGeneratePreview:
     """Test suite for generate_flux_preview.py."""
 
     def test_sanitize_branch(self):
         """Test branch name sanitization logic."""
-        self.assertEqual(
-            sanitize_branch_name("feature/new-ui"), "feature-new-ui"
-        )
-        self.assertEqual(sanitize_branch_name("JIRA_123"), "jira-123")
-        self.assertEqual(sanitize_branch_name("simple"), "simple")
+        # Given
+        branches = [
+            ("feature/new-ui", "feature-new-ui"),
+            ("JIRA_123", "jira-123"),
+            ("simple", "simple"),
+        ]
+
+        for branch_input, expected in branches:
+            # When
+            result = sanitize_branch_name(branch_input)
+
+            # Then
+            assert result == expected
 
     def test_generate_manifest_content(self):
         """Test manifest generation with custom domain."""
-        manifest, sanitized = generate_manifest(
-            "feature/test", "v1.0.0", "custom.domain.com"
-        )
-        self.assertEqual(sanitized, "feature-test")
-        self.assertIn("name: nutrition-preview-feature-test", manifest)
-        self.assertIn(
-            "targetNamespace: nutrition-staging--feature-test", manifest
-        )
-        self.assertIn("newTag: v1.0.0", manifest)
-        self.assertIn("value: custom.domain.com", manifest)  # Host override
+        # Given
+        branch = "feature/test"
+        image_tag = "v1.0.0"
+        preview_domain = "custom.domain.com"
+
+        # When
+        manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
+
+        # Then
+        assert sanitized == "feature-test"
+        assert "name: nutrition-preview-feature-test" in manifest
+        assert "targetNamespace: nutrition-staging--feature-test" in manifest
+        assert "newTag: v1.0.0" in manifest
+        assert "value: custom.domain.com" in manifest
 
     def test_generate_manifest_default_domain(self):
         """Test manifest generation with default domain placeholder."""
-        manifest, sanitized = generate_manifest("flux", "latest", None)
-        # Expecting the variable string literal in the output
-        self.assertIn("value: staging--flux.${BASE_DOMAIN}", manifest)
+        # Given
+        branch = "flux"
+        image_tag = "latest"
+        preview_domain = None
 
+        # When
+        manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
 
-if __name__ == "__main__":
-    unittest.main()
+        # Then
+        assert "value: staging--flux.${BASE_DOMAIN}" in manifest

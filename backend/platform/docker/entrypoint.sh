@@ -9,7 +9,8 @@ source $SRC_DIR/.venv/bin/activate
 
 
 # Start services
-# Removed nginx and supervisord to allow running as non-root (UID 1001)
+# Removed sudo, running as non-root (UID 1001)
+# Nginx and Supervisord are configured to use /tmp for pids/sockets
 
-# Start Gunicorn directly
-exec gunicorn config.wsgi:application --bind 0.0.0.0:9000 --workers 3
+# Start supervisord directly
+exec supervisord -n -c /etc/supervisor/supervisord.conf "$@"
