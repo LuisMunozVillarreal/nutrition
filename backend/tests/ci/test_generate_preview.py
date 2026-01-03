@@ -2,7 +2,6 @@
 
 import sys
 from pathlib import Path
-import pytest
 
 # Add .circleci/scripts to path to allow importing from hidden directory
 scripts_path = (
@@ -46,7 +45,9 @@ class TestGeneratePreview:
         preview_domain = "custom.domain.com"
 
         # When
-        manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
+        manifest, sanitized = generate_manifest(
+            branch, image_tag, preview_domain
+        )
 
         # Then
         assert sanitized == "feature-test"
@@ -63,7 +64,9 @@ class TestGeneratePreview:
         preview_domain = None
 
         # When
-        manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
+        manifest, sanitized = generate_manifest(
+            branch, image_tag, preview_domain
+        )
 
         # Then
         assert "value: staging--flux.${BASE_DOMAIN}" in manifest
