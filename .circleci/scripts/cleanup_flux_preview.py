@@ -2,55 +2,48 @@ import os
 import sys
 import subprocess
 import click
-import yaml
 from common import sanitize_branch_name
 
 @click.command()
 @click.argument('branch')
 @click.option('--dry-run', is_flag=True, help="Print actions instead of executing")
 def main(branch, dry_run):
-    """Cleanup Flux Preview Environment."""
+    """Cleanup Flux Preview Environment (Pure Imperative)."""
     if branch == "main":
         click.echo("Branch is main. Skipping cleanup.")
         sys.exit(0)
 
     sanitized_branch = sanitize_branch_name(branch)
-    file_name = f"{sanitized_branch}.yaml"
-    previews_dir = "platform/clusters/k3s/previews"
-    file_path = f"{previews_dir}/{file_name}"
-    kustomization_path = f"{previews_dir}/kustomization.yaml"
     
-    if not os.path.exists(file_path):
-        click.echo(f"Preview manifest {file_path} not found. Checking if needs removal from kustomization.")
-    # Git Commit Logic
-    try:
-        if os.path.exists(file_path): # Should be gone, but check if we need to git rm
-             subprocess.run(["git", "add", file_path], check=True)
-        else:
-             # It's deleted, git add will record the deletion
-             subprocess.run(["git", "add", file_path], check=False)
+    # Resources to clean up
+    # 1. Kustomization (nutrition-preview-*)
+    # 2. GitRepository (source-*)
+    # 3. Namespace (nutrition-staging--*)
+    
+    kustomization_name = f"nutrition-preview-{sanitized_branch}"
+    gitrepo_name = f"source-{sanitized_branch}"
+    target_namespace = f"nutrition-staging--{sanitized_branch}"
 
-        # Check for changes (deletion is a change)
-        status = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
-        if status.returncode == 0:
-             click.echo("No changes to commit.")
+    click.echo(f"Cleaning up preview environment for branch '{branch}' (sanitized: {sanitized_branch})...")
+
+    commands = [
+        f"kubectl delete kustomization {kustomization_name} -n flux-system --ignore-not-found",
+        f"kubectl delete gitrepository {gitrepo_name} -n flux-system --ignore-not-found",
+        f"kubectl delete namespace {target_namespace} --ignore-not-found"
+    ]
+
+    for cmd in commands:
+        if dry_run:
+            click.echo(f"[Dry Run] {cmd}")
         else:
-            subprocess.run(["git", "commit", "-m", f"[CI] Cleanup preview env for {branch} [skip ci]"], check=True)
-            click.echo("Pushed cleanup commit to git.")
-            
-            # Hybrid Flux: Cleanup Flux Source
-            click.echo("Hybrid Flux: Removing Flux Source from Cluster...")
-            sanitized_branch = sanitize_branch_name(branch)
+            click.echo(f"Executing: {cmd}")
             try:
-                subprocess.run(["kubectl", "delete", "kustomization", f"preview-{sanitized_branch}", "-n", "flux-system"], check=False)
-                subprocess.run(["kubectl", "delete", "gitrepository", f"source-{sanitized_branch}", "-n", "flux-system"], check=False)
-                click.echo(f"Cleaned up Flux Source for '{branch}'.")
+                subprocess.run(cmd.split(), check=False)
             except Exception as e:
-                click.echo(f"Kubectl cleanup failed (ignored): {e}")
+                click.echo(f"Error executing command: {e}", err=True)
 
-    except subprocess.CalledProcessError as e:
-        click.echo(f"Git operation failed: {e}", err=True)
-        sys.exit(1)
+    if not dry_run:
+        click.echo("Cleanup sequence completed.")
 
 if __name__ == "__main__":
     main()
