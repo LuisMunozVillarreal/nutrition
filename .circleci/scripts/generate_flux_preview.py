@@ -100,58 +100,28 @@ spec:
 @click.argument('branch')
 @click.argument('tag')
 @click.option('--domain', default=lambda: os.environ.get("PREVIEW_DOMAIN"), help="Override Preview Domain")
-@click.option('--dry-run', is_flag=True, help="Print manifest to stdout instead of writing file")
+@click.option('--dry-run', is_flag=True, help="Print manifest to stdout instead of applying")
 def main(branch, tag, domain, dry_run):
-    """Generate Flux Preview Manifest."""
+    """Generate Flux Preview Manifest and Apply Directly to Cluster."""
     if branch == "main":
         click.echo("Branch is main. Skipping preview generation (handled by prod flow).")
         sys.exit(0)
 
-    manifest_content, sanitized_branch = generate_manifest(branch, tag, domain)
+    # 1. Generate the Kustomization Manifest (The "Payload")
+    kustomization_content, sanitized_branch = generate_manifest(branch, tag, domain)
     
-    file_name = f"{sanitized_branch}.yaml"
-    previews_dir = "platform/clusters/k3s/previews"
-    file_path = f"{previews_dir}/{file_name}"
-    kustomization_path = f"{previews_dir}/kustomization.yaml"
-    
-    
-    if dry_run:
-        click.echo(f"--- Dry Run: {file_path} ---")
-        click.echo(manifest_content)
-        return
-
-    # Write Manifest to File
-    os.makedirs(previews_dir, exist_ok=True)
-    with open(file_path, "w") as f:
-        f.write(manifest_content)
-
-    # Git Commit Logic
+    # 2. Determine Repo URL for the GitRepository source
     try:
-        subprocess.run(["git", "add", file_path, kustomization_path], check=True)
-        # Check for changes
-        status = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
-        if status.returncode == 0:
-            click.echo("No changes to commit.")
-        else:
-            subprocess.run(["git", "commit", "-m", f"[CI] Create preview env for {branch} [skip ci]"], check=True)
-            subprocess.run(["git", "push", "origin", branch], check=True)
-            click.echo("Pushed changes to git.")
-            
-        # Hybrid Flux: Inject GitRepository/Kustomization into Cluster (Unconditional)
-        click.echo("Hybrid Flux: Applying Flux Source to Cluster...")
-        
-        # We need the repo URL. We can infer it or hardcode it.
-        # Assuming 'origin' remote is the one.
-        try:
-            repo_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
-            # Fix for Flux GitRepository validation: must be http/s or ssh
-            if repo_url.startswith("git@"):
-                 # Convert start 'git@github.com:' -> 'ssh://git@github.com/'
-                 repo_url = "ssh://" + repo_url.replace(":", "/", 1)
-        except:
-            repo_url = "https://github.com/LuisMunozVillarreal/nutrition" # Fallback
+        repo_url = subprocess.check_output(["git", "config", "--get", "remote.origin.url"]).strip().decode('utf-8')
+        # Fix for Flux GitRepository validation: must be http/s or ssh
+        if repo_url.startswith("git@"):
+             # Convert start 'git@github.com:' -> 'ssh://git@github.com/'
+             repo_url = "ssh://" + repo_url.replace(":", "/", 1)
+    except:
+        repo_url = "https://github.com/LuisMunozVillarreal/nutrition" # Fallback
 
-        flux_source_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
+    # 3. Generate the GitRepository Manifest
+    git_repo_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: GitRepository
 metadata:
   name: source-{sanitized_branch}
@@ -163,27 +133,23 @@ spec:
     branch: {branch}
   secretRef:
     name: flux-system
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
-kind: Kustomization
-metadata:
-  name: preview-{sanitized_branch}
-  namespace: flux-system
-spec:
-  interval: 1m0s
-  path: ./platform/clusters/k3s/previews
-  prune: true
-  sourceRef:
-    kind: GitRepository
-    name: source-{sanitized_branch}
-  targetNamespace: flux-system # Where the nested Kustomizations live
 """
-        # Apply via kubectl
-        subprocess.run(["kubectl", "apply", "-f", "-"], input=flux_source_manifest.encode('utf-8'), check=True)
-        click.echo(f"Applied Flux Source 'source-{sanitized_branch}' watching branch '{branch}'.")
 
+    # 4. Combine Manifests
+    full_manifest = f"{git_repo_manifest}---\n{kustomization_content}"
+
+    if dry_run:
+        click.echo(f"--- Dry Run: Applying the following to cluster ---")
+        click.echo(full_manifest)
+        return
+
+    # 5. Apply to Cluster via Kubectl (Imperative)
+    click.echo(f"Applying Flux resources for branch '{branch}' to cluster...")
+    try:
+        subprocess.run(["kubectl", "apply", "-f", "-"], input=full_manifest.encode('utf-8'), check=True)
+        click.echo(f"Successfully applied GitRepository 'source-{sanitized_branch}' and Kustomization 'nutrition-preview-{sanitized_branch}'.")
     except subprocess.CalledProcessError as e:
-        click.echo(f"Operation failed: {e}", err=True)
+        click.echo(f"Failed to apply manifests: {e}", err=True)
         sys.exit(1)
 
 if __name__ == "__main__":
