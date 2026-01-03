@@ -87,7 +87,7 @@ RUN usermod -a -G tty "$USER_NAME"
 # Fix permissions for nginx (run as non-root)
 RUN chown -R $USER_NAME:$USER_NAME /var/lib/nginx /var/log/nginx /etc/nginx/conf.d
 
-USER 1001
+USER $USER_NAME
 
 # Static dir
 RUN mkdir static
