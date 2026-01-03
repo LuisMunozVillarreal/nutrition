@@ -11,7 +11,7 @@ scripts_path = (
 )
 sys.path.append(str(scripts_path))
 
-import generate_flux_preview  # noqa: F401, E402
+
 from generate_flux_preview import (  # noqa: E402
     generate_manifest,
     sanitize_branch_name,
