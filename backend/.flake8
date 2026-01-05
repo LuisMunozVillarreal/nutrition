@@ -1,7 +1,0 @@
-[flake8]
-statistics = True
-exclude =
-    .git,
-    __pycache__,
-    manage.py,
-    **/migrations/,

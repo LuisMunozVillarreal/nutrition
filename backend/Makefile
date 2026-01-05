@@ -27,7 +27,7 @@ mypy:
 	uv run mypy --disallow-untyped-defs --exclude migrations manage.py config apps $(ARGS)
 
 pylint:
-	uv run pylint -j 4 --rcfile .pylintrc config apps $(ARGS)
+	uv run pylint -j 4 config apps $(ARGS)
 
 pylint-tests:
 	uv run pylint -j 4 --rcfile .pylintrc-tests tests $(ARGS)
