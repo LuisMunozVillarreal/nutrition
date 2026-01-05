@@ -631,6 +631,17 @@ wheels = [
 ]
 
 [[package]]
+name = "flake8-pyproject"
+version = "1.2.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flake8" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/85/6a/cdee9ff7f2b7c6ddc219fd95b7c70c0a3d9f0367a506e9793eedfc72e337/flake8_pyproject-1.2.4-py3-none-any.whl", hash = "sha256:ea34c057f9a9329c76d98723bb2bb498cc6ba8ff9872c4d19932d48c91249a77", size = 5694, upload-time = "2025-11-28T21:40:01.309Z" },
+]
+
+[[package]]
 name = "flexcache"
 version = "0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1167,6 +1178,7 @@ dev = [
     { name = "epc" },
     { name = "flake8" },
     { name = "flake8-isort" },
+    { name = "flake8-pyproject" },
     { name = "importmagic" },
     { name = "ipdb" },
     { name = "ipython" },
@@ -1222,6 +1234,7 @@ dev = [
     { name = "epc", specifier = ">=0.0.5" },
     { name = "flake8", specifier = ">=7.1.1" },
     { name = "flake8-isort", specifier = ">=6.1.2,<8.0.0" },
+    { name = "flake8-pyproject", specifier = ">=1.2.3" },
     { name = "importmagic", specifier = ">=0.1.7" },
     { name = "ipdb", specifier = ">=0.13.13" },
     { name = "ipython", specifier = ">=8.32,<10.0" },
