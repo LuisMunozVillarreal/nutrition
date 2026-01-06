@@ -10,10 +10,10 @@ When("I enter valid credentials", () => {
     // Here we use a known test user if available, or just mock the network response if we only test frontend functionality.
     // Since task is Integration, we should use real backend.
     // But backend is empty. I should use `db_seeds` or create user manually.
-    // I'll assume a user swarf@example.com / password exists or I'll create it via task.
+    // I'll assume a user user@example.com / password exists or I'll create it via task.
 
     // For now, let's type dummy credentials that mapped to what I'll seed.
-    cy.get('input[type="email"]').type("swarf@example.com");
+    cy.get('input[type="email"]').type("user@example.com");
     cy.get('input[type="password"]').type("password123");
 });
 
@@ -22,9 +22,9 @@ When("I click the sign in button", () => {
 });
 
 Then("I should be redirected to the home page", () => {
-    cy.url().should("eq", "http://localhost:3000/");
+    cy.url().should("eq", Cypress.config().baseUrl + "/");
 });
 
 Then("I should see a welcome message", () => {
-    cy.contains("Welcome, swarf@example.com");
+    cy.contains("Welcome, user@example.com");
 });
