@@ -38,7 +38,13 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              echo "Checking if DB is empty...";
+              echo "Waiting for database to be ready...";
+              until pg_isready -h "$POSTGRESQL_HOST" -U "nutrition"; do
+                echo "Database not ready, waiting 2 seconds...";
+                sleep 2;
+              done
+              echo "Database is ready. Checking if DB is empty...";
+              
               # Symlink credentials first
               ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json;
               
