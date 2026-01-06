@@ -54,7 +54,7 @@ spec:
               
               if [ "$TABLE_COUNT" -eq "0" ]; then
                 echo "DB is empty. Restoring from backup...";
-                make restore-db;
+                /srv/www/backend/.venv/bin/python manage.py dbrestore --noinput -d nutrition;
               else
                 echo "DB is not empty. Skipping restore.";
               fi
