@@ -198,7 +198,7 @@ jobs:
           command: |
             git config user.email "ci@nutfeex"
             git config user.name "CircleCI"
-            pip install click click --break-system-packages
+            pip install click --break-system-packages
             python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
       - run:
           name: Wait for Deployment Readiness
@@ -259,18 +259,46 @@ jobs:
   cypress-e2e:
     working_directory: ~/project
     docker:
-      - image: cimg/python:3.12
+      - image: cimg/node:22.12.0-browsers
     steps:
       - checkout
+      - kubernetes/install
+      - run:
+          name: Setup Kubeconfig
+          command: |
+             mkdir -p $HOME/.kube
+             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
+             chmod 600 $HOME/.kube/config
+      - run:
+          name: Install Dependencies
+          working_directory: ~/project/webapp
+          command: npm ci
+      - run:
+          name: Create Test User
+          command: |
+             SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
+             NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
+             echo "Creating test user in namespace: $NAMESPACE"
+             # Create user user@example.com / password123
+             kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- python3 manage.py shell -c "from apps.users.models import User; import datetime; User.objects.filter(email='user@example.com').delete(); User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)"
       - run:
           name: Run Cypress
+          working_directory: ~/project/webapp
           command: |
-             # Placeholder for waiting logic (kubectl rollout status...)
-             # Testing dynamic host
              SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
-             export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.nutfeex.ddns.net"
-             # npx cypress run --record ... (if configured)
-             echo "Running Cypress on $CYPRESS_BASE_URL"
+             
+             if [ -z "$BASE_DOMAIN" ]; then
+               echo "BASE_DOMAIN not set, fetching from cluster..."
+               BASE_DOMAIN=$(kubectl get configmap cluster-settings -n flux-system -o jsonpath='{.data.BASE_DOMAIN}')
+             fi
+             
+             if [ -z "$BASE_DOMAIN" ]; then
+               echo "Error: BASE_DOMAIN could not be determined."
+               exit 1
+             fi
+             
+             export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+             npm run cypress:run
 
 workflows:
   version: 2
@@ -312,5 +340,7 @@ workflows:
               only:
                 - main
       - cypress-e2e:
+          context:
+            - kubeconfig
           requires:
             - deploy-preview
