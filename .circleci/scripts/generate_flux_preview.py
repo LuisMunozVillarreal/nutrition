@@ -48,7 +48,7 @@ spec:
   path: ./platform/k8s/overlays/staging
   prune: true
   wait: true
-  timeout: 5m
+  timeout: 10m
   targetNamespace: {target_namespace}
   sourceRef:
     kind: GitRepository
