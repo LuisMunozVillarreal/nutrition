@@ -2,8 +2,8 @@ import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
 
 Given("I am logged in", () => {
     cy.visit("/login");
-    cy.get('input[name="email"]').type("test@example.com");
-    cy.get('input[name="password"]').type("password");
+    cy.get('input[name="email"]').type("user@example.com");
+    cy.get('input[name="password"]').type("password123");
     cy.get('button[type="submit"]').click();
     // Wait for redirect to home or welcome message
     cy.contains("Welcome", { timeout: 10000 });
