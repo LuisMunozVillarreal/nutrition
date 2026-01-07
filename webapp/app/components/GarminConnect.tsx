@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { gql, GraphQLClient } from "graphql-request"
 
@@ -19,10 +18,10 @@ const DISCONNECT_MUTATION = gql`
 
 interface Props {
     isConnected: boolean
+    accessToken: string
 }
 
-export default function GarminConnect({ isConnected: initialConnected }: Props) {
-    const { data: session } = useSession()
+export default function GarminConnect({ isConnected: initialConnected, accessToken }: Props) {
     const router = useRouter()
     const [isConnected, setIsConnected] = useState(initialConnected)
     const [loading, setLoading] = useState(false)
@@ -30,8 +29,8 @@ export default function GarminConnect({ isConnected: initialConnected }: Props) 
     const getClient = () => {
         const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "/graphql/"
         const client = new GraphQLClient(endpoint)
-        if (session?.accessToken) {
-            client.setHeader("Authorization", `Bearer ${session.accessToken}`)
+        if (accessToken) {
+            client.setHeader("Authorization", `Bearer ${accessToken}`)
         }
         return client
     }

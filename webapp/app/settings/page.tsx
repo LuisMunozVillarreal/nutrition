@@ -48,7 +48,7 @@ export default async function SettingsPage() {
                 </header>
 
                 <section className="space-y-6">
-                    <GarminConnect isConnected={isConnected} />
+                    <GarminConnect isConnected={isConnected} accessToken={session.accessToken as string} />
                 </section>
             </div>
         </div>
