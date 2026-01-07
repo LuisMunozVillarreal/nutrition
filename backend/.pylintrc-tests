@@ -27,6 +27,7 @@ disable=
     fixme,
     redefined-outer-name,
     C0103,
+    duplicate-code,
 
 
 [SIMILARITIES]

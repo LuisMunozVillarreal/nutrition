@@ -1,8 +1,9 @@
 """Garmin models tests."""
 
+import pytest
+
 from apps.garmin.models import GarminCredential
 from apps.users.models import User
-import pytest
 
 
 @pytest.mark.django_db
@@ -10,9 +11,12 @@ def test_garmin_credential_str() -> None:
     """Test GarminCredential string representation."""
     # Given a user
     user = User.objects.create_user(
-        email="test@example.com", password="password",
-        first_name="Test", last_name="User",
-        date_of_birth="1990-01-01", height=180
+        email="test@example.com",
+        password="password",
+        first_name="Test",
+        last_name="User",
+        date_of_birth="1990-01-01",
+        height=180,
     )
 
     # And a credential
@@ -20,7 +24,7 @@ def test_garmin_credential_str() -> None:
         user=user,
         access_token="token",
         refresh_token="refresh",
-        expires_at=1234567890
+        expires_at=1234567890,
     )
 
     # When getting string representation
