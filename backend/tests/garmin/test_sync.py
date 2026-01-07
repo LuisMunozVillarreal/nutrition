@@ -140,7 +140,7 @@ class TestSyncActivities:
             user (User): user instance.
             mocker (Any): pytest-mock mocker.
         """
-        from apps.garmin.models import GarminCredential, GarminActivity
+        from apps.garmin.models import GarminActivity, GarminCredential
 
         # Given user, creds, plan, day
         GarminCredential.objects.create(
@@ -170,10 +170,7 @@ class TestSyncActivities:
             distance=10,
         )
         # And existing GarminActivity
-        GarminActivity.objects.create(
-            exercise=ex,
-            garmin_activity_id="123"
-        )
+        GarminActivity.objects.create(exercise=ex, garmin_activity_id="123")
 
         # And service returns same activity
         service_mock = mocker.patch("apps.garmin.sync.GarminService")
