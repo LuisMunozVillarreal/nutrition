@@ -3,6 +3,7 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,9 @@ from apps.garmin.sync import sync_activities
 from apps.plans.models.day import Day
 from apps.plans.models.week import WeekPlan
 from apps.users.models import User
+
+if TYPE_CHECKING:
+    from apps.measurements.models import Measurement
 
 
 @pytest.mark.django_db
@@ -50,7 +54,9 @@ class TestGarminSync:
         )
 
     @pytest.fixture
-    def plan(self, user: User, measurement: "Measurement") -> WeekPlan:  # type: ignore
+    def plan(
+        self, user: User, measurement: "Measurement"  # type: ignore
+    ) -> WeekPlan:
         """Create week plan.
 
         Args:
@@ -155,3 +161,102 @@ class TestGarminSync:
         sync_activities(user)
         assert Exercise.objects.count() == 1
         assert GarminActivity.objects.count() == 1
+
+        # Test string representation for coverage
+        assert str(credential) == f"Garmin Credential for {user}"
+        assert str(ga) == "Garmin Activity 987654"
+
+    @patch("apps.garmin.sync.GarminService")
+    def test_sync_no_activity_id(
+        self,
+        mock_service: MagicMock,
+        user: User,
+        credential: GarminCredential,
+    ) -> None:
+        """Test sync ignores activity with no ID.
+
+        Args:
+            mock_service (MagicMock): mocked service.
+            user (User): user instance.
+            credential (GarminCredential): credential instance.
+        """
+        service = mock_service.return_value
+        service.fetch_activities.return_value = [{"activityName": "No ID"}]
+        sync_activities(user)
+        assert Exercise.objects.count() == 0
+
+    @patch("apps.garmin.sync.GarminService")
+    def test_sync_missing_day(
+        self,
+        mock_service: MagicMock,
+        user: User,
+        plan: WeekPlan,
+        credential: GarminCredential,
+    ) -> None:
+        """Test sync logic when Day is missing from Plan.
+
+        Args:
+            mock_service (MagicMock): mocked service.
+            user (User): user instance.
+            plan (WeekPlan): plan instance.
+            credential (GarminCredential): credential instance.
+        """
+        # Delete day corresponding to today
+        activity_date = datetime.now().date()
+        Day.objects.filter(day=activity_date).delete()
+
+        service = mock_service.return_value
+        start_time_local = datetime.combine(
+            activity_date, datetime.now().time()
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+        service.fetch_activities.return_value = [
+            {
+                "activityId": "111",
+                "startTimeLocal": start_time_local,
+                "type": "cycling",
+            }
+        ]
+
+        # Should log warning but continue (not crash)
+        sync_activities(user)
+        assert Exercise.objects.count() == 0
+
+    @patch("apps.garmin.sync.GarminService")
+    def test_sync_outside_plan_range(
+        self,
+        mock_service: MagicMock,
+        user: User,
+        plan: WeekPlan,
+        credential: GarminCredential,
+    ) -> None:
+        """Test sync when activity is outside plan range.
+
+        Args:
+            mock_service (MagicMock): mocked service.
+            user (User): user instance.
+            plan (WeekPlan): plan instance.
+            credential (GarminCredential): credential instance.
+        """
+        # Activity is 8 days after plan start
+        plan.start_date = datetime.now().date() - timedelta(days=10)
+        plan.save()
+        Day.objects.all().delete()  # Ensure no days exist
+
+        activity_date = plan.start_date + timedelta(days=8)
+
+        service = mock_service.return_value
+        start_time_local = datetime.combine(
+            activity_date, datetime.now().time()
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+        service.fetch_activities.return_value = [
+            {
+                "activityId": "222",
+                "startTimeLocal": start_time_local,
+                "type": "cycling",
+            }
+        ]
+
+        sync_activities(user)
+        assert Exercise.objects.count() == 0

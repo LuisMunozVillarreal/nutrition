@@ -45,9 +45,10 @@ def sync_activities(user: User) -> None:
 
     for activity in activities:
         # Check if already synced
-        activity_id = str(activity.get("activityId"))
-        if not activity_id:
+        activity_id_raw = activity.get("activityId")
+        if not activity_id_raw:
             continue
+        activity_id = str(activity_id_raw)
 
         if GarminActivity.objects.filter(
             garmin_activity_id=activity_id
