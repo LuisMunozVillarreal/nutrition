@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: ALLOWED_HOSTS
+              value: "${BASE_DOMAIN}"
+            - name: CSRF_TRUSTED_ORIGINS
+              value: "https://${BASE_DOMAIN}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-webapp
+spec:
+  template:
+    spec:
+      containers:
+        - name: webapp
+          env:
+            - name: NEXTAUTH_URL
+              value: "https://${BASE_DOMAIN}"
+            - name: GRAPHQL_ENDPOINT
+              value: "https://${BASE_DOMAIN}/graphql/"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nutrition-backend
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: "${BASE_DOMAIN}"
+spec:
+  rules:
+    - host: "${BASE_DOMAIN}"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nutrition-webapp
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: "${BASE_DOMAIN}"
+spec:
+  rules:
+    - host: "${BASE_DOMAIN}"
