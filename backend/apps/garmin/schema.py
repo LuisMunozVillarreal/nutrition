@@ -88,6 +88,11 @@ class Mutation:
                 "garmin_user_id": token_data.get("garmin_user_id"),
             },
         )
+        
+        # Trigger sync immediately
+        from apps.garmin.sync import sync_activities
+        await sync_to_async(sync_activities)(user)
+        
         return True
 
     @strawberry.mutation

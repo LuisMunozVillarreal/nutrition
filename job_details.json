@@ -1,0 +1,389 @@
+{
+    "all_commit_details": [
+        {
+            "author_date": "2026-01-07T22:04:34.000Z",
+            "author_email": "luis.munoz.villarreal@gmail.com",
+            "author_login": "LuisMunozVillarreal",
+            "author_name": "Luis Muñoz",
+            "body": "",
+            "branch": "garmin",
+            "commit": "de98a131f8d5569415fa768bc0b3dc0588adc00d",
+            "commit_url": "https://github.com/LuisMunozVillarreal/nutrition/commit/de98a131f8d5569415fa768bc0b3dc0588adc00d",
+            "committer_date": "2026-01-07T22:04:34.000Z",
+            "committer_email": "luis.munoz.villarreal@gmail.com",
+            "committer_login": "LuisMunozVillarreal",
+            "committer_name": "Luis Muñoz",
+            "subject": "fix(ci): Ensure rollout status before E2E tests"
+        }
+    ],
+    "all_commit_details_truncated": false,
+    "author_date": "2026-01-07T22:04:34.000Z",
+    "author_email": "luis.munoz.villarreal@gmail.com",
+    "author_name": "Luis Muñoz",
+    "body": "",
+    "branch": "garmin",
+    "build_num": 9407,
+    "build_parameters": {},
+    "build_time_millis": 64242,
+    "build_url": "https://circleci.com/gh/LuisMunozVillarreal/nutrition/9407",
+    "canceled": false,
+    "canceler": null,
+    "circle_yml": {
+        "string": "# Orb 'circleci/kubernetes@1.3.1' resolved to 'circleci/kubernetes@1.3.1'\nversion: 2\njobs:\n  pylint-tests:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: Create GCP credential JSON\n        command: echo $GCLOUD_SERVICE_KEY \u003e nutrition-gcp-db-backup-credentials.json\n    - run:\n        name: pylint-tests\n        command: make pylint-tests\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  pylint:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: Create GCP credential JSON\n        command: echo $GCLOUD_SERVICE_KEY \u003e nutrition-gcp-db-backup-credentials.json\n    - run:\n        name: pylint\n        command: make pylint\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  flake8:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: flake8\n        command: make flake8\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  pydocstyle-tests:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: pydocstyle-tests\n        command: make pydocstyle-tests\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  black:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: black\n        command: make black\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  bandit:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: bandit\n        command: make bandit\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  deploy-preview:\n    working_directory: ~/project\n    docker:\n    - image: cimg/python:3.12\n    steps:\n    - checkout\n    - add_ssh_keys:\n        fingerprints:\n        - SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k\n    - run:\n        command: |\n          #!/bin/bash\n          KOPS_VERSION=$(eval echo \"$PARAM_KOPS_VERSION\")\n          if [[ \"$KOPS_VERSION\" == \"latest\" ]]; then\n              # get latest kops release\n              KOPS_VERSION=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '\"' -f 4)\n          fi\n\n          PLATFORM=\"linux\"\n          if [ -n \"$(uname | grep \"Darwin\")\" ]; then\n              PLATFORM=\"darwin\"\n          fi\n\n          # download kops\n          curl -Lo kops https://github.com/kubernetes/kops/releases/download/$KOPS_VERSION/kops-$PLATFORM-amd64\n\n          [ -w /usr/local/bin ] \u0026\u0026 SUDO=\"\" || SUDO=sudo\n\n          $SUDO chmod +x kops\n          $SUDO mv kops /usr/local/bin/kops\n        environment:\n          PARAM_KOPS_VERSION: latest\n        name: Install kops\n    - run:\n        command: \"#!/bin/bash\\nKUBECTL_VERSION=$(eval echo \\\"$PARAM_KUBECTL_VERSION\\\")\\nMAX_TIME=$(eval echo \\\"$PARAM_MAX_TIME\\\")\\nif [ \\\"$KUBECTL_VERSION\\\" == \\\"latest\\\" ]; then\\n    # get latest kubectl release\\n    KUBECTL_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)\\nfi\\n\\nPLATFORM=\\\"linux\\\"\\nif [ -n \\\"$(uname | grep \\\"Darwin\\\")\\\" ]; then\\n    PLATFORM=\\\"darwin\\\"\\nfi\\n\\n# download kubectl\\nif [ \\\"$MAX_TIME\\\" == \\\"1\\\" ]; then\\n    curl --max-time 300 -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\\nelse \\n    curl -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\\nfi\\n\\n[ -w /usr/local/bin ] \u0026\u0026 SUDO=\\\"\\\" || SUDO=sudo\\n\\n$SUDO chmod +x ./kubectl\\n\\n$SUDO mv ./kubectl /usr/local/bin\\n\"\n        environment:\n          PARAM_KUBECTL_VERSION: latest\n          PARAM_MAX_TIME: false\n        name: Install kubectl\n    - run:\n        name: Setup Kubeconfig\n        command: |\n          mkdir -p $HOME/.kube\n          echo \"$KUBECONFIG_DATA_BASE64\" | base64 -d \u003e $HOME/.kube/config\n          chmod 600 $HOME/.kube/config\n    - run:\n        name: Generate Flux Preview\n        command: |\n          git config user.email \"ci@nutfeex\"\n          git config user.name \"CircleCI\"\n          pip install click --break-system-packages\n          python3 .circleci/scripts/generate_flux_preview.py \"$CIRCLE_BRANCH\" \"$CIRCLE_SHA1\"\n    - run:\n        name: Wait for Deployment Readiness\n        no_output_timeout: 10m\n        command: |\n          SANITIZED_BRANCH=$(echo \"$CIRCLE_BRANCH\" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')\n          TARGET_NAMESPACE=\"nutrition-staging--${SANITIZED_BRANCH}\"\n\n          echo \"Waiting for Flux Kustomization...\"\n          kubectl wait --for=condition=ready kustomization/nutrition-preview-${SANITIZED_BRANCH} -n flux-system --timeout=600s\n          kubectl rollout status deployment/nutrition-backend -n ${TARGET_NAMESPACE} --timeout=300s\n          kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=300s\n\n          echo \"Waiting for backend pods...\"\n          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=backend -n ${TARGET_NAMESPACE} --timeout=600s\n\n          echo \"Checking backend rollout status...\"\n          kubectl rollout status deployment/nutrition-backend -n ${TARGET_NAMESPACE} --timeout=600s\n\n          echo \"Waiting for webapp pods...\"\n          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=webapp -n ${TARGET_NAMESPACE} --timeout=600s\n\n          echo \"Checking webapp rollout status...\"\n          kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=600s\n  backend-docker-build-tag-push:\n    working_directory: ~/project/backend\n    docker:\n    - image: docker:24.0.9-git\n    steps:\n    - checkout:\n        path: ~/project\n    - setup_remote_docker:\n        version: docker24\n        docker_layer_caching: true\n    - run:\n        name: Docker Login\n        command: echo \"$DOCKER_PASSWORD\" | docker login -u \"$DOCKER_LOGIN\" --password-stdin\n    - run:\n        name: Build, Tag and Push Backend\n        command: |\n          apk add --no-cache make\n          TAG=$CIRCLE_SHA1 make docker-build-tag-push\n  webapp-docker-build-tag-push:\n    working_directory: ~/project/webapp\n    docker:\n    - image: docker:24.0.9-git\n    steps:\n    - checkout:\n        path: ~/project\n    - setup_remote_docker:\n        version: docker24\n        docker_layer_caching: true\n    - run:\n        name: Docker Login\n        command: echo \"$DOCKER_PASSWORD\" | docker login -u \"$DOCKER_LOGIN\" --password-stdin\n    - run:\n        name: Build, Tag and Push Webapp\n        command: |\n          apk add --no-cache make\n          TAG=$CIRCLE_SHA1 make docker-build-tag-push\n  pydocstyle:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: pydocstyle\n        command: make pydocstyle\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  pytest:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    - image: cimg/postgres:17.4\n      environment:\n        POSTGRES_USER: nutrition\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: Create GCP credential JSON\n        command: echo $GCLOUD_SERVICE_KEY \u003e nutrition-gcp-db-backup-credentials.json\n    - run:\n        name: pytest\n        command: make pytest\n    environment:\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\n  cypress-e2e:\n    working_directory: ~/project\n    docker:\n    - image: cimg/node:22.12.0-browsers\n    steps:\n    - checkout\n    - run:\n        command: |\n          #!/bin/bash\n          KOPS_VERSION=$(eval echo \"$PARAM_KOPS_VERSION\")\n          if [[ \"$KOPS_VERSION\" == \"latest\" ]]; then\n              # get latest kops release\n              KOPS_VERSION=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '\"' -f 4)\n          fi\n\n          PLATFORM=\"linux\"\n          if [ -n \"$(uname | grep \"Darwin\")\" ]; then\n              PLATFORM=\"darwin\"\n          fi\n\n          # download kops\n          curl -Lo kops https://github.com/kubernetes/kops/releases/download/$KOPS_VERSION/kops-$PLATFORM-amd64\n\n          [ -w /usr/local/bin ] \u0026\u0026 SUDO=\"\" || SUDO=sudo\n\n          $SUDO chmod +x kops\n          $SUDO mv kops /usr/local/bin/kops\n        environment:\n          PARAM_KOPS_VERSION: latest\n        name: Install kops\n    - run:\n        command: \"#!/bin/bash\\nKUBECTL_VERSION=$(eval echo \\\"$PARAM_KUBECTL_VERSION\\\")\\nMAX_TIME=$(eval echo \\\"$PARAM_MAX_TIME\\\")\\nif [ \\\"$KUBECTL_VERSION\\\" == \\\"latest\\\" ]; then\\n    # get latest kubectl release\\n    KUBECTL_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)\\nfi\\n\\nPLATFORM=\\\"linux\\\"\\nif [ -n \\\"$(uname | grep \\\"Darwin\\\")\\\" ]; then\\n    PLATFORM=\\\"darwin\\\"\\nfi\\n\\n# download kubectl\\nif [ \\\"$MAX_TIME\\\" == \\\"1\\\" ]; then\\n    curl --max-time 300 -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\\nelse \\n    curl -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\\nfi\\n\\n[ -w /usr/local/bin ] \u0026\u0026 SUDO=\\\"\\\" || SUDO=sudo\\n\\n$SUDO chmod +x ./kubectl\\n\\n$SUDO mv ./kubectl /usr/local/bin\\n\"\n        environment:\n          PARAM_KUBECTL_VERSION: latest\n          PARAM_MAX_TIME: false\n        name: Install kubectl\n    - run:\n        name: Setup Kubeconfig\n        command: |\n          mkdir -p $HOME/.kube\n          echo \"$KUBECONFIG_DATA_BASE64\" | base64 -d \u003e $HOME/.kube/config\n          chmod 600 $HOME/.kube/config\n    - run:\n        name: Install Dependencies\n        working_directory: ~/project/webapp\n        command: npm ci\n    - run:\n        name: Create Test User\n        command: |\n          SANITIZED_BRANCH=$(echo \"$CIRCLE_BRANCH\" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')\n          NAMESPACE=\"nutrition-staging--${SANITIZED_BRANCH}\"\n          echo \"Creating test user in namespace: $NAMESPACE\"\n          # Create user user@example.com / password123\n          kubectl exec -n \"$NAMESPACE\" deployment/nutrition-backend -- python3 manage.py shell -c \"from apps.users.models import User; import datetime; User.objects.filter(email='user@example.com').delete(); User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)\"\n    - run:\n        name: Run Cypress\n        working_directory: ~/project/webapp\n        command: |\n          SANITIZED_BRANCH=$(echo \"$CIRCLE_BRANCH\" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')\n\n          if [ -z \"$BASE_DOMAIN\" ]; then\n            echo \"BASE_DOMAIN not set, fetching from cluster...\"\n            BASE_DOMAIN=$(kubectl get configmap cluster-settings -n flux-system -o jsonpath='{.data.BASE_DOMAIN}')\n          fi\n\n          if [ -z \"$BASE_DOMAIN\" ]; then\n            echo \"Error: BASE_DOMAIN could not be determined.\"\n            exit 1\n          fi\n\n          export CYPRESS_BASE_URL=\"https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}\"\n          npm run cypress:run\n  mypy:\n    docker:\n    - image: luismunozvillarreal/nutrition-backend:0.101.0\n    working_directory: ~/project/backend\n    steps:\n    - checkout:\n        path: ~/project\n    - restore_cache:\n        name: Restore Python Dependencies\n        keys:\n        - python-packages-{{ checksum \"uv.lock\" }}-v1\n    - run:\n        name: Install Python Dependencies\n        command: uv sync\n    - save_cache:\n        name: Save Python Dependencies\n        key: python-packages-{{ checksum \"uv.lock\" }}-v1\n        paths:\n        - /home/backend/project/backend/.venv/\n    - run:\n        name: Create GCP credential JSON\n        command: echo $GCLOUD_SERVICE_KEY \u003e nutrition-gcp-db-backup-credentials.json\n    - run:\n        name: mypy\n        command: make mypy\n    environment:\n    - PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin\n    - GEMINI_API_KEY: TestingApiKey\n    - SECRET_KEY: TestingSecretKey\nworkflows:\n  version: 2\n  ValidationWorkflow:\n    jobs:\n    - pytest\n    - bandit\n    - flake8\n    - black\n    - mypy\n    - pylint\n    - pylint-tests\n    - pydocstyle\n    - pydocstyle-tests\n    - backend-docker-build-tag-push:\n        context:\n        - Docker\n    - webapp-docker-build-tag-push:\n        context:\n        - Docker\n    - deploy-preview:\n        requires:\n        - backend-docker-build-tag-push\n        - webapp-docker-build-tag-push\n        context:\n        - kubeconfig\n        upstream:\n          backend-docker-build-tag-push:\n          - success\n          webapp-docker-build-tag-push:\n          - success\n    - cypress-e2e:\n        requires:\n        - deploy-preview\n        context:\n        - kubeconfig\n        upstream:\n          deploy-preview:\n          - success\n"
+    },
+    "committer_date": "2026-01-07T22:04:34.000Z",
+    "committer_email": "luis.munoz.villarreal@gmail.com",
+    "committer_name": "Luis Muñoz",
+    "compare": null,
+    "context_ids": [
+        "kubeconfig"
+    ],
+    "dont_build": null,
+    "fail_reason": null,
+    "failed": true,
+    "infrastructure_fail": false,
+    "is_first_green_build": false,
+    "job_name": null,
+    "lifecycle": "finished",
+    "messages": [],
+    "node": null,
+    "oss": true,
+    "outcome": "failed",
+    "owners": [],
+    "parallel": 1,
+    "picard": {
+        "executor": "docker",
+        "resource_class": {
+            "class": "large",
+            "name": "Large",
+            "cpu": 4,
+            "ram": 8192
+        }
+    },
+    "platform": "2.0",
+    "previous": {
+        "build_num": 9406,
+        "build_time_millis": 37676,
+        "status": "success"
+    },
+    "previous_successful_build": {
+        "build_num": 9406,
+        "build_time_millis": 37676,
+        "status": "success"
+    },
+    "pull_requests": [
+        {
+            "head_sha": "de98a131f8d5569415fa768bc0b3dc0588adc00d",
+            "url": "https://github.com/LuisMunozVillarreal/nutrition/pull/271"
+        }
+    ],
+    "queued_at": "2026-01-07T22:05:46.582Z",
+    "reponame": "nutrition",
+    "retries": null,
+    "retry_of": null,
+    "ssh_disabled": false,
+    "ssh_users": [],
+    "start_time": "2026-01-07T22:05:48.752Z",
+    "status": "failed",
+    "steps": [
+        {
+            "name": "Spin up environment",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 0,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Spin up environment",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:05:48.008Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": null,
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:05:58.319Z",
+                    "exit_code": null,
+                    "run_time_millis": 10311,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/0?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Preparing environment variables",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 99,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Preparing environment variables",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:05:58.542Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": null,
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:05:58.555Z",
+                    "exit_code": null,
+                    "run_time_millis": 13,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/99?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Checkout code",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 101,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Checkout code",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:05:58.661Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": null,
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:05:59.513Z",
+                    "exit_code": null,
+                    "run_time_millis": 852,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/101?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Install kops",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 102,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Install kops",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:05:59.565Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\n#!/bin/bash\nKOPS_VERSION=$(eval echo \"$PARAM_KOPS_VERSION\")\nif [[ \"$KOPS_VERSION\" == \"latest\" ]]; then\n    # get latest kops release\n    KOPS_VERSION=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '\"' -f 4)\nfi\n\nPLATFORM=\"linux\"\nif [ -n \"$(uname | grep \"Darwin\")\" ]; then\n    PLATFORM=\"darwin\"\nfi\n\n# download kops\ncurl -Lo kops https://github.com/kubernetes/kops/releases/download/$KOPS_VERSION/kops-$PLATFORM-amd64\n\n[ -w /usr/local/bin ] \u0026\u0026 SUDO=\"\" || SUDO=sudo\n\n$SUDO chmod +x kops\n$SUDO mv kops /usr/local/bin/kops\n",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:00.633Z",
+                    "exit_code": 0,
+                    "run_time_millis": 1068,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/102?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Install kubectl",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 103,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Install kubectl",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:06:00.681Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\n#!/bin/bash\nKUBECTL_VERSION=$(eval echo \"$PARAM_KUBECTL_VERSION\")\nMAX_TIME=$(eval echo \"$PARAM_MAX_TIME\")\nif [ \"$KUBECTL_VERSION\" == \"latest\" ]; then\n    # get latest kubectl release\n    KUBECTL_VERSION=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)\nfi\n\nPLATFORM=\"linux\"\nif [ -n \"$(uname | grep \"Darwin\")\" ]; then\n    PLATFORM=\"darwin\"\nfi\n\n# download kubectl\nif [ \"$MAX_TIME\" == \"1\" ]; then\n    curl --max-time 300 -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\nelse \n    curl -LO https://storage.googleapis.com/kubernetes-release/release/$KUBECTL_VERSION/bin/$PLATFORM/amd64/kubectl\nfi\n\n[ -w /usr/local/bin ] \u0026\u0026 SUDO=\"\" || SUDO=sudo\n\n$SUDO chmod +x ./kubectl\n\n$SUDO mv ./kubectl /usr/local/bin\n",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:01.087Z",
+                    "exit_code": 0,
+                    "run_time_millis": 406,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/103?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Setup Kubeconfig",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 104,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Setup Kubeconfig",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:06:01.128Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\nmkdir -p $HOME/.kube\necho \"$KUBECONFIG_DATA_BASE64\" | base64 -d \u003e $HOME/.kube/config\nchmod 600 $HOME/.kube/config\n",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:01.138Z",
+                    "exit_code": 0,
+                    "run_time_millis": 10,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/104?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Install Dependencies",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 105,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Install Dependencies",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:06:01.175Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\nnpm ci",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:25.543Z",
+                    "exit_code": 0,
+                    "run_time_millis": 24368,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/105?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Create Test User",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 106,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Create Test User",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:06:25.591Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\nSANITIZED_BRANCH=$(echo \"$CIRCLE_BRANCH\" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')\nNAMESPACE=\"nutrition-staging--${SANITIZED_BRANCH}\"\necho \"Creating test user in namespace: $NAMESPACE\"\n# Create user user@example.com / password123\nkubectl exec -n \"$NAMESPACE\" deployment/nutrition-backend -- python3 manage.py shell -c \"from apps.users.models import User; import datetime; User.objects.filter(email='user@example.com').delete(); User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)\"\n",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:28.441Z",
+                    "exit_code": 0,
+                    "run_time_millis": 2850,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/106?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "success",
+                    "failed": null,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        },
+        {
+            "name": "Run Cypress",
+            "actions": [
+                {
+                    "index": 0,
+                    "step": 107,
+                    "allocation_id": "695ed8ba3da4c553efaabe24-0-build/ABCDEFGH",
+                    "name": "Run Cypress",
+                    "type": "test",
+                    "start_time": "2026-01-07T22:06:28.486Z",
+                    "truncated": false,
+                    "parallel": true,
+                    "bash_command": "#!/bin/bash -eo pipefail\nSANITIZED_BRANCH=$(echo \"$CIRCLE_BRANCH\" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')\n\nif [ -z \"$BASE_DOMAIN\" ]; then\n  echo \"BASE_DOMAIN not set, fetching from cluster...\"\n  BASE_DOMAIN=$(kubectl get configmap cluster-settings -n flux-system -o jsonpath='{.data.BASE_DOMAIN}')\nfi\n\nif [ -z \"$BASE_DOMAIN\" ]; then\n  echo \"Error: BASE_DOMAIN could not be determined.\"\n  exit 1\nfi\n\nexport CYPRESS_BASE_URL=\"https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}\"\nnpm run cypress:run\n",
+                    "background": false,
+                    "insignificant": false,
+                    "has_output": true,
+                    "continue": null,
+                    "end_time": "2026-01-07T22:06:52.613Z",
+                    "exit_code": 2,
+                    "run_time_millis": 24127,
+                    "output_url": "https://circleci.com/api/private/output/presigned/562c39de-1139-404a-ace9-9b7f82b2b2d3/0/107?token=eyJhbGciOiJFUzI1NiIsImtpZCI6InRhc2tzLW91dHB1dC1qd3QtdjEiLCJ0eXAiOiJKV1QifQ.eyJleHAiOjE3Njc4MjU4OTUsImlzcyI6ImNpcmNsZWNpLmNvbSIsInN1YiI6IjU2MmMzOWRlLTExMzktNDA0YS1hY2U5LTliN2Y4MmIyYjJkMyJ9.SvqylSrbjCphVXh5Mcw3Uj36lSNTybTl3vECUyPl0uls_Tz65rvDPkC30qPsGSxgzyuh9G05sLWJu7Ieypq5dA",
+                    "status": "failed",
+                    "failed": true,
+                    "infrastructure_fail": null,
+                    "timedout": null,
+                    "canceled": null
+                }
+            ]
+        }
+    ],
+    "stop_time": "2026-01-07T22:06:52.994Z",
+    "subject": "fix(ci): Ensure rollout status before E2E tests",
+    "timedout": false,
+    "usage_queued_at": "2026-01-07T22:05:46.169Z",
+    "user": {
+        "avatar_url": "https://avatars.githubusercontent.com/u/22614002?v=4",
+        "id": 22614002,
+        "is_user": true,
+        "login": "LuisMunozVillarreal",
+        "name": "Luis Muñoz Villarreal",
+        "vcs_type": "github"
+    },
+    "username": "LuisMunozVillarreal",
+    "vcs_revision": "de98a131f8d5569415fa768bc0b3dc0588adc00d",
+    "vcs_tag": null,
+    "vcs_type": "github",
+    "vcs_url": "https://github.com/LuisMunozVillarreal/nutrition",
+    "why": "github",
+    "workflows": {
+        "job_id": "562c39de-1139-404a-ace9-9b7f82b2b2d3",
+        "job_name": "cypress-e2e",
+        "upstream_concurrency_map": {
+            "68ce085d_ba2e_499b_9a09_23f2d3f73b4c": [
+                "edb77c60-0867-409e-b935-076a67d3a222"
+            ],
+            "edb77c60_0867_409e_b935_076a67d3a222": [
+                "68ce085d-ba2e-499b-9a09-23f2d3f73b4c"
+            ]
+        },
+        "upstream_job_ids": [
+            "edb77c60-0867-409e-b935-076a67d3a222",
+            "68ce085d-ba2e-499b-9a09-23f2d3f73b4c",
+            "eaf65e3a-2af5-4144-ab74-de6b64b08ff9"
+        ],
+        "workflow_id": "b8aabd7e-78f9-4502-9d1f-0ce0314f8bea",
+        "workflow_name": "ValidationWorkflow",
+        "workspace_id": "b8aabd7e-78f9-4502-9d1f-0ce0314f8bea"
+    }
+}
