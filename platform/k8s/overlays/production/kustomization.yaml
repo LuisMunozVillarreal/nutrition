@@ -6,7 +6,3 @@ bases:
 patchesStrategicMerge:
   - env-patch.yaml
   - domain-patch.yaml
-postBuild:
-  substituteFrom:
-    - kind: ConfigMap
-      name: cluster-settings
