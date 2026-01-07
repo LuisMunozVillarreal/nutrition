@@ -3,5 +3,7 @@ kind: Kustomization
 namespace: nutrition-production
 bases:
   - ../../base
+resources:
+  - db-backup-cronjob.yaml
 patchesStrategicMerge:
   - env-patch.yaml
