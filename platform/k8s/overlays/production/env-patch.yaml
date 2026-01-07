@@ -13,6 +13,8 @@ spec:
               value: "production"
             - name: DEBUG
               value: "False"
+            - name: POSTGRESQL_HOST
+              value: "nutrition-postgres"
 ---
 apiVersion: apps/v1
 kind: Deployment

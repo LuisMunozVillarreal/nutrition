@@ -222,6 +222,40 @@ jobs:
             echo "Checking webapp rollout status..."
             kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=600s
 
+  deploy-production:
+    working_directory: ~/project
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - add_ssh_keys:
+          fingerprints:
+            - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
+      - kubernetes/install
+      - run:
+          name: Setup Kubeconfig
+          command: |
+             mkdir -p $HOME/.kube
+             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
+             chmod 600 $HOME/.kube/config
+      - run:
+          name: Patch Production Flux Kustomization
+          command: |
+            kubectl patch kustomization nutrition-production -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
+      - run:
+          name: Wait for Production Readiness
+          no_output_timeout: 10m
+          command: |
+            echo "Waiting for Flux Kustomization reconciliation..."
+            kubectl annotate kustomization nutrition-production -n flux-system reconcile.fluxcd.io/requestedAt=$(date +%s) --overwrite
+            kubectl wait --for=condition=ready kustomization/nutrition-production -n flux-system --timeout=600s
+            
+            echo "Waiting for backend pods..."
+            kubectl rollout status deployment/nutrition-backend -n nutrition-production --timeout=600s
+            
+            echo "Waiting for webapp pods..."
+            kubectl rollout status deployment/nutrition-webapp -n nutrition-production --timeout=600s
+
   cypress-e2e:
     working_directory: ~/project
     docker:
@@ -263,6 +297,20 @@ workflows:
           requires:
             - backend-docker-build-tag-push
             - webapp-docker-build-tag-push
+          filters:
+            branches:
+              ignore:
+                - main
+      - deploy-production:
+          context:
+            - kubeconfig
+          requires:
+            - backend-docker-build-tag-push
+            - webapp-docker-build-tag-push
+          filters:
+            branches:
+              only:
+                - main
       - cypress-e2e:
           requires:
             - deploy-preview
