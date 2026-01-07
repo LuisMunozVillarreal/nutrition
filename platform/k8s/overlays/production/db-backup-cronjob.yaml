@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nutrition-dbbackup
+  namespace: nutrition-production
+spec:
+  schedule: "50 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: default
+          volumes:
+            - name: nutrition-gcp-db-backup-credentials
+              secret:
+                secretName: nutrition-gcp-db-backup-credentials
+          containers:
+          - name: dbbackup
+            image: luismunozvillarreal/nutrition-backend:latest
+            imagePullPolicy: IfNotPresent
+            env:
+              - name: ENVIRONMENT
+                value: "production"
+              - name: POSTGRESQL_HOST
+                value: "nutrition-postgres"
+              - name: POSTGRESQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: postgresql-password
+                    name: nutrition-postgresql
+            volumeMounts:
+              - mountPath: "/mnt/secret/"
+                name: nutrition-gcp-db-backup-credentials
+                readOnly: true
+            lifecycle:
+              postStart:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json
+            command:
+              - /bin/bash
+              - -c
+            args:
+              - echo "Backing up DB..." &&
+                [ $ENVIRONMENT == production ] &&
+                source $SRC_DIR/.venv/bin/activate &&
+                python manage.py dbbackup -v 3 &&
+                echo "Completed" ||
+                echo "DB backup runs only in production"
+          restartPolicy: OnFailure
