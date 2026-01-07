@@ -140,6 +140,8 @@ class TestSyncActivities:
             user (User): user instance.
             mocker (Any): pytest-mock mocker.
         """
+        from apps.garmin.models import GarminCredential, GarminActivity
+
         # Given user, creds, plan, day
         GarminCredential.objects.create(
             user=user, access_token="t", refresh_token="r", expires_at=0
@@ -159,13 +161,18 @@ class TestSyncActivities:
         day = plan.days.get(day=activity_date)
 
         # And existing exercise
-        Exercise.objects.create(
+        ex = Exercise.objects.create(
             day=day,
             type=Exercise.EXERCISE_CYCLE,
             time=time(8, 00),
             kcals=400,
             duration=timedelta(hours=1),
             distance=10,
+        )
+        # And existing GarminActivity
+        GarminActivity.objects.create(
+            exercise=ex,
+            garmin_activity_id="123"
         )
 
         # And service returns same activity
