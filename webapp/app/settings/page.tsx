@@ -29,15 +29,11 @@ async function getGarminStatus(accessToken: string) {
 }
 
 export default async function SettingsPage() {
-    console.log("SettingsPage rendering");
     const session = await getServerSession(authOptions)
 
     if (!session) {
-        console.log("SettingsPage: No session, redirecting to login");
         redirect("/login")
     }
-
-    console.log("SettingsPage: Session found", { user: session.user?.email });
 
     const isConnected = await getGarminStatus(session.accessToken as string)
 
