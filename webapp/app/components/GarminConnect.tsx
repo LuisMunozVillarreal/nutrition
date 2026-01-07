@@ -28,7 +28,7 @@ export default function GarminConnect({ isConnected: initialConnected }: Props) 
     const [loading, setLoading] = useState(false)
 
     const getClient = () => {
-        const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "http://localhost:8000/graphql/"
+        const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "/graphql/"
         const client = new GraphQLClient(endpoint)
         if (session?.accessToken) {
             client.setHeader("Authorization", `Bearer ${session.accessToken}`)
