@@ -8,3 +8,7 @@ resources:
 patchesStrategicMerge:
   - env-patch.yaml
   - domain-patch.yaml
+patches:
+  - path: ingress-patch.yaml
+    target:
+      kind: Ingress

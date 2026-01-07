@@ -1,0 +1,6 @@
+- op: replace
+  path: /spec/rules/0/host
+  value: "${BASE_DOMAIN}"
+- op: replace
+  path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.tls.domains.0.main
+  value: "${BASE_DOMAIN}"
