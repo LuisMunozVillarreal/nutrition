@@ -1,6 +1,9 @@
+"""Test Garmin Sync v2."""
+# pylint: disable=redefined-outer-name,unused-argument,duplicate-code
+
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,8 +20,12 @@ class TestGarminSync:
     """Test Garmin sync logic."""
 
     @pytest.fixture
-    def user(self):
-        """Create user."""
+    def user(self) -> User:
+        """Create user.
+
+        Returns:
+            User: user instance.
+        """
         return User.objects.create_user(
             email="test@example.com",
             password="password",
@@ -27,7 +34,15 @@ class TestGarminSync:
         )
 
     @pytest.fixture
-    def measurement(self, user):
+    def measurement(self, user: User) -> "Measurement":  # type: ignore
+        """Create measurement.
+
+        Args:
+            user (User): user instance.
+
+        Returns:
+            Measurement: measurement instance.
+        """
         from apps.measurements.models import Measurement
 
         return Measurement.objects.create(
@@ -35,8 +50,16 @@ class TestGarminSync:
         )
 
     @pytest.fixture
-    def plan(self, user, measurement):
-        """Create week plan."""
+    def plan(self, user: User, measurement: "Measurement") -> WeekPlan:  # type: ignore
+        """Create week plan.
+
+        Args:
+            user (User): user instance.
+            measurement (Measurement): measurement instance.
+
+        Returns:
+            WeekPlan: week plan instance.
+        """
         start_date = datetime.now().date() - timedelta(days=1)
         plan = WeekPlan.objects.create(
             user=user,
@@ -60,8 +83,15 @@ class TestGarminSync:
         return plan
 
     @pytest.fixture
-    def credential(self, user):
-        """Create garmin credential."""
+    def credential(self, user: User) -> GarminCredential:
+        """Create garmin credential.
+
+        Args:
+            user (User): user instance.
+
+        Returns:
+            GarminCredential: credential instance.
+        """
         return GarminCredential.objects.create(
             user=user,
             access_token="token",
@@ -71,10 +101,23 @@ class TestGarminSync:
         )
 
     @patch("apps.garmin.sync.GarminService")
-    def test_sync_activities(self, MockService, user, plan, credential):
-        """Test sync activities."""
+    def test_sync_activities(
+        self,
+        mock_service: MagicMock,
+        user: User,
+        plan: WeekPlan,
+        credential: GarminCredential,
+    ) -> None:
+        """Test sync activities.
+
+        Args:
+            mock_service (MagicMock): mocked service.
+            user (User): user instance.
+            plan (WeekPlan): plan instance.
+            credential (GarminCredential): credential instance.
+        """
         # Mock service
-        service = MockService.return_value
+        service = mock_service.return_value
 
         # Activity data
         activity_date = datetime.now().date()

@@ -111,9 +111,7 @@ def sync_activities(user: User) -> None:
                 # If not, let's skip or try to create?
                 # Safest is to skip if not found, to avoid messing up plan
                 # logic
-                logger.warning(
-                    "Day not found in plan for %s", activity_date
-                )
+                logger.warning("Day not found in plan for %s", activity_date)
                 continue
 
             # Activity date outside plan range (even if plan started before
