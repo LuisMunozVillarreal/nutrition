@@ -7,11 +7,10 @@ from typing import Any, Dict, List
 from django.utils import timezone
 
 from apps.exercises.models import Exercise
-from apps.plans.models.day import Day
 from apps.plans.models.week import WeekPlan
 from apps.users.models import User
 
-from .models import GarminCredential, GarminActivity
+from .models import GarminActivity, GarminCredential
 from .service import GarminService
 
 logger = logging.getLogger(__name__)
@@ -23,6 +22,7 @@ def sync_activities(user: User) -> None:
     Args:
         user (User): user instance.
     """
+    # pylint: disable=too-many-locals
     try:
         cred = user.garmin_credential
     except GarminCredential.DoesNotExist:
@@ -49,7 +49,9 @@ def sync_activities(user: User) -> None:
         if not activity_id:
             continue
 
-        if GarminActivity.objects.filter(garmin_activity_id=activity_id).exists():
+        if GarminActivity.objects.filter(
+            garmin_activity_id=activity_id
+        ).exists():
             continue
 
         # Filter for cycling
@@ -73,40 +75,50 @@ def sync_activities(user: User) -> None:
 
         # Find or Create Day
         # improved logic: find week plan first
-        plan = WeekPlan.objects.filter(
-            user=user,
-            start_date__lte=activity_date,
-        ).order_by("-start_date").first()
+        plan = (
+            WeekPlan.objects.filter(
+                user=user,
+                start_date__lte=activity_date,
+            )
+            .order_by("-start_date")
+            .first()
+        )
 
         if not plan:
-            logger.debug("No active plan found for %s on %s", user, activity_date)
+            logger.debug(
+                "No active plan found for %s on %s", user, activity_date
+            )
             continue
-        
+
         # Calculate day number. Assuming weekly plans start on start_date
-        # Logic depends on how WeekPlan works. 
+        # Logic depends on how WeekPlan works.
         # Looking at WeekPlan model, it has 'days'.
         # We can try to get the day from the plan.
-        
+
         # Simply get_or_create from plan.days
         # But we need to know which 'day_num' it is if we create it?
         # Let's see if the day exists first.
         day = plan.days.filter(day=activity_date).first()
-        
+
         if not day:
             # We need to rely on the plan logic to create days usually.
-            # If the day doesn't exist, it might mean the plan initialization 
+            # If the day doesn't exist, it might mean the plan initialization
             # didn't create it or it's out of range of the 7 days?
             # WeekPlan.PLAN_LENGTH_DAYS = 7
             delta = (activity_date - plan.start_date).days
             if 0 <= delta < 7:
-                 # It should exist if plan was initialized correctly.
-                 # If not, let's skip or try to create?
-                 # Safest is to skip if not found, to avoid messing up plan logic
-                 logger.warning("Day not found in plan for %s", activity_date)
-                 continue
-            else:
-                 # Activity date outside plan range (even if plan started before)
-                 continue
+                # It should exist if plan was initialized correctly.
+                # If not, let's skip or try to create?
+                # Safest is to skip if not found, to avoid messing up plan
+                # logic
+                logger.warning(
+                    "Day not found in plan for %s", activity_date
+                )
+                continue
+
+            # Activity date outside plan range (even if plan started before
+            # )
+            continue
 
         # Create Exercise
         try:
@@ -118,16 +130,19 @@ def sync_activities(user: User) -> None:
                 duration=timedelta(seconds=activity.get("duration", 0)),
                 distance=activity.get("distance", 0) / 1000,  # meters to km
             )
-            
+
             # Track sync
             GarminActivity.objects.create(
                 exercise=exercise,
                 garmin_activity_id=activity_id,
-                data=activity
+                data=activity,
             )
-            
+
             logger.info(
-                "Synced cycling activity %s for %s on %s", activity_id, user, activity_date
+                "Synced cycling activity %s for %s on %s",
+                activity_id,
+                user,
+                activity_date,
             )
         # pylint: disable=broad-exception-caught
         except Exception as e:

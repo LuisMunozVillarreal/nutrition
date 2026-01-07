@@ -1,14 +1,16 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
 from apps.exercises.models import Exercise
 from apps.garmin.models import GarminActivity, GarminCredential
 from apps.garmin.sync import sync_activities
 from apps.plans.models.day import Day
 from apps.plans.models.week import WeekPlan
 from apps.users.models import User
+
 
 @pytest.mark.django_db
 class TestGarminSync:
@@ -18,19 +20,18 @@ class TestGarminSync:
     def user(self):
         """Create user."""
         return User.objects.create_user(
-            email="test@example.com", 
+            email="test@example.com",
             password="password",
             date_of_birth=datetime(1990, 1, 1).date(),
-            height=180
+            height=180,
         )
-    
+
     @pytest.fixture
     def measurement(self, user):
         from apps.measurements.models import Measurement
+
         return Measurement.objects.create(
-            user=user,
-            weight=80,
-            body_fat_perc=20
+            user=user, weight=80, body_fat_perc=20
         )
 
     @pytest.fixture
@@ -50,11 +51,11 @@ class TestGarminSync:
             Day.objects.create(
                 plan=plan,
                 day=start_date + timedelta(days=i),
-                day_num=i+1,
+                day_num=i + 1,
                 energy_kcal_goal=2000,
                 protein_g_goal=150,
                 fat_g_goal=60,
-                carbs_g_goal=200
+                carbs_g_goal=200,
             )
         return plan
 
@@ -66,7 +67,7 @@ class TestGarminSync:
             access_token="token",
             refresh_token="refresh",
             expires_at=1234567890,
-            garmin_user_id="12345"
+            garmin_user_id="12345",
         )
 
     @patch("apps.garmin.sync.GarminService")
@@ -74,11 +75,13 @@ class TestGarminSync:
         """Test sync activities."""
         # Mock service
         service = MockService.return_value
-        
+
         # Activity data
         activity_date = datetime.now().date()
-        start_time_local = datetime.combine(activity_date, datetime.now().time()).strftime("%Y-%m-%d %H:%M:%S")
-        
+        start_time_local = datetime.combine(
+            activity_date, datetime.now().time()
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
         service.fetch_activities.return_value = [
             {
                 "activityId": "987654",
@@ -99,7 +102,7 @@ class TestGarminSync:
         exercise = Exercise.objects.first()
         assert exercise.type == Exercise.EXERCISE_CYCLE
         assert exercise.kcals == 300
-        
+
         assert GarminActivity.objects.count() == 1
         ga = GarminActivity.objects.first()
         assert ga.garmin_activity_id == "987654"
