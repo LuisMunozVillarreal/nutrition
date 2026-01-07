@@ -26,6 +26,18 @@ def test_sanitize_branch():
         ("feature/new-ui", "feature-new-ui"),
         ("JIRA_123", "jira-123"),
         ("simple", "simple"),
+        # Boundary condition: exactly 44 chars
+        ("a" * 44, "a" * 44),
+        # Over 44 chars: 45 chars -> truncated to 36 + hash
+        (
+            "a" * 45,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-4642fe6",
+        ),
+        # Over 44 chars with hyphen at result cut
+        (
+            "feature/very/long/branch/name/that/exceeds/limit",
+            "feature-very-long-branch-name-that-e-c8906af",
+        ),
     ]
 
     for branch_input, expected in branches:
