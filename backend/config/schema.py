@@ -32,8 +32,11 @@ class AuthPayload:
     user: UserType
 
 
+from apps.garmin.schema import Mutation as GarminMutation
+from apps.garmin.schema import Query as GarminQuery
+
 @strawberry.type
-class Query:
+class Query(GarminQuery):
     """Root Query."""
 
     @strawberry.field
@@ -60,7 +63,7 @@ class Query:
 
 
 @strawberry.type
-class Mutation:
+class Mutation(GarminMutation):
     """Root Mutation."""
 
     @strawberry.mutation

@@ -42,6 +42,7 @@ if ENVIRONMENT == "development":  # pragma: no cover
 INSTALLED_APPS = [
     "apps.exercises",
     "apps.foods",
+    "apps.garmin",
     "apps.goals",
     "apps.measurements",
     "apps.plans",
@@ -272,4 +273,7 @@ LOGGING = {
 
 
 # Django SQL Dashboard
-DASHBOARD_ENABLE_FULL_EXPORT = True
+
+# Garmin
+GARMIN_CLIENT_ID = ENV("GARMIN_CLIENT_ID", default="")
+GARMIN_CLIENT_SECRET = ENV("GARMIN_CLIENT_SECRET", default="")
