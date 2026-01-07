@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
 from django.utils import timezone
 
@@ -24,7 +25,7 @@ def sync_activities(user: User) -> None:
     try:
         cred = user.garmin_credential
     except GarminCredential.DoesNotExist:
-        logger.info(f"User {user} has no Garmin credentials.")
+        logger.info("User %s has no Garmin credentials.", user)
         return
 
     service = GarminService()
@@ -36,16 +37,17 @@ def sync_activities(user: User) -> None:
     # For now assuming valid token or relying on service to handle/fail.
 
     try:
-        activities = service.fetch_activities(
+        activities: List[Dict[str, Any]] = service.fetch_activities(
             cred.access_token, start_date, end_date
         )
-    except Exception as e:  # pylint: disable=broad-except
-        logger.error(f"Failed to fetch activities for {user}: {e}")
+    # pylint: disable=broad-exception-caught
+    except Exception as e:
+        logger.error("Failed to fetch activities for %s: %s", user, e)
         return
 
     for activity in activities:
         # Filter for cycling (and potentially others in future)
-        # Assuming Garmin API returns 'activityType': {'typeKey': 'cycling'} or similar
+        # Garmin API returns 'typeKey' in 'activityType'.
         # For simplicity in this mock/stub, we assume 'type' field.
         activity_type = activity.get("activityType", {}).get(
             "typeKey"
@@ -69,7 +71,7 @@ def sync_activities(user: User) -> None:
         # Find Day
         day = Day.objects.filter(plan__user=user, day=activity_date).first()
         if not day:
-            logger.debug(f"No plan day found for {user} on {activity_date}")
+            logger.debug("No plan day found for %s on %s", user, activity_date)
             continue
 
         # Check for duplicates
@@ -93,6 +95,9 @@ def sync_activities(user: User) -> None:
                 duration=timedelta(seconds=activity.get("duration", 0)),
                 distance=activity.get("distance", 0) / 1000,  # meters to km
             )
-            logger.info(f"Synced cycling activity for {user} on {activity_date}")
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error(f"Failed to create exercise: {e}")
+            logger.info(
+                "Synced cycling activity for %s on %s", user, activity_date
+            )
+        # pylint: disable=broad-exception-caught
+        except Exception as e:
+            logger.error("Failed to create exercise: %s", e)

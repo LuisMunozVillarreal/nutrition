@@ -1,5 +1,7 @@
 """Sync Garmin command."""
 
+from typing import Any
+
 from django.core.management.base import BaseCommand
 
 from apps.garmin.sync import sync_activities
@@ -11,13 +13,23 @@ class Command(BaseCommand):
 
     help = "Syncs Garmin activities for all connected users."
 
-    def handle(self, *args, **options) -> None:
-        """Handle command execution."""
-        users = User.objects.filter(garmin_credential__isnull=False)
+    def handle(self, *args: Any, **options: Any) -> None:
+        """Handle command execution.
+
+        Args:
+            *args (Any): positional arguments.
+            **options (Any): keyword arguments.
+        """
+        users = User.objects.filter(
+            garmin_credential__isnull=False
+        )  # type: ignore[misc]
         self.stdout.write(f"Syncing Garmin for {users.count()} users...")
 
         for user in users:
             self.stdout.write(f"Syncing user {user.email}...")
-            sync_activities(user)
+            # mypy doesn't resolve reverse OneToOne well, so we ignore
+            sync_activities(user)  # type: ignore[arg-type]
 
-        self.stdout.write(self.style.SUCCESS("Successfully synced Garmin activities."))
+        self.stdout.write(
+            self.style.SUCCESS("Successfully synced Garmin activities.")
+        )

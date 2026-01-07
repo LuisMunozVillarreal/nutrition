@@ -11,6 +11,9 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from strawberry.types import Info
 
+from apps.garmin.schema import Mutation as GarminMutation
+from apps.garmin.schema import Query as GarminQuery
+
 User = get_user_model()
 
 
@@ -31,9 +34,6 @@ class AuthPayload:
     token: str
     user: UserType
 
-
-from apps.garmin.schema import Mutation as GarminMutation
-from apps.garmin.schema import Query as GarminQuery
 
 @strawberry.type
 class Query(GarminQuery):
