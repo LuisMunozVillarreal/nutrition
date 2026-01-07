@@ -28,6 +28,7 @@ disable=
     redefined-outer-name,
     C0103,
     duplicate-code,
+    import-outside-toplevel,
 
 
 [SIMILARITIES]

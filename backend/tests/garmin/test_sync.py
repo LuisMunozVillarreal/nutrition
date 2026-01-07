@@ -140,7 +140,7 @@ class TestSyncActivities:
             user (User): user instance.
             mocker (Any): pytest-mock mocker.
         """
-        from apps.garmin.models import GarminActivity, GarminCredential
+        from apps.garmin.models import GarminActivity
 
         # Given user, creds, plan, day
         GarminCredential.objects.create(
@@ -204,7 +204,11 @@ class TestSyncActivities:
         )
         service_mock = mocker.patch("apps.garmin.sync.GarminService")
         service_mock.return_value.fetch_activities.return_value = [
-            {"activityId": "666", "type": "running", "startTimeLocal": "2023-10-27 10:00:00"}
+            {
+                "activityId": "666",
+                "type": "running",
+                "startTimeLocal": "2023-10-27 10:00:00",
+            }
         ]
 
         sync_activities(user)
@@ -222,7 +226,11 @@ class TestSyncActivities:
         )
         service_mock = mocker.patch("apps.garmin.sync.GarminService")
         service_mock.return_value.fetch_activities.return_value = [
-            {"activityId": "999", "type": "cycling", "startTimeLocal": "bad-date"}
+            {
+                "activityId": "999",
+                "type": "cycling",
+                "startTimeLocal": "bad-date",
+            }
         ]
 
         sync_activities(user)
