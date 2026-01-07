@@ -88,7 +88,7 @@ spec:
                 command:
                   - /bin/sh
                   - -c
-                  - ln -s /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json
+                  - ln -sf /mnt/secret/nutrition-gcp-db-backup-credentials.json /srv/www/backend/nutrition-gcp-db-backup-credentials.json
 ---
 apiVersion: v1
 kind: Service
