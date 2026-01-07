@@ -1,4 +1,5 @@
 """Test Garmin Sync v2."""
+
 # pylint: disable=redefined-outer-name,unused-argument,duplicate-code
 
 from datetime import datetime, timedelta
