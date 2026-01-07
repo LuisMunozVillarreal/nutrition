@@ -98,11 +98,6 @@ POSTGRESQL_DB = NUTRITION
 POSTGRESQL_USER = NUTRITION
 POSTGRESQL_PASSWORD = ENV("POSTGRESQL_PASSWORD", default="")
 POSTGRESQL_HOST = ENV("POSTGRESQL_HOST", default="localhost")
-
-# For debugging connection issues in production/staging
-if ENVIRONMENT in ["production", "staging"]:
-    print(f"Connecting to database at {POSTGRESQL_HOST}")
-
 DB_CONFIG = ENV.db(
     default=(
         f"postgres://{POSTGRESQL_USER}:{POSTGRESQL_PASSWORD}@"
