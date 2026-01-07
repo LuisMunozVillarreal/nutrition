@@ -22,6 +22,7 @@ interface Props {
 }
 
 export default function GarminConnect({ isConnected: initialConnected, accessToken }: Props) {
+    console.log("GarminConnect rendering", { initialConnected, hasToken: !!accessToken });
     const router = useRouter()
     const [isConnected, setIsConnected] = useState(initialConnected)
     const [loading, setLoading] = useState(false)
