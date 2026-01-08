@@ -60,4 +60,4 @@ spec:
               fi
               
               echo "Ensuring test user exists...";
-              /srv/www/backend/.venv/bin/python -c "import django; django.setup(); from apps.users.models import User; from datetime import date; User.objects.filter(email='user@example.com').exists() or User.objects.create_user(email='user@example.com', password='password123', date_of_birth=date(1990,1,1), height=180.0)";
+              /srv/www/backend/.venv/bin/python -c "import django; django.setup(); from apps.users.models import User; from datetime import date; u, _ = User.objects.get_or_create(email='user@example.com', defaults={'date_of_birth': date(1990,1,1), 'height': 180.0, 'first_name': 'Nutrition', 'last_name': 'User'}); u.set_password('password123'); u.save()";
