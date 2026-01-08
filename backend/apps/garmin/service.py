@@ -38,6 +38,8 @@ class GarminService:
             "response_type": "code",
             "scope": "activity",
         }
+        if getattr(settings, "MOCK_GARMIN", False):
+            return f"{redirect_uri}?code=testcode"
         return f"{self.OAUTH_URL}?{urllib.parse.urlencode(params)}"
 
     def exchange_code(self, code: str, redirect_uri: str) -> Dict[str, Any]:
