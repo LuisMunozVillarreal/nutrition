@@ -5,7 +5,7 @@ import subprocess  # nosec: B404
 import sys
 
 import click
-from common import sanitize_branch_name
+from sanitise_branch import sanitise_branch_name
 
 
 def generate_manifest(
@@ -21,7 +21,7 @@ def generate_manifest(
     Returns:
         tuple[str, str]: A tuple of (manifest_content, sanitized_branch_name).
     """
-    sanitized_branch = sanitize_branch_name(branch_name)
+    sanitized_branch = sanitise_branch_name(branch_name)
     preview_name = f"nutrition-preview-{sanitized_branch}"
     target_namespace = f"nutrition-staging--{sanitized_branch}"
 

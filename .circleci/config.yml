@@ -196,15 +196,12 @@ jobs:
       - run:
           name: Generate Flux Preview
           command: |
-            git config user.email "ci@nutfeex"
-            git config user.name "CircleCI"
-            pip install click --break-system-packages
             python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
       - run:
           name: Wait for Deployment Readiness
           no_output_timeout: 10m
           command: |
-            SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
+            SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
             TARGET_NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
             
             echo "Waiting for Flux Kustomization..."
@@ -276,7 +273,7 @@ jobs:
       - run:
           name: Create Test User
           command: |
-             SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
+             SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
              NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
              echo "Creating test user in namespace: $NAMESPACE"
              # Create user user@example.com / password123
@@ -285,7 +282,7 @@ jobs:
           name: Run Cypress
           working_directory: ~/project/webapp
           command: |
-             SANITIZED_BRANCH=$(echo "$CIRCLE_BRANCH" | tr '[:upper:]' '[:lower:]' | tr '/' '-' | tr '_' '-')
+             SANITIZED_BRANCH=$(python3 ../.circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
              
              if [ -z "$BASE_DOMAIN" ]; then
                echo "BASE_DOMAIN not set, fetching from cluster..."

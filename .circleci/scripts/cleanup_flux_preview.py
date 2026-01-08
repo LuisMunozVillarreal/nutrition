@@ -4,7 +4,7 @@ import subprocess  # nosec: B404
 import sys
 
 import click
-from common import sanitize_branch_name
+from sanitise_branch import sanitise_branch_name
 
 
 @click.command()
@@ -23,7 +23,7 @@ def main(branch: str, dry_run: bool) -> None:
         click.echo("Branch is main. Skipping cleanup.")
         sys.exit(0)
 
-    sanitized_branch = sanitize_branch_name(branch)
+    sanitized_branch = sanitise_branch_name(branch)
 
     # Resources to clean up
     # 1. Kustomization (nutrition-preview-*)
