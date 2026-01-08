@@ -56,7 +56,7 @@ class GarminService:
             NotImplementedError: if not in DEBUG mode.
         """
         # pylint: disable=unused-argument
-        if settings.DEBUG:
+        if settings.DEBUG or getattr(settings, "MOCK_GARMIN", False):
             # Simulation for development/testing
             return {
                 "access_token": "dummy_access_token",
