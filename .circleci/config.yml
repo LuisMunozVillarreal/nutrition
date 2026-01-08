@@ -298,7 +298,18 @@ jobs:
              
              export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
              echo "Testing connectivity to: $CYPRESS_BASE_URL"
-             curl -I "$CYPRESS_BASE_URL" || echo "WARNING: Failed to connect to $CYPRESS_BASE_URL"
+             
+             for i in {1..10}; do
+               if curl -s -I "$CYPRESS_BASE_URL" > /dev/null; then
+                 echo "Successfully connected to $CYPRESS_BASE_URL"
+                 break
+               fi
+               echo "Waiting for $CYPRESS_BASE_URL... ($i/10)"
+               sleep 5
+             done
+             
+             curl -I "$CYPRESS_BASE_URL" || echo "WARNING: Final connectivity check failed."
+             
              npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
