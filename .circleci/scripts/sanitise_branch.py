@@ -1,6 +1,7 @@
 """Common utilities for CircleCI scripts."""
 
 import hashlib
+import sys
 
 # Max length for the branch part is 44 characters to strictly fit
 # within the 63 char limit when combined with "nutrition-staging--"
@@ -8,7 +9,7 @@ import hashlib
 MAX_LENGTH = 44
 
 
-def sanitize_branch_name(branch_name: str) -> str:
+def sanitise_branch_name(branch_name: str) -> str:
     """Sanitise the branch name to be K8s/DNS compatible.
 
     Args:
@@ -33,3 +34,8 @@ def sanitize_branch_name(branch_name: str) -> str:
         s = f"{s}-{branch_hash}"
 
     return s
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        print(sanitise_branch_name(sys.argv[1]))
