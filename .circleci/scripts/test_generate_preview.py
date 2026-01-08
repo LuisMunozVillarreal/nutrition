@@ -4,7 +4,8 @@ import subprocess
 
 import pytest
 from click.testing import CliRunner
-from generate_flux_preview import generate_manifest, main, sanitize_branch_name
+from generate_flux_preview import generate_manifest, main
+from sanitise_branch import sanitise_branch_name
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def test_sanitize_branch():
 
     for branch_input, expected in branches:
         # When
-        result = sanitize_branch_name(branch_input)
+        result = sanitise_branch_name(branch_input)
 
         # Then
         assert result == expected
