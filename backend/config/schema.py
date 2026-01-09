@@ -34,7 +34,11 @@ class UserType:
 
     @strawberry.field
     def dashboard(self) -> DashboardData:
-        """Get dashboard data."""
+        """Get dashboard data.
+
+        Returns:
+            DashboardData: Dashboard data object
+        """
         # pylint: disable=no-member
         # self is the UserType instance or the User model depending on how it
         # was returned.
