@@ -10,11 +10,32 @@ Given("I am logged in", () => {
 });
 
 Given("I visit the settings page", () => {
-    cy.task("log", "--- STARTING SETTINGS PAGE STEP (DEBUG V4) ---");
+    cy.task("log", "--- STARTING SETTINGS PAGE STEP (DEBUG V5) ---");
 
-    // Capture browser console logs
-    cy.on("window:console", (msg) => {
-        cy.task("log", `BROWSER_CONSOLE: ${msg.type()} | ${msg.text()}`);
+    // Capture browser console logs via interception hack
+    cy.on("window:before:load", (win) => {
+        const originalLog = win.console.log;
+        win.console.log = (...args: any[]) => {
+            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            // Trigger an interception
+            const img = new Image();
+            img.src = `/__log?msg=${encodeURIComponent(msg)}`;
+            originalLog.apply(win.console, args);
+        };
+        const originalError = win.console.error;
+        win.console.error = (...args: any[]) => {
+            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            const img = new Image();
+            img.src = `/__log?msg=ERROR_${encodeURIComponent(msg)}`;
+            originalError.apply(win.console, args);
+        };
+    });
+
+    cy.intercept("GET", "/__log*", (req) => {
+        const url = new URL(req.url, "http://localhost");
+        const msg = url.searchParams.get("msg");
+        cy.task("log", `BROWSER: ${msg}`);
+        req.reply({ statusCode: 200 });
     });
 
     // Intercept with the broadest possible pattern
@@ -44,17 +65,25 @@ Given("I visit the settings page", () => {
     cy.visit("/settings");
     cy.contains("Settings").should("be.visible");
 
-    // Verify console listener is working
+    // Verify session in browser
     cy.window().then((win) => {
-        win.console.log("CYPRESS_CONSOLE_LISTENER_VERIFICATION");
+        win.console.log("CYPRESS_DIAGNOSTICS_START");
+        win.console.log(`LOCATION: ${win.location.href}`);
     });
 });
 
 When("I click {string}", (text: string) => {
     cy.task("log", `Attempting to click button: ${text}`);
-    cy.wait(5000); // Initial wait for hydration
+    cy.wait(5000); // Wait for hydration
 
     if (text === "Connect with Garmin") {
+        cy.contains("button", text).then($btn => {
+            cy.task("log", `BUTTON_HTML: ${$btn[0].outerHTML}`);
+            // Check if it's disabled or has some weird style
+            const style = window.getComputedStyle($btn[0]);
+            cy.task("log", `BUTTON_STYLE: pointer-events=${style.pointerEvents}, opacity=${style.opacity}, visibility=${style.visibility}`);
+        });
+
         const attemptClick = (attempts = 0) => {
             if (attempts > 10) {
                 cy.task("log", "CRITICAL: Click loop timed out!");
