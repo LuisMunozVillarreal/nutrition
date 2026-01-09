@@ -65,7 +65,7 @@ export default function Dashboard() {
                 className="mb-12"
             >
                 <h1 className="text-4xl md:text-6xl font-black tracking-tight mb-2">
-                    Ready to crush it, <span className="text-gradient">{firstName}</span>?
+                    {`Ready to crush it, ${firstName}?`}
                 </h1>
                 <p className="text-slate-400 text-lg">Your daily metrics are looking strong.</p>
             </motion.div>
