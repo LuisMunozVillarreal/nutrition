@@ -2,12 +2,10 @@
 
 import { signIn } from 'next-auth/react'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 
 const LoginPage = () => {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
-    const router = useRouter()
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -18,7 +16,8 @@ const LoginPage = () => {
         })
 
         if (result?.ok) {
-            router.push('/')
+            // Force a hard reload to ensure server picks up the session cookie
+            window.location.href = '/'
         } else {
             alert("Login failed")
         }
