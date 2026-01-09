@@ -28,6 +28,7 @@ interface DashboardData {
 export default function Dashboard() {
     const { data: session } = useSession();
     const [data, setData] = useState<DashboardData | null>(null);
+    const [fetchedName, setFetchedName] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -42,8 +43,9 @@ export default function Dashboard() {
             request(endpoint, DASHBOARD_QUERY, {}, {
                 "Authorization": `Bearer ${session.accessToken}`
             }).then((res: any) => {
-                if (res.me && res.me.dashboard) {
-                    setData(res.me.dashboard);
+                if (res.me) {
+                    if (res.me.dashboard) setData(res.me.dashboard);
+                    if (res.me.firstName) setFetchedName(res.me.firstName);
                 }
                 setLoading(false);
             }).catch(err => {
@@ -53,7 +55,7 @@ export default function Dashboard() {
         }
     }, [session]);
 
-    const firstName = session?.user?.name?.split(" ")[0] || "Athlete"; // Fallback name
+    const firstName = fetchedName || session?.user?.name?.split(" ")[0] || "Athlete";
 
     return (
         <div className="min-h-screen p-6 md:p-12 text-white">
@@ -64,8 +66,8 @@ export default function Dashboard() {
                 transition={{ duration: 0.6 }}
                 className="mb-12"
             >
-                <h1 className="text-4xl md:text-6xl font-black tracking-tight mb-2">
-                    {`Ready to crush it, ${firstName}?`}
+                <h1 data-testid="dashboard-greeting" className="text-4xl md:text-6xl font-black tracking-tight mb-2">
+                    {`Time to dominate, ${firstName}!`}
                 </h1>
                 <p className="text-slate-400 text-lg">Your daily metrics are looking strong.</p>
             </motion.div>
