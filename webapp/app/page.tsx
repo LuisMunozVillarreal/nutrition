@@ -1,21 +1,10 @@
-'use client'
-
-import { useSession } from "next-auth/react";
+import { getServerSession } from "next-auth";
 import Link from "next/link";
+import { authOptions } from "./api/auth/[...nextauth]/route";
 import Dashboard from "./components/Dashboard";
 
-export default function Home() {
-  const { data: session, status } = useSession();
-
-  if (status === "loading") {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-[#0f111a]">
-        <div className="text-center">
-          <p className="text-slate-400">Loading...</p>
-        </div>
-      </main>
-    );
-  }
+export default async function Home() {
+  const session = await getServerSession(authOptions);
 
   if (!session) {
     return (
