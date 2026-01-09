@@ -10,8 +10,21 @@ Given("I am logged in", () => {
 });
 
 Given("I visit the settings page", () => {
+    cy.task("log", "--- STARTING SETTINGS PAGE STEP (DEBUG) ---");
+
+    // Capture browser console logs
+    cy.on("window:console", (msg) => {
+        cy.task("log", `BROWSER_CONSOLE: ${JSON.stringify(msg)}`);
+    });
+
+    cy.window().then((win) => {
+        cy.task("log", `Page Origin: ${win.location.origin}`);
+    });
+
     // Intercept with broad pattern to catch the request
     cy.intercept("POST", "*", (req) => {
+        cy.task("log", `INTERCEPTED: ${req.url}`);
+
         let body = req.body;
         if (typeof body === 'string') {
             try {
@@ -21,8 +34,13 @@ Given("I visit the settings page", () => {
             }
         }
 
+        if (body) {
+            cy.task("log", `BODY_OP: ${body.operationName} | BODY_QUERY: ${body.query ? 'Present' : 'Missing'}`);
+        }
+
         // Check for operation name or query string
         if (body && (body.operationName === "ConnectGarmin" || (body.query && body.query.includes("mutation ConnectGarmin")))) {
+            cy.task("log", "MATCHED ConnectGarmin! MOCKING REPLY.");
             const redirectUri = body.variables ? body.variables.redirectUri : `${window.location.origin}/settings/garmin-callback`;
 
             req.reply({
