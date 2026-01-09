@@ -20,15 +20,12 @@ def test_hello_query():
     assert result.data["hello"] == "world"
 
 
-@pytest.mark.django_db
-def test_me_query():
-    """Test me query resolver (placeholder)."""
-    # When executing a me query
-    query = "{ me }"
-    result = schema.execute_sync(query)
+    # When executing a me query without authentication
+    query = "{ me { id email } }"
+    result = schema.execute_sync(query, context_value=None)
 
-    # Then the result is the placeholder
-    assert result.data["me"] == "Not implemented fully yet"
+    # Then the result is None or null data for me
+    assert result.data["me"] is None
 
 
 @pytest.mark.django_db
