@@ -85,9 +85,11 @@ spec:
                 - name: backend
                   env:
                     - name: ALLOWED_HOSTS
-                      value: "{preview_host}"
+                      value: "{preview_host},nutrition-backend"
                     - name: CSRF_TRUSTED_ORIGINS
                       value: "https://{preview_host}"
+                    - name: MOCK_GARMIN
+                      value: "True"
       target:
         kind: Deployment
         name: nutrition-backend
@@ -103,6 +105,8 @@ spec:
                 - name: webapp
                   env:
                     - name: GRAPHQL_ENDPOINT
+                      value: "http://nutrition-backend/graphql/"
+                    - name: NEXT_PUBLIC_GRAPHQL_ENDPOINT
                       value: "https://{preview_host}/graphql/"
                     - name: NEXTAUTH_URL
                       value: "https://{preview_host}"
