@@ -2,7 +2,7 @@ import NextAuth, { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { gql, GraphQLClient } from 'graphql-request'
 
-const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:8000/graphql/';
+const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://nutrition-backend/graphql/';
 const client = new GraphQLClient(endpoint);
 
 export const authOptions: NextAuthOptions = {
