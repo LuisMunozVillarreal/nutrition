@@ -8,3 +8,7 @@ resources:
 patches:
   - path: env-patch.yaml
   - path: db-restore-patch.yaml
+  - path: staging-ingress-patch.yaml
+    target:
+      kind: Ingress
+  - path: staging-domain-patch.yaml
