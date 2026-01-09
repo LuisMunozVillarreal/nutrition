@@ -19,7 +19,6 @@ def test_hello_query():
     # Then the result is correct
     assert result.data["hello"] == "world"
 
-
     # When executing a me query without authentication
     query = "{ me { id email } }"
     result = schema.execute_sync(query, context_value=None)
