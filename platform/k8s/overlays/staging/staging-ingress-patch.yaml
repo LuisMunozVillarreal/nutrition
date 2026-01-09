@@ -1,0 +1,9 @@
+- op: replace
+  path: /spec/rules/0/host
+  value: "staging.${BASE_DOMAIN}"
+- op: replace
+  path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.tls.domains.0.main
+  value: "staging.${BASE_DOMAIN}"
+- op: add
+  path: /spec/ingressClassName
+  value: traefik
