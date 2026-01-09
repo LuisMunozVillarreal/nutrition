@@ -26,5 +26,5 @@ Then("I should be redirected to the home page", () => {
 });
 
 Then("I should see a welcome message", () => {
-    cy.contains("Welcome, user@example.com");
+    cy.contains("Ready to crush it");
 });
