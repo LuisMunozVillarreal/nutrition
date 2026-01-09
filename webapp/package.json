@@ -11,8 +11,10 @@
     "cypress:run": "cypress run"
   },
   "dependencies": {
+    "framer-motion": "^12.25.0",
     "graphql": "^16.12.0",
     "graphql-request": "^7.4.0",
+    "lucide-react": "^0.562.0",
     "next": "16.1.2",
     "next-auth": "^4.24.13",
     "react": "19.2.3",
