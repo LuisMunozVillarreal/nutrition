@@ -36,14 +36,15 @@ class UserType:
     def dashboard(self) -> DashboardData:
         """Get dashboard data."""
         # pylint: disable=no-member
-        # self is the UserType instance or the User model depending on how it was returned.
+        # self is the UserType instance or the User model depending on how it
+        # was returned.
         # But for Mypy, it treats it as UserType.
         # We need to fetch the actual user model to get relations safely.
         # Since self.id is available, we can query.
         # However, at runtime 'self' IS the User model if returned from 'me'.
         # To satisfy mypy, casting or fresh query is needed.
         # Let's use the ID to be safe and clear.
-        
+
         user_model = User.objects.get(pk=self.id)
         measurement = user_model.measurements.last()  # type: ignore
         goal = user_model.fat_perc_goals.last()  # type: ignore
