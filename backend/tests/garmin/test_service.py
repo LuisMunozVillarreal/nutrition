@@ -111,3 +111,42 @@ def test_fetch_activities_real(
 
     # Then empty list is returned
     assert not activities
+
+
+def test_get_authorization_url_mock(
+    garmin_service: GarminService, mocker: Any
+) -> None:
+    """Test generation of auth URL with MOCK_GARMIN.
+
+    Args:
+        garmin_service (GarminService): garmin service.
+        mocker (Any): pytest-mock mocker.
+    """
+    # Given MOCK_GARMIN is True
+    mocker.patch.object(settings, "MOCK_GARMIN", True, create=True)
+    redirect_uri = "http://localhost/callback"
+
+    # When generating auth URL
+    url = garmin_service.get_authorization_url(redirect_uri)
+
+    # Then it returns mock URL
+    assert url == "http://localhost/callback?code=testcode"
+
+
+def test_exchange_code_testcode(
+    garmin_service: GarminService, mocker: Any
+) -> None:
+    """Test exchange_code with testcode bypass.
+
+    Args:
+        garmin_service (GarminService): garmin service.
+        mocker (Any): pytest-mock mocker.
+    """
+    # Given DEBUG is False but code is "testcode"
+    mocker.patch.object(settings, "DEBUG", False)
+
+    # When exchanging code
+    result = garmin_service.exchange_code("testcode", "uri")
+
+    # Then dummy data is returned
+    assert result["access_token"] == "dummy_access_token"
