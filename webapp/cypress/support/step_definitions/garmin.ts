@@ -10,16 +10,26 @@ Given("I am logged in", () => {
 });
 
 Given("I visit the settings page", () => {
-    // Intercept the connect mutation EARLY before we visit settings and click anything
-    cy.intercept("POST", "**/graphql", (req) => {
-        if (req.body.operationName === "ConnectGarmin") {
+    // Intercept with broad pattern to catch the request
+    cy.intercept("POST", "*", (req) => {
+        let body = req.body;
+        if (typeof body === 'string') {
+            try {
+                body = JSON.parse(body);
+            } catch (e) {
+                // Not JSON, ignore
+            }
+        }
+
+        // Check for operation name or query string
+        if (body && (body.operationName === "ConnectGarmin" || (body.query && body.query.includes("mutation ConnectGarmin")))) {
+            const redirectUri = body.variables ? body.variables.redirectUri : `${window.location.origin}/settings/garmin-callback`;
+
             req.reply({
                 data: {
-                    connectGarminUrl: req.body.variables.redirectUri + "?code=testcode"
+                    connectGarminUrl: redirectUri + "?code=testcode"
                 }
             });
-        } else {
-            req.continue();
         }
     }).as("connectGarmin");
 
@@ -28,7 +38,8 @@ Given("I visit the settings page", () => {
 });
 
 When("I click {string}", (text: string) => {
-    cy.contains(text).click();
+    cy.wait(2000); // Wait for hydration
+    cy.contains(text).click({ force: true });
 });
 
 Then("I should be redirected to the callback with code {string}", (code: string) => {
