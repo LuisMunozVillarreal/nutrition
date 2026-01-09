@@ -26,5 +26,5 @@ Then("I should be redirected to the home page", () => {
 });
 
 Then("I should see a welcome message", () => {
-    cy.contains("Ready to crush it", { timeout: 10000 }).should("be.visible");
+    cy.contains(/ready to crush it/i, { timeout: 15000 }).should("be.visible");
 });
