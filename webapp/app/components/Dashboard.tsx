@@ -35,12 +35,12 @@ export default function Dashboard() {
         // For this prototype, fetch directly if session exists
         if (session?.accessToken) {
             setLoading(true);
-            // Assuming endpoint is at /api/graphql or checking environment
-            const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "http://localhost:8000/graphql/";
+            // Use relative URL for client-side fetch to work across preview environments
+            const endpoint = "/graphql/";
 
             // Very basic fetch for prototype
             request(endpoint, DASHBOARD_QUERY, {}, {
-                "Authorization": `Bearer ${session.accessToken}` // Adjust based on how your backend expects auth (JWT header usually)
+                "Authorization": `Bearer ${session.accessToken}`
             }).then((res: any) => {
                 if (res.me && res.me.dashboard) {
                     setData(res.me.dashboard);
