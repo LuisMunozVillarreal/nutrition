@@ -26,5 +26,7 @@ Then("I should be redirected to the home page", () => {
 });
 
 Then("I should see a welcome message", () => {
-    cy.contains(/ready to crush it/i, { timeout: 15000 }).should("be.visible");
+    cy.get('[data-testid="dashboard-greeting"]', { timeout: 20000 })
+        .should("be.visible")
+        .and("contain", "Time to dominate");
 });
