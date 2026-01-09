@@ -15,3 +15,21 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: nutrition-staging
+  namespace: flux-system
+spec:
+  interval: 5m0s
+  path: ./platform/k8s/overlays/staging
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  targetNamespace: nutrition-staging
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

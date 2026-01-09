@@ -65,6 +65,38 @@ commands:
           name: Docker Login
           command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_LOGIN" --password-stdin
 
+  setup-kubeconfig:
+    steps:
+      - run:
+          name: Setup Kubeconfig
+          command: |
+             mkdir -p $HOME/.kube
+             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
+             chmod 600 $HOME/.kube/config
+
+  wait-for-flux-reconciliation:
+    parameters:
+      kustomization_name:
+        type: string
+      target_namespace:
+        type: string
+    steps:
+      - run:
+          name: Wait for Flux Kustomization reconciliation
+          no_output_timeout: 10m
+          command: |
+            echo "Triggering reconciliation for << parameters.kustomization_name >>..."
+            kubectl annotate kustomization << parameters.kustomization_name >> -n flux-system reconcile.fluxcd.io/requestedAt=$(date +%s) --overwrite
+            
+            echo "Waiting for Flux Kustomization readiness..."
+            kubectl wait --for=condition=ready kustomization/<< parameters.kustomization_name >> -n flux-system --timeout=600s
+            
+            echo "Waiting for backend pods in << parameters.target_namespace >>..."
+            kubectl rollout status deployment/nutrition-backend -n << parameters.target_namespace >> --timeout=600s
+            
+            echo "Waiting for webapp pods in << parameters.target_namespace >>..."
+            kubectl rollout status deployment/nutrition-webapp -n << parameters.target_namespace >> --timeout=600s
+
   validate:
     parameters:
       env:
@@ -187,12 +219,7 @@ jobs:
           fingerprints:
             - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
       - kubernetes/install
-      - run:
-          name: Setup Kubeconfig
-          command: |
-             mkdir -p $HOME/.kube
-             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
-             chmod 600 $HOME/.kube/config
+      - setup-kubeconfig
       - run:
           name: Generate Flux Preview
           command: |
@@ -203,21 +230,35 @@ jobs:
           command: |
             SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
             TARGET_NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
+            KUSTOMIZATION_NAME="nutrition-preview-${SANITIZED_BRANCH}"
             
             echo "Waiting for Flux Kustomization..."
-            kubectl wait --for=condition=ready kustomization/nutrition-preview-${SANITIZED_BRANCH} -n flux-system --timeout=600s
-            
-            echo "Waiting for backend pods..."
-            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=backend -n ${TARGET_NAMESPACE} --timeout=600s
+            kubectl wait --for=condition=ready kustomization/${KUSTOMIZATION_NAME} -n flux-system --timeout=600s
             
             echo "Checking backend rollout status..."
             kubectl rollout status deployment/nutrition-backend -n ${TARGET_NAMESPACE} --timeout=600s
             
-            echo "Waiting for webapp pods..."
-            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=webapp -n ${TARGET_NAMESPACE} --timeout=600s
-            
             echo "Checking webapp rollout status..."
             kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=600s
+
+  deploy-staging:
+    working_directory: ~/project
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - add_ssh_keys:
+          fingerprints:
+            - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
+      - kubernetes/install
+      - setup-kubeconfig
+      - run:
+          name: Patch Staging Flux Kustomization
+          command: |
+            kubectl patch kustomization nutrition-staging -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
+      - wait-for-flux-reconciliation:
+          kustomization_name: nutrition-staging
+          target_namespace: nutrition-staging
 
   deploy-production:
     working_directory: ~/project
@@ -229,29 +270,14 @@ jobs:
           fingerprints:
             - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
       - kubernetes/install
-      - run:
-          name: Setup Kubeconfig
-          command: |
-             mkdir -p $HOME/.kube
-             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
-             chmod 600 $HOME/.kube/config
+      - setup-kubeconfig
       - run:
           name: Patch Production Flux Kustomization
           command: |
             kubectl patch kustomization nutrition-production -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
-      - run:
-          name: Wait for Production Readiness
-          no_output_timeout: 10m
-          command: |
-            echo "Waiting for Flux Kustomization reconciliation..."
-            kubectl annotate kustomization nutrition-production -n flux-system reconcile.fluxcd.io/requestedAt=$(date +%s) --overwrite
-            kubectl wait --for=condition=ready kustomization/nutrition-production -n flux-system --timeout=600s
-            
-            echo "Waiting for backend pods..."
-            kubectl rollout status deployment/nutrition-backend -n nutrition-production --timeout=600s
-            
-            echo "Waiting for webapp pods..."
-            kubectl rollout status deployment/nutrition-webapp -n nutrition-production --timeout=600s
+      - wait-for-flux-reconciliation:
+          kustomization_name: nutrition-production
+          target_namespace: nutrition-production
 
   cypress-e2e:
     working_directory: ~/project
@@ -260,12 +286,7 @@ jobs:
     steps:
       - checkout
       - kubernetes/install
-      - run:
-          name: Setup Kubeconfig
-          command: |
-             mkdir -p $HOME/.kube
-             echo "$KUBECONFIG_DATA_BASE64" | base64 -d > $HOME/.kube/config
-             chmod 600 $HOME/.kube/config
+      - setup-kubeconfig
       - run:
           name: Install Dependencies
           working_directory: ~/project/webapp
@@ -327,6 +348,16 @@ workflows:
               ignore:
                 - main
       - deploy-production:
+          context:
+            - kubeconfig
+          requires:
+            - backend-docker-build-tag-push
+            - webapp-docker-build-tag-push
+          filters:
+            branches:
+              only:
+                - main
+      - deploy-staging:
           context:
             - kubeconfig
           requires:

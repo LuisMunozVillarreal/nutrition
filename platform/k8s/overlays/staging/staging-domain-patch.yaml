@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-backend
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: ALLOWED_HOSTS
+              value: "staging.${BASE_DOMAIN}"
+            - name: CSRF_TRUSTED_ORIGINS
+              value: "https://staging.${BASE_DOMAIN}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nutrition-webapp
+spec:
+  template:
+    spec:
+      containers:
+        - name: webapp
+          env:
+            - name: NEXTAUTH_URL
+              value: "https://staging.${BASE_DOMAIN}"
+            - name: GRAPHQL_ENDPOINT
+              value: "https://staging.${BASE_DOMAIN}/graphql/"
