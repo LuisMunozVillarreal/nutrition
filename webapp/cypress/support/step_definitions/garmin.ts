@@ -18,6 +18,8 @@ Given("I visit the settings page", () => {
                     connectGarminUrl: req.body.variables.redirectUri + "?code=testcode"
                 }
             });
+        } else {
+            req.continue();
         }
     }).as("connectGarmin");
 
