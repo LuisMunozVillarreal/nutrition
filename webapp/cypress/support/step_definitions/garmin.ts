@@ -85,4 +85,3 @@ Then("I should see {string}", (text: string) => {
     cy.task("log", `Looking for text: ${text}`);
     cy.contains(text, { timeout: 20000 }).should("be.visible");
 });
-```
