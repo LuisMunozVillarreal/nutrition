@@ -36,12 +36,23 @@ class UserType:
     def dashboard(self) -> DashboardData:
         """Get dashboard data."""
         # pylint: disable=no-member
-        measurement = self.measurements.last()
-        goal = self.fat_perc_goals.last()
+        # self is the UserType instance or the User model depending on how it was returned.
+        # But for Mypy, it treats it as UserType.
+        # We need to fetch the actual user model to get relations safely.
+        # Since self.id is available, we can query.
+        # However, at runtime 'self' IS the User model if returned from 'me'.
+        # To satisfy mypy, casting or fresh query is needed.
+        # Let's use the ID to be safe and clear.
+        
+        user_model = User.objects.get(pk=self.id)
+        measurement = user_model.measurements.last()  # type: ignore
+        goal = user_model.fat_perc_goals.last()  # type: ignore
 
         return DashboardData(
             latest_weight=float(measurement.weight) if measurement else None,
-            latest_body_fat=float(measurement.body_fat_perc) if measurement else None,
+            latest_body_fat=(
+                float(measurement.body_fat_perc) if measurement else None
+            ),
             goal_body_fat=float(goal.body_fat_perc) if goal else None,
         )
 
@@ -80,7 +91,13 @@ class Query:
         user = info.context.user
         if not user.is_authenticated:
             return None
-        return user
+        # Explicit conversion to UserType
+        return UserType(
+            id=strawberry.ID(str(user.id)),
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+        )
 
 
 @strawberry.type
@@ -117,7 +134,12 @@ class Mutation:
 
             return AuthPayload(
                 token=token,
-                user=user,
+                user=UserType(
+                    id=strawberry.ID(str(user.id)),
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                ),
             )
         raise ValueError("Invalid credentials")
 
