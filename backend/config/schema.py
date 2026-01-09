@@ -93,8 +93,8 @@ class Query:
         Returns:
             UserType | None: Current user or None
         """
-        user = info.context.user
-        if not user.is_authenticated:
+        user = getattr(info.context, "user", None)
+        if user is None or not user.is_authenticated:
             return None
         # Explicit conversion to UserType
         return UserType(
