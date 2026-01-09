@@ -103,7 +103,7 @@ spec:
                 - name: webapp
                   env:
                     - name: GRAPHQL_ENDPOINT
-                      value: "https://{preview_host}/graphql/"
+                      value: "http://nutrition-backend/graphql/"
                     - name: NEXTAUTH_URL
                       value: "https://{preview_host}"
       target:
