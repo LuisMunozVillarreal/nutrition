@@ -26,7 +26,30 @@ Then("I should be redirected to the home page", () => {
 });
 
 Then("I should see a welcome message", () => {
+    // Log current URL for debugging
+    cy.url().then(url => cy.log(`Current URL: ${url}`));
+
+    // Wait for page to be fully loaded
+    cy.get('body', { timeout: 10000 }).should('exist');
+
+    // Log the page HTML for debugging
+    cy.document().then(doc => {
+        cy.log(`Page title: ${doc.title}`);
+        cy.log(`Body contains: ${doc.body.innerText.substring(0, 200)}`);
+    });
+
+    // Check if we're on the home page
+    cy.url().should('eq', Cypress.config().baseUrl + '/');
+
+    // Wait for any potential client-side navigation or auth checks
+    cy.wait(2000);
+
+    // Try to find the greeting element with detailed logging
     cy.get('[data-testid="dashboard-greeting"]', { timeout: 20000 })
-        .should("be.visible")
-        .and("contain", "Time to dominate");
+        .should('exist')
+        .should('be.visible')
+        .then($el => {
+            cy.log(`Greeting text found: ${$el.text()}`);
+        })
+        .and('contain', 'Time to dominate');
 });
