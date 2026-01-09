@@ -15,6 +15,15 @@ User = get_user_model()
 
 
 @strawberry.type
+class DashboardData:
+    """Dashboard specific data."""
+
+    latest_weight: float | None
+    latest_body_fat: float | None
+    goal_body_fat: float | None
+
+
+@strawberry.type
 class UserType:
     """GraphQL User Type."""
 
@@ -22,6 +31,19 @@ class UserType:
     email: str
     first_name: str
     last_name: str
+
+    @strawberry.field
+    def dashboard(self) -> DashboardData:
+        """Get dashboard data."""
+        # pylint: disable=no-member
+        measurement = self.measurements.last()
+        goal = self.fat_perc_goals.last()
+
+        return DashboardData(
+            latest_weight=float(measurement.weight) if measurement else None,
+            latest_body_fat=float(measurement.body_fat_perc) if measurement else None,
+            goal_body_fat=float(goal.body_fat_perc) if goal else None,
+        )
 
 
 @strawberry.type
@@ -46,17 +68,19 @@ class Query:
         return "world"
 
     @strawberry.field
-    def me(self, info: Info) -> str:  # pylint: disable=unused-argument
-        """Return current user info (placeholder).
+    def me(self, info: Info) -> UserType | None:
+        """Return current user info.
 
         Args:
             info: GraphQL execution info
 
         Returns:
-            str: Placeholder message
+            UserType | None: Current user or None
         """
-        # Placeholder for real auth check
-        return "Not implemented fully yet"
+        user = info.context.user
+        if not user.is_authenticated:
+            return None
+        return user
 
 
 @strawberry.type
@@ -93,12 +117,7 @@ class Mutation:
 
             return AuthPayload(
                 token=token,
-                user=UserType(
-                    id=strawberry.ID(str(user.id)),
-                    email=user.email,
-                    first_name=user.first_name,
-                    last_name=user.last_name,
-                ),
+                user=user,
             )
         raise ValueError("Invalid credentials")
 
