@@ -1,7 +1,5 @@
 """Tests for GraphQL schema configuration."""
 
-from datetime import datetime
-
 import pytest
 from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
@@ -91,9 +89,7 @@ def test_user_dashboard(mocker):
     assert result.data["me"]["dashboard"]["latestWeight"] is None
 
     # When we add a measurement and a goal
-    Measurement.objects.create(
-        user=user, weight=80.5, body_fat_perc=20.0
-    )
+    Measurement.objects.create(user=user, weight=80.5, body_fat_perc=20.0)
     FatPercGoal.objects.create(user=user, body_fat_perc=15.0)
 
     # And query again
