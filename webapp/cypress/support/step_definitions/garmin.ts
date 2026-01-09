@@ -10,7 +10,7 @@ Given("I am logged in", () => {
 });
 
 Given("I visit the settings page", () => {
-    cy.task("log", "--- STARTING SETTINGS PAGE STEP (DEBUG V5) ---");
+    cy.task("log", "--- STARTING SETTINGS PAGE STEP (DEBUG V6) ---");
 
     // Capture browser console logs via interception hack
     cy.on("window:before:load", (win) => {
@@ -34,13 +34,13 @@ Given("I visit the settings page", () => {
     cy.intercept("GET", "/__log*", (req) => {
         const url = new URL(req.url, "http://localhost");
         const msg = url.searchParams.get("msg");
-        cy.task("log", `BROWSER: ${msg}`);
+        console.log(`BROWSER: ${msg}`);
         req.reply({ statusCode: 200 });
     });
 
     // Intercept with the broadest possible pattern
     cy.intercept({ method: "POST", url: "**" }, (req) => {
-        cy.task("log", `INTERCEPTED: ${req.method} ${req.url}`);
+        console.log(`INTERCEPTED: ${req.method} ${req.url}`);
 
         let body = req.body;
         if (typeof body === 'string') {
@@ -48,12 +48,12 @@ Given("I visit the settings page", () => {
         }
 
         if (body) {
-            cy.task("log", `BODY_OP: ${body.operationName} | BODY_QUERY_MATCH: ${body.query && body.query.includes("mutation ConnectGarmin")}`);
+            console.log(`BODY_OP: ${body.operationName} | BODY_QUERY_MATCH: ${body.query && body.query.includes("mutation ConnectGarmin")}`);
         }
 
         if (body && (body.operationName === "ConnectGarmin" || (body.query && body.query.includes("mutation ConnectGarmin")))) {
-            cy.task("log", "MATCHED ConnectGarmin mutation! Mocking response...");
-            const redirectUri = body.variables ? body.variables.redirectUri : `${window.location.origin}/settings/garmin-callback`;
+            console.log("MATCHED ConnectGarmin mutation! Mocking response...");
+            const redirectUri = body.variables ? body.variables.redirectUri : `${req.url.split('/graphql')[0]}/settings/garmin-callback`;
             req.reply({
                 data: {
                     connectGarminUrl: redirectUri + "?code=testcode"
@@ -71,6 +71,7 @@ Given("I visit the settings page", () => {
         win.console.log(`LOCATION: ${win.location.href}`);
     });
 });
+
 
 When("I click {string}", (text: string) => {
     cy.task("log", `Attempting to click button: ${text}`);
