@@ -21,6 +21,7 @@ def sanitise_branch_name(branch_name: str) -> str:
     s = branch_name.lower()
     s = s.replace("/", "-")
     s = s.replace("_", "-")
+    s = s.replace(".", "-")
 
     if len(s) > MAX_LENGTH:
         # Create a hash of the original branch name for uniqueness

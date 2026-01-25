@@ -39,6 +39,7 @@ def test_sanitize_branch():
             "feature/very/long/branch/name/that/exceeds/limit",
             "feature-very-long-branch-name-that-e-c8906af",
         ),
+        ("dependabot/uv/backend/urllib3-2.6.3", "dependabot-uv-backend-urllib3-2-6-3"),
     ]
 
     for branch_input, expected in branches:
