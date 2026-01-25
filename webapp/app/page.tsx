@@ -15,7 +15,9 @@ export default async function Home() {
           {session ? (
             <div className="flex gap-4 items-center">
               <span>Welcome, {session.user?.email}</span>
-              {/* Link to logout? */}
+              <Link href="/settings" className="px-4 py-2 bg-zinc-100 dark:bg-zinc-800 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
+                Settings
+              </Link>
             </div>
           ) : (
             <Link href="/login" className="bg-blue-500 text-white p-2 rounded">
