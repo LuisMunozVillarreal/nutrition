@@ -3,12 +3,13 @@
 import jwt
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
+
 
 User = get_user_model()
 
 
 class JWTAuthenticationMiddleware:
+    # pylint: disable=too-few-public-methods
     """Middleware to authenticate users via JWT."""
 
     def __init__(self, get_response):
@@ -27,7 +28,11 @@ class JWTAuthenticationMiddleware:
                 if user_id:
                     # Sync call is fine in WSGI
                     request.user = User.objects.get(id=user_id)
-            except (jwt.ExpiredSignatureError, jwt.DecodeError, User.DoesNotExist):
+            except (
+                jwt.ExpiredSignatureError,
+                jwt.DecodeError,
+                User.DoesNotExist,
+            ):
                 # Token is invalid or user does not exist
                 pass
 
