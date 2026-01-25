@@ -42,6 +42,7 @@ if ENVIRONMENT == "development":  # pragma: no cover
 INSTALLED_APPS = [
     "apps.exercises",
     "apps.foods",
+    "apps.garmin",
     "apps.goals",
     "apps.measurements",
     "apps.plans",
@@ -68,6 +69,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.authentication.JWTAuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -272,4 +274,8 @@ LOGGING = {
 
 
 # Django SQL Dashboard
-DASHBOARD_ENABLE_FULL_EXPORT = True
+
+# Garmin
+GARMIN_CLIENT_ID = ENV("GARMIN_CLIENT_ID", default="")
+GARMIN_CLIENT_SECRET = ENV("GARMIN_CLIENT_SECRET", default="")
+MOCK_GARMIN = ENV.bool("MOCK_GARMIN", default=False)

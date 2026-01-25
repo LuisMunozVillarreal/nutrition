@@ -58,3 +58,6 @@ spec:
               else
                 echo "DB is not empty. Skipping restore.";
               fi
+              
+              echo "Ensuring test user exists...";
+              /srv/www/backend/.venv/bin/python -c "import django; django.setup(); from apps.users.models import User; from datetime import date; u, _ = User.objects.get_or_create(email='user@example.com', defaults={'date_of_birth': date(1990,1,1), 'height': 180.0, 'first_name': 'Nutrition', 'last_name': 'User'}); u.set_password('password123'); u.save()";

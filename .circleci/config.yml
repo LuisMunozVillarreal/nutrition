@@ -206,6 +206,8 @@ jobs:
             
             echo "Waiting for Flux Kustomization..."
             kubectl wait --for=condition=ready kustomization/nutrition-preview-${SANITIZED_BRANCH} -n flux-system --timeout=600s
+            kubectl rollout status deployment/nutrition-backend -n ${TARGET_NAMESPACE} --timeout=300s
+            kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=300s
             
             echo "Waiting for backend pods..."
             kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=backend -n ${TARGET_NAMESPACE} --timeout=600s
@@ -294,28 +296,20 @@ jobs:
                exit 1
              fi
              
-             REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
-             TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
+             export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+             echo "Testing connectivity to: $CYPRESS_BASE_URL"
              
-             export REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
-             export TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
+             for i in {1..10}; do
+               if curl -s -I "$CYPRESS_BASE_URL" > /dev/null; then
+                 echo "Successfully connected to $CYPRESS_BASE_URL"
+                 break
+               fi
+               echo "Waiting for $CYPRESS_BASE_URL... ($i/10)"
+               sleep 5
+             done
              
-             echo "Installing Nginx..."
-             sudo apt-get update && sudo apt-get install -y nginx gettext-base
+             curl -I "$CYPRESS_BASE_URL" || echo "WARNING: Final connectivity check failed."
              
-             echo "Generating SSL certificate for domain masking..."
-             sudo mkdir -p /etc/nginx/ssl
-             sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -days 365 -nodes -subj "/CN=$TESTING_DOMAIN"
-             
-             echo "Configuring Nginx for domain masking..."
-             envsubst '$REAL_DOMAIN $TESTING_DOMAIN' < ../.circleci/nginx-masking-proxy.conf | sudo tee /etc/nginx/sites-available/masking-proxy
-             
-             sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
-             sudo nginx -t && sudo service nginx restart
-             
-             echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts
-             
-             export CYPRESS_BASE_URL="https://$TESTING_DOMAIN"
              npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos

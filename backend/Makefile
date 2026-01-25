@@ -9,7 +9,7 @@ install:
 python-checks: pytest bandit flake8 black-fix mypy pylint pylint-tests pydocstyle pydocstyle-tests
 
 pytest:
-	uv run pytest -n 4 tests ../.circleci/scripts $(ARGS)
+	uv run pytest tests ../.circleci/scripts $(ARGS)
 
 bandit:
 	uv run bandit -c pyproject.toml -r manage.py config apps ../.circleci/scripts $(ARGS)
