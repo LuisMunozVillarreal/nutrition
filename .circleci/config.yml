@@ -297,31 +297,15 @@ jobs:
              REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
              TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
              
+             export REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+             export TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
+             
              echo "Installing Nginx..."
-             sudo apt-get update && sudo apt-get install -y nginx
+             sudo apt-get update && sudo apt-get install -y nginx gettext-base
              
              echo "Configuring Nginx for domain masking..."
-             cat \<<EOF | sudo tee /etc/nginx/sites-available/masking-proxy
-server {
-    listen 80;
-    server_name $TESTING_DOMAIN;
-
-    location / {
-        proxy_pass https://$REAL_DOMAIN;
-        proxy_set_header Host $REAL_DOMAIN;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # SNI is important for Traefik/SNI-based routing
-        proxy_ssl_server_name on;
-        proxy_ssl_name $REAL_DOMAIN;
-        
-        # Disable SSL verification if staging uses self-signed/Traefik certs
-        proxy_ssl_verify off;
-    }
-}
-EOF
+             envsubst '$REAL_DOMAIN $TESTING_DOMAIN' < ../.circleci/nginx-masking-proxy.conf | sudo tee /etc/nginx/sites-available/masking-proxy
+             
              sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
              sudo nginx -t && sudo service nginx restart
              
