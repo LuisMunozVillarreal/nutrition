@@ -1,8 +1,11 @@
 """JWT Authentication Middleware."""
 
+from typing import Any, Callable, cast
+
 import jwt
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.http import HttpRequest, HttpResponse
 
 User = get_user_model()
 
@@ -11,10 +14,10 @@ class JWTAuthenticationMiddleware:
     # pylint: disable=too-few-public-methods
     """Middleware to authenticate users via JWT."""
 
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process request to add user if token is valid."""
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -26,7 +29,8 @@ class JWTAuthenticationMiddleware:
                 user_id = payload.get("sub")
                 if user_id:
                     # Sync call is fine in WSGI
-                    request.user = User.objects.get(id=user_id)
+                    user = User.objects.get(pk=user_id)
+                    request.user = cast(Any, user)
             except (
                 jwt.ExpiredSignatureError,
                 jwt.DecodeError,
