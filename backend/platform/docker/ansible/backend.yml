@@ -7,6 +7,7 @@
     env: "{{ lookup('env', 'ENV') }}"
     user: "{{ lookup('env', 'USER_NAME') }}"
     group: "{{ lookup('env', 'USER_NAME') }}"
+    base_domain: "{{ lookup('env', 'BASE_DOMAIN') | default('example.com', true) }}"
     src_dir: "{{ lookup('env', 'SRC_DIR') }}"
     log_dir: "{{ lookup('env', 'LOG_DIR') }}"
   roles:

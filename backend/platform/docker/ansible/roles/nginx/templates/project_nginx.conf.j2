@@ -22,7 +22,7 @@ server {
 
 server {
     listen 8080;
-    server_name ~^(staging\.)?nutfeex\.ddns\.net$;
+    server_name ~^(staging\.)?{{ base_domain | replace('.', '\\.') }}$;
 
     client_max_body_size 4G;
 
