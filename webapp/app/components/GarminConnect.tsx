@@ -34,7 +34,12 @@ export default function GarminConnect({ isConnected: initialConnected, accessTok
     }, [accessToken])
 
     const getClient = () => {
-        const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "/graphql/"
+        let endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "/graphql/"
+        // Ensure endpoint is absolute to avoid "Invalid URL" error in newer graphql-request versions
+        if (typeof window !== 'undefined' && endpoint.startsWith("/")) {
+            endpoint = `${window.location.origin}${endpoint}`
+        }
+
         const client = new GraphQLClient(endpoint)
         if (accessToken) {
             client.setHeader("Authorization", `Bearer ${accessToken}`)
