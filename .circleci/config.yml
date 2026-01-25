@@ -295,10 +295,39 @@ jobs:
              fi
              
              REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
-             REAL_IP=$(python3 -c "import socket; print(socket.gethostbyname('$REAL_DOMAIN'))")
-             echo "$REAL_IP testing-domain" | sudo tee -a /etc/hosts
+             TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
              
-             export CYPRESS_BASE_URL="https://testing-domain"
+             echo "Installing Nginx..."
+             sudo apt-get update && sudo apt-get install -y nginx
+             
+             echo "Configuring Nginx for domain masking..."
+             cat \<<EOF | sudo tee /etc/nginx/sites-available/masking-proxy
+server {
+    listen 80;
+    server_name $TESTING_DOMAIN;
+
+    location / {
+        proxy_pass https://$REAL_DOMAIN;
+        proxy_set_header Host $REAL_DOMAIN;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # SNI is important for Traefik/SNI-based routing
+        proxy_ssl_server_name on;
+        proxy_ssl_name $REAL_DOMAIN;
+        
+        # Disable SSL verification if staging uses self-signed/Traefik certs
+        proxy_ssl_verify off;
+    }
+}
+EOF
+             sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
+             sudo nginx -t && sudo service nginx restart
+             
+             echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts
+             
+             export CYPRESS_BASE_URL="http://$TESTING_DOMAIN"
              npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
