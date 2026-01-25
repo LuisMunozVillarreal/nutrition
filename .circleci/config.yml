@@ -294,7 +294,11 @@ jobs:
                exit 1
              fi
              
-             export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+             REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+             REAL_IP=$(python3 -c "import socket; print(socket.gethostbyname('$REAL_DOMAIN'))")
+             echo "$REAL_IP testing-domain" | sudo tee -a /etc/hosts
+             
+             export CYPRESS_BASE_URL="https://testing-domain"
              npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
