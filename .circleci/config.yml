@@ -329,7 +329,7 @@ jobs:
              sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -days 365 -nodes -subj "/CN=$TESTING_DOMAIN"
              
              echo "Configuring Nginx for domain masking..."
-             envsubst '$REAL_DOMAIN $TESTING_DOMAIN' < ../.circleci/nginx-masking-proxy.conf | sudo tee /etc/nginx/sites-available/masking-proxy
+             envsubst '$REAL_DOMAIN $TESTING_DOMAIN' < ../.circleci/nginx-masking-proxy.conf | sudo tee /etc/nginx/sites-available/masking-proxy > /dev/null
              
              sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
              sudo nginx -t && sudo service nginx restart
