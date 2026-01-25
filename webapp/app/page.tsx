@@ -1,26 +1,9 @@
-import { getServerSession } from "next-auth";
-import Link from "next/link";
-import { authOptions } from "./api/auth/[...nextauth]/route";
-import Dashboard from "./components/Dashboard";
+'use client'
 
-export default async function Home() {
-  const session = await getServerSession(authOptions);
+import dynamic from 'next/dynamic'
 
-  if (!session) {
-    return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-[#0f111a]">
-        <div className="text-center space-y-6">
-          <h1 className="text-5xl font-black text-white tracking-tighter">
-            <span className="text-gradient">Nutrition</span> App
-          </h1>
-          <p className="text-slate-400">Please sign in to view your dashboard.</p>
-          <Link href="/api/auth/signin" className="inline-block px-8 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-full transition-all shadow-[0_0_20px_rgba(139,92,246,0.5)]">
-            Get Started
-          </Link>
-        </div>
-      </main>
-    );
-  }
+const HomeClient = dynamic(() => import('./HomeClient'), { ssr: false })
 
-  return <Dashboard />;
+export default function Home() {
+  return <HomeClient />
 }
