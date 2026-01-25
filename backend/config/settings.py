@@ -22,7 +22,7 @@ SECRET_KEY = ENV("SECRET_KEY")
 
 DEBUG = ENV("DEBUG", default=False)
 
-ALLOWED_HOSTS = ENV("ALLOWED_HOSTS", default=[])
+ALLOWED_HOSTS = ENV("ALLOWED_HOSTS", default=[]) + ["nutrition-backend"]
 ALLOWED_CIDR_NETS = ["10.0.0.0/8"]
 
 CORS_ALLOWED_ORIGINS = ENV.list(
