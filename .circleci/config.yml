@@ -296,6 +296,10 @@ jobs:
              
              export CYPRESS_BASE_URL="https://staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
              npm run cypress:run
+      - store_artifacts:
+          path: ~/project/webapp/cypress/videos
+      - store_artifacts:
+          path: ~/project/webapp/cypress/screenshots
 
 workflows:
   version: 2
