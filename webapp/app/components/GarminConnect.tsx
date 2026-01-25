@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { gql, GraphQLClient } from "graphql-request"
 
@@ -25,6 +25,13 @@ export default function GarminConnect({ isConnected: initialConnected, accessTok
     const router = useRouter()
     const [isConnected, setIsConnected] = useState(initialConnected)
     const [loading, setLoading] = useState(false)
+    const [mounted, setMounted] = useState(false)
+
+    // Ensure component is mounted to avoid hydration mismatch
+    useEffect(() => {
+        setMounted(true)
+        console.log("GarminConnect mounted. AccessToken present:", !!accessToken)
+    }, [accessToken])
 
     const getClient = () => {
         const endpoint = process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT || "/graphql/"
@@ -62,6 +69,10 @@ export default function GarminConnect({ isConnected: initialConnected, accessTok
         } finally {
             setLoading(false)
         }
+    }
+
+    if (!mounted) {
+        return null; // or a skeleton loader
     }
 
     return (
