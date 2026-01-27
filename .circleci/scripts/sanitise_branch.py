@@ -3,10 +3,11 @@
 import hashlib
 import sys
 
-# Max length for the branch part is 44 characters to strictly fit
-# within the 63 char limit when combined with "nutrition-staging--"
-# 63 - 19 = 44
-MAX_LENGTH = 44
+# Max length for the branch part is 34 characters to strictly fit
+# within the 64 char SSL CN limit. The CN format is:
+# staging--<sanitized_branch>.<BASE_DOMAIN>
+# 64 - 9 (staging--) - 1 (.) - 20 (~BASE_DOMAIN) = 34
+MAX_LENGTH = 34
 
 
 def sanitise_branch_name(branch_name: str) -> str:
@@ -30,8 +31,8 @@ def sanitise_branch_name(branch_name: str) -> str:
         )
         branch_hash = hasher.hexdigest()[:7]
 
-        # Truncate to 36 chars to leave room for the hash (36 + 1 + 7 = 44)
-        s = s[:36].rstrip("-")
+        # Truncate to 26 chars to leave room for the hash (26 + 1 + 7 = 34)
+        s = s[:26].rstrip("-")
         s = f"{s}-{branch_hash}"
 
     return s
