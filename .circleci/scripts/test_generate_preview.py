@@ -27,21 +27,21 @@ def test_sanitize_branch():
         ("feature/new-ui", "feature-new-ui"),
         ("JIRA_123", "jira-123"),
         ("simple", "simple"),
-        # Boundary condition: exactly 44 chars
-        ("a" * 44, "a" * 44),
-        # Over 44 chars: 45 chars -> truncated to 36 + hash
+        # Boundary condition: exactly 34 chars
+        ("a" * 34, "a" * 34),
+        # Over 34 chars: 35 chars -> truncated to 26 + hash
         (
-            "a" * 45,
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-4642fe6",
+            "a" * 35,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaa-f4d3e05",
         ),
-        # Over 44 chars with hyphen at result cut
+        # Over 34 chars with hyphen at result cut
         (
             "feature/very/long/branch/name/that/exceeds/limit",
-            "feature-very-long-branch-name-that-e-c8906af",
+            "feature-very-long-branch-n-c8906af",
         ),
         (
             "dependabot/uv/backend/urllib3-2.6.3",
-            "dependabot-uv-backend-urllib3-2-6-3",
+            "dependabot-uv-backend-urll-ed362e9",
         ),
     ]
 
