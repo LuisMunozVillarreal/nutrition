@@ -39,7 +39,7 @@ pydocstyle-tests:
 	uv run pydocstyle tests ../.circleci/scripts --count $(ARGS)
 
 docker-build:
-	docker build . -f platform/docker/Dockerfile -t $(IMAGE_NAME):$(TAG)
+	docker build . -f docker/Dockerfile -t $(IMAGE_NAME):$(TAG)
 
 docker-tag:
 	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):latest

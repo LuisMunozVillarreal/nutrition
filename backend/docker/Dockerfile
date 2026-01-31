@@ -65,7 +65,7 @@ WORKDIR $SRC_DIR
 
 # Web server config with ansible
 USER root
-COPY platform/docker/ansible ansible
+COPY docker/ansible ansible
 RUN \
   apt-get update && \
   # Install ansible
@@ -97,7 +97,7 @@ RUN mkdir -p public/static
 EXPOSE 80
 
 # Entry point
-COPY platform/docker/entrypoint.sh \
+COPY docker/entrypoint.sh \
   /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 

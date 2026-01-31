@@ -9,8 +9,9 @@ updates:
         dependency-type: "development"
       production-dependencies:
         dependency-type: "production"
+
   - package-ecosystem: "docker"
-    directory: "/backend/platform/docker/"
+    directory: "/backend/docker/"
     schedule:
       interval: "weekly"
     groups:
@@ -24,5 +25,14 @@ updates:
       interval: "weekly"
     groups:
       dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "docker"
+    directory: "/webapp/docker/"
+    schedule:
+      interval: "weekly"
+    groups:
+      updates:
         patterns:
           - "*"

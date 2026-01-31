@@ -6,5 +6,5 @@
 !apps
 !config
 !static
-!platform/docker/entrypoint.sh
-!platform/docker/ansible
+!docker/entrypoint.sh
+!docker/ansible

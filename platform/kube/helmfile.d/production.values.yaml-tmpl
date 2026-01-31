@@ -1,4 +1,0 @@
-environment: production
-namespace: nutrition-production
-domain: <domain>
-debug: False
