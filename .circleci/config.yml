@@ -290,7 +290,9 @@ jobs:
       - run:
           name: Install Dependencies
           working_directory: ~/project/webapp
-          command: npm ci
+          command: |
+             npm install -g pnpm
+             pnpm install
       - run:
           name: Create Test User
           command: |
@@ -337,7 +339,7 @@ jobs:
              echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts
              
              export CYPRESS_BASE_URL="https://$TESTING_DOMAIN"
-             npm run cypress:run
+             pnpm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
       - store_artifacts:
