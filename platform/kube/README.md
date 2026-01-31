@@ -71,11 +71,9 @@ Remove the password from the file.
 
 #### Templates
 
-Copy the templates:
+Copy the template:
 
     ```bash
-    cp production.values.yaml-tmpl production.values.yaml
-    cp staging.values.yaml-tmpl staging.values.yaml
     cp traefik.values.yaml-tmpl traefik.values.yaml
     ```
 

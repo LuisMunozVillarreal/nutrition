@@ -138,6 +138,4 @@ dmypy.json
 backend/nutrition-gcp-db-backup-credentials.json
 
 # Deployment
-platform/kube/helmfile.d/production.values.yaml
-platform/kube/helmfile.d/staging.values.yaml
 platform/kube/helmfile.d/traefik.values.yaml

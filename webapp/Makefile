@@ -5,7 +5,7 @@ TAG?=latest
 .PHONY: docker-build docker-tag docker-push
 
 docker-build:
-	docker build . -f platform/docker/Dockerfile -t $(IMAGE_NAME):$(TAG)
+	docker build . -f docker/Dockerfile -t $(IMAGE_NAME):$(TAG)
 
 docker-tag:
 	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):latest

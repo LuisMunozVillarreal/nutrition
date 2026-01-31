@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install dependencies based on the preferred package manager
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml* ./
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
 
 # Rebuild the source code only when needed
@@ -23,7 +23,7 @@ COPY . .
 # Learn more here: https://nextjs.org/telemetry
 ENV NEXT_TELEMETRY_DISABLED 1
 
-RUN npm run build
+RUN pnpm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
