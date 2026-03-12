@@ -40,8 +40,7 @@ def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
     # Analyse
     response = client.models.generate_content(
         model="gemini-1.5-flash",
-        config=types.GenerateContentConfig(
-            system_instruction="""
+        config=types.GenerateContentConfig(system_instruction="""
             You will receive an HTML page.
             This page might contain javascript.
             That page contains information of a food product.
@@ -66,8 +65,7 @@ def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
             - fibre
             - protein
             - salt
-        """
-        ),
+        """),
         contents=[str(html)],  # type: ignore[arg-type]
     )
 
@@ -90,8 +88,7 @@ def get_food_nutrition_facts(food: str) -> Dict[str, float]:
     # Analyse
     response = client.models.generate_content(
         model="gemini-1.5-flash",
-        config=types.GenerateContentConfig(
-            system_instruction="""
+        config=types.GenerateContentConfig(system_instruction="""
             I'll give you the name of a food and I need you to give me a
             python dictionary with the nutritional facts for 100 grams of
             such food.
@@ -106,8 +103,7 @@ def get_food_nutrition_facts(food: str) -> Dict[str, float]:
             - fibre
             - protein
             - salt
-        """
-        ),
+        """),
         contents=[food],  # type: ignore[arg-type]
     )
 
