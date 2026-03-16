@@ -1,8 +1,6 @@
 'use client'
 
-import dynamic from 'next/dynamic'
-
-const HomeClient = dynamic(() => import('./HomeClient'), { ssr: false })
+import HomeClient from './HomeClient'
 
 export default function Home() {
   return <HomeClient />
