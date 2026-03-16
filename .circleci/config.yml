@@ -24,7 +24,7 @@ executors:
     environment:
       PATH: "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:/root/.local/bin"
       GEMINI_API_KEY: "TestingApiKey"
-      SECRET_KEY: "TestingSecretKey"
+      SECRET_KEY: "TestingSecretKeyThatIsAtLeast32BytesLong"
   python-postgresql:
     docker:
       - image: << pipeline.parameters.backend-image >>
@@ -33,7 +33,7 @@ executors:
           POSTGRES_USER: nutrition
     environment:
       GEMINI_API_KEY: "TestingApiKey"
-      SECRET_KEY: "TestingSecretKey"
+      SECRET_KEY: "TestingSecretKeyThatIsAtLeast32BytesLong"
 
 commands:
   python-dependencies:
