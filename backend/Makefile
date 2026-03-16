@@ -53,6 +53,9 @@ docker-build-tag-push: docker-build docker-tag docker-push
 restore-db:
 	uv run ./manage.py dbrestore --noinput -d nutrition
 
+reset-db:
+	uv run ./manage.py reset_db --noinput
+
 migrations-check:
 	uv run ./manage.py makemigrations --check
 
@@ -61,3 +64,6 @@ migrate:
 
 start-server:
 	uv run ./manage.py runserver 0:8000
+
+add-testing-user:
+	uv run ./manage.py shell -c "from apps.users.models import User; import datetime; User.objects.filter(email='user@example.com').delete(); User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)"
