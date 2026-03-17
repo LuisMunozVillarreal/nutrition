@@ -14,12 +14,6 @@ export default defineConfig({
                     plugins: [createEsbuildPlugin(config)],
                 })
             );
-            on("task", {
-                log(message) {
-                    console.log(message);
-                    return null;
-                },
-            });
             return config;
         },
         baseUrl: "http://localhost:3000",
