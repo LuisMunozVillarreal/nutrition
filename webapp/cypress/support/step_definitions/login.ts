@@ -22,16 +22,21 @@ When("I click the sign in button", () => {
 });
 
 Then("I should be redirected to the home page", () => {
+    // Wait for potential redirect or refresh
+    cy.wait(3000);
+
     // Check that we don't see a login failure
     cy.on('window:alert', (str) => {
         expect(str).to.not.equal('Login failed');
     });
 
-    // Wait for potential redirect or refresh
-    cy.wait(3000);
-
     // Check we're on the base URL
-    cy.url().should('include', Cypress.config().baseUrl);
+    cy.url().then((url) => {
+        cy.log(`Current URL after wait: ${url}`);
+        // Base URL in Cypress usually doesn't have a trailing slash, but the actual browser URL might.
+        const expectedUrl = Cypress.config().baseUrl?.replace(/\/$/, '') + '/';
+        expect(url.replace(/\/$/, '') + '/').to.equal(expectedUrl);
+    });
 });
 
 Then("I should see a welcome message", () => {
