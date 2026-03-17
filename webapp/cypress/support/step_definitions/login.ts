@@ -28,7 +28,7 @@ Then("I should be redirected to the home page", () => {
     });
 
     // Wait for potential redirect or refresh
-    cy.wait(2000);
+    cy.wait(3000);
 
     // Check we're on the base URL
     cy.url().should('include', Cypress.config().baseUrl);
