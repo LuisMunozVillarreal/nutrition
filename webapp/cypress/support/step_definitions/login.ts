@@ -32,8 +32,6 @@ Then("I should be redirected to the home page", () => {
 
     // Check we're on the base URL
     cy.url().then((url) => {
-        cy.log(`Current URL after wait: ${url}`);
-        // Base URL in Cypress usually doesn't have a trailing slash, but the actual browser URL might.
         const expectedUrl = Cypress.config().baseUrl?.replace(/\/$/, '') + '/';
         expect(url.replace(/\/$/, '') + '/').to.equal(expectedUrl);
     });
@@ -47,7 +45,6 @@ Then("I should see a welcome message", () => {
     // This makes the test more resilient
     cy.get('body').then($body => {
         const bodyText = $body.text();
-        cy.log(`Page content: ${bodyText.substring(0, 300)}`);
 
         // Check for either the greeting or the dashboard content
         const hasDashboard = bodyText.includes('Time to dominate') ||
