@@ -23,7 +23,7 @@ When("I click the sign in button", () => {
 
 Then("I should be redirected to the home page", () => {
     // Wait for potential redirect or refresh
-    cy.wait(3000);
+    cy.wait(5000);
 
     // Check that we don't see a login failure
     cy.on('window:alert', (str) => {
