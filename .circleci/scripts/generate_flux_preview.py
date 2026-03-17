@@ -106,10 +106,6 @@ spec:
                       value: "http://nutrition-backend/graphql/"
                     - name: NEXTAUTH_URL
                       value: "https://{preview_host}"
-                    - name: NEXTAUTH_DEBUG
-                      value: "true"
-                    - name: DEBUG
-                      value: "next-auth:*"
       target:
         kind: Deployment
         name: nutrition-webapp
