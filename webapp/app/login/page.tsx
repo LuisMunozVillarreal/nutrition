@@ -1,16 +1,17 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 
 const LoginPage = () => {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
-    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isPending, startTransition] = useTransition()
+    const router = useRouter()
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        setIsSubmitting(true)
         const result = await signIn('credentials', {
             email,
             password,
@@ -18,10 +19,11 @@ const LoginPage = () => {
         })
 
         if (result?.ok) {
-            // Use hard navigation to avoid RSC streaming issues through reverse proxies
-            window.location.href = '/'
+            startTransition(() => {
+                router.refresh()
+                router.push('/')
+            })
         } else {
-            setIsSubmitting(false)
             alert("Login failed")
         }
     }
@@ -44,8 +46,8 @@ const LoginPage = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     className="border p-2 rounded"
                 />
-                <button type="submit" disabled={isSubmitting} className="bg-blue-500 text-white p-2 rounded disabled:opacity-50">
-                    {isSubmitting ? 'Signing in...' : 'Sign In'}
+                <button type="submit" disabled={isPending} className="bg-blue-500 text-white p-2 rounded disabled:opacity-50">
+                    {isPending ? 'Signing in...' : 'Sign In'}
                 </button>
             </form>
         </div>
