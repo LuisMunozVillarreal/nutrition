@@ -2,9 +2,9 @@
 
 import { useEffect, useState, Suspense } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
-import { graphqlRequest, gql } from '@/lib/graphql'
-import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { graphqlRequest, gql } from '../../../lib/graphql'
+import EntityForm from '../../../components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '../../../components/FormField'
 
 const SERVING_QUERY = gql`
   query GetServing($id: ID!, $foodId: ID!) {
