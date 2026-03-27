@@ -1,8 +1,6 @@
 """Food Products, Servings, Recipes and Cupboard GraphQL schema module."""
+
 import datetime
-
-# pylint: disable=too-few-public-methods,too-many-lines
-
 from decimal import Decimal
 
 import strawberry
@@ -15,6 +13,8 @@ from apps.foods.models import (
     RecipeIngredient,
     Serving,
 )
+
+# pylint: disable=too-few-public-methods,too-many-lines
 
 
 @strawberry.type

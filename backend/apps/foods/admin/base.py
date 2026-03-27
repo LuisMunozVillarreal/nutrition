@@ -19,9 +19,7 @@ class TagsAdminMixin:
             QuerySet: queryset.
         """
         return (
-            super()  # type: ignore[misc]
-            .get_queryset(request)
-            .prefetch_related("tags")
+            super().get_queryset(request).prefetch_related("tags")  # type: ignore[misc]
         )
 
     def tag_list(self, obj: Any) -> str:
