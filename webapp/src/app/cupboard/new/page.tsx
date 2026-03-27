@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { graphqlRequest, gql } from '@/lib/graphql'
-import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { graphqlRequest, gql } from '../../../lib/graphql'
+import EntityForm from '../../../components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '../../../components/FormField'
 
 const DATA_QUERY = gql`
   query {
