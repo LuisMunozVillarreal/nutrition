@@ -10,6 +10,8 @@ interface FormFieldProps {
   readOnly?: boolean
   placeholder?: string
   step?: string
+  min?: string | number
+  max?: string | number
   helpText?: string
   testId?: string
 }
@@ -24,6 +26,8 @@ export function FormField({
   readOnly = false,
   placeholder,
   step,
+  min,
+  max,
   helpText,
   testId,
 }: FormFieldProps) {
@@ -45,6 +49,8 @@ export function FormField({
         disabled={readOnly}
         placeholder={placeholder}
         step={step}
+        min={min}
+        max={max}
         data-testid={testId || `field-${name}`}
       />
       {helpText && (

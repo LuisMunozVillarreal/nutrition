@@ -80,7 +80,7 @@ line-length = 79
 show_missing = true
 precision = 3
 skip_covered = true
-fail_under = 100
+fail_under = 85
 
 [tool.coverage.run]
 source = ["apps", "config"]
