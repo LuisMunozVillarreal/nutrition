@@ -63,7 +63,7 @@ class TestExerciseQuery:
         """Test exercises returns only the current user's data."""
         # Given two users with exercises
         user1, day1 = _create_user_with_day("ex1@example.com")
-        user2, day2 = _create_user_with_day("ex2@example.com")
+        _, day2 = _create_user_with_day("ex2@example.com")
         Exercise.objects.create(day=day1, time="10:00", type="walk", kcals=200)
         Exercise.objects.create(day=day2, time="11:00", type="run", kcals=400)
 
