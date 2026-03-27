@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 import { Providers } from "./Providers";
-import AppShell from "./components/AppShell";
+import AppShell from '@/app/components/AppShell';
 
 export const metadata: Metadata = {
   title: "Nutrition Tracker",

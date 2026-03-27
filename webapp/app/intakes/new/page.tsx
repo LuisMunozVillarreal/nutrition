@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { graphqlRequest, gql } from '../../../lib/graphql'
-import EntityForm from '../../components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '../../components/FormField'
+import { graphqlRequest, gql } from '@/app/lib/graphql'
+import EntityForm from '@/app/components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/app/components/FormField'
 
 const CREATE_MUTATION = gql`
   mutation CreateIntake(

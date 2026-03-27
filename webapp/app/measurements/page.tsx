@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { graphqlRequest, gql } from '../../lib/graphql'
-import DataTable, { Column } from '../components/DataTable'
+import { graphqlRequest, gql } from '@/app/lib/graphql'
+import DataTable, { Column } from '@/app/components/DataTable'
 
 const MEASUREMENTS_QUERY = gql`
   query {
