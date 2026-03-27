@@ -48,7 +48,7 @@ class TestWeekPlanSchema:
 
     def test_week_plans_query(self, mocker):
         """Test week plans query."""
-        user, plan = _create_user_and_plan("wp1@test.com")
+        user, _ = _create_user_and_plan("wp1@test.com")
         mock_context = mocker.Mock()
         mock_context.request.user = user
 
