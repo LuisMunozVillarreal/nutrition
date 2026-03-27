@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { graphqlRequest, gql } from '@/lib/graphql'
-import DataTable, { Column } from '@/app/components/DataTable'
+import { graphqlRequest, gql } from '../../lib/graphql'
+import DataTable, { Column } from '../components/DataTable'
 
 // For the global intakes list, you'd ideally have a direct query in the backend.
 // Since we only query via Day/WeekPlan currently, we fetch recent week plans' days' intakes
