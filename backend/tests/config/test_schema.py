@@ -1,7 +1,6 @@
 """Tests for GraphQL schema configuration."""
 
 import pytest
-from asgiref.sync import sync_to_async
 from django.contrib.auth import get_user_model
 
 from apps.goals.models import FatPercGoal
@@ -46,7 +45,7 @@ def test_me_query_authenticated(mocker):
 
     # And a mock context
     mock_context = mocker.Mock()
-    mock_context.user = user
+    mock_context.request.user = user
 
     # When executing a me query with authentication
     query = "{ me { email } }"
@@ -81,7 +80,7 @@ def test_user_dashboard(mocker):
     """
     # Mock authenticated user
     mock_context = mocker.Mock()
-    mock_context.user = user
+    mock_context.request.user = user
 
     result = schema.execute_sync(query, context_value=mock_context)
 
@@ -103,15 +102,14 @@ def test_user_dashboard(mocker):
 
 
 @pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_login_mutation_success():
+def test_login_mutation_success():
     """Test login mutation with valid credentials."""
     # Given a set of user credentials
     email = "user@example.com"
     password = "password123"
 
     # When a user exists
-    await sync_to_async(User.objects.create_user)(
+    User.objects.create_user(
         email=email,
         password=password,
         first_name="Test",
@@ -135,8 +133,9 @@ async def test_login_mutation_success():
         }
     """
 
-    result = await schema.execute(
-        mutation, variable_values={"email": email, "password": password}
+    result = schema.execute_sync(
+        mutation,
+        variable_values={"email": email, "password": password},
     )
 
     # Then there is no errors
@@ -149,8 +148,7 @@ async def test_login_mutation_success():
 
 
 @pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_login_mutation_failure():
+def test_login_mutation_failure():
     """Test login mutation with invalid credentials."""
     # When attempting to login with invalid credentials
     mutation = """
@@ -161,9 +159,12 @@ async def test_login_mutation_failure():
         }
     """
 
-    result = await schema.execute(
+    result = schema.execute_sync(
         mutation,
-        variable_values={"email": "wrong@example.com", "password": "wrong"},
+        variable_values={
+            "email": "wrong@example.com",
+            "password": "wrong",
+        },
     )
 
     # Then the result contains errors and no data

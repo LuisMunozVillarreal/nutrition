@@ -146,7 +146,15 @@ jobs = 0
 ignore = ["migrations"]
 
 [tool.pylint."MESSAGES CONTROL"]
-disable = ["model-no-explicit-unicode"]
+disable = [
+    "model-no-explicit-unicode",
+    "redefined-builtin",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "duplicate-code",
+    "import-outside-toplevel",
+]
 
 [tool.pylint.REPORTS]
 reports = "y"
@@ -168,6 +176,7 @@ addopts = [
     "-W ignore:The --rsyncdir command line argument:DeprecationWarning",
     "-W ignore:Type google._upb._message.MessageMapContainer:DeprecationWarning",
     "-W ignore:Type google._upb._message.ScalarMapContainer:DeprecationWarning",
+    "-W ignore::jwt.warnings.InsecureKeyLengthWarning",
 ]
 testpaths = ["tests"]
 junit_family = "xunit2"
