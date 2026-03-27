@@ -72,10 +72,9 @@ class User(AbstractUser, BaseModel):
             self.email = self.email.lower()
             self.set_password(self.password)
         else:
-            if (
-                self._password is None  # type: ignore
-                and not self.check_password(self.password)
-            ):
+            if getattr(
+                self, "_password", None
+            ) is None and not self.check_password(self.password):
                 self.set_password(self.password)
 
         super().save(*args, **kwargs)
