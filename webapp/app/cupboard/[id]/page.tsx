@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { graphqlRequest, gql } from '../../../lib/graphql'
-import EntityForm from '../../components/EntityForm'
-import { FormField } from '../../components/FormField'
+import { graphqlRequest, gql } from '@/lib/graphql'
+import EntityForm from '@/app/components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/app/components/FormField'
 
 const ITEM_QUERY = gql`
   query GetCupboardItem($id: ID!) {

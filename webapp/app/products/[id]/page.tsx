@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { graphqlRequest, gql } from '../../../lib/graphql'
-import EntityForm from '../../components/EntityForm'
-import { FormField, SelectField, TextareaField } from '../../components/FormField'
-import DataTable, { Column } from '../../components/DataTable'
+import { graphqlRequest, gql } from '@/lib/graphql'
+import EntityForm from '@/app/components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/app/components/FormField'
+import DataTable, { Column } from '@/app/components/DataTable'
 
 const PRODUCT_QUERY = gql`
   query GetFoodProduct($id: ID!) {
