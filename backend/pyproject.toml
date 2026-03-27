@@ -100,13 +100,14 @@ django_settings_module = "config.settings"
 [tool.flake8]
 statistics = true
 exclude = [".git", "__pycache__", "manage.py", "**/migrations/"]
+max-line-length = 88
 
 [tool.hatch.build.targets.wheel]
 packages = ["apps", "config", "manage.py"]
 
 [tool.isort]
 profile = "black"
-line_length = 79
+line_length = 88
 skip_glob = ["**/migrations/*"]
 
 [tool.mypy]
@@ -124,7 +125,7 @@ match-dir = "(?!migrations).*"
 add-ignore = "D107,D104,D106"
 
 [tool.pylint.FORMAT]
-max-line-length = 79
+max-line-length = 88
 
 [tool.pylint.MAIN]
 django-settings-module = "config.settings"
@@ -154,6 +155,7 @@ disable = [
     "too-many-locals",
     "duplicate-code",
     "import-outside-toplevel",
+    "too-few-public-methods",
 ]
 
 [tool.pylint.REPORTS]

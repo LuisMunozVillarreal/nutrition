@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, Suspense } from 'react'
-import { graphqlRequest, gql } from '@/lib/graphql'
-import EntityForm from '@/app/components/EntityForm'
-import { FormField, SelectField } from '@/app/components/FormField'
+import { graphqlRequest, gql } from '../../../lib/graphql'
+import EntityForm from '../../components/EntityForm'
+import { FormField, SelectField } from '../../components/FormField'
 import { useSearchParams } from 'next/navigation'
 
 const CREATE_MUTATION = gql`
