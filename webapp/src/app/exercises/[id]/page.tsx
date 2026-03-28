@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { graphqlRequest, gql } from '../../../lib/graphql'
-import EntityForm from '../../../components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '../../../components/FormField'
+import { graphqlRequest, gql } from '@/lib/graphql'
+import EntityForm from '@/components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 
 const EXERCISE_QUERY = gql`
   query GetExercise($id: ID!) {
