@@ -11,12 +11,21 @@ export async function graphqlRequest<T>(
     query: string,
     variables?: Record<string, unknown>,
 ): Promise<T> {
-    const session = await getSession();
+    let session = await getSession();
+    
+    // Retry once if session is missing, as it might take a moment to initialize after login
+    if (!session) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        session = await getSession();
+    }
+    
     const token = session?.accessToken;
 
     const headers: Record<string, string> = {};
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
+    } else {
+        console.warn('graphqlRequest: No access token found in session', { hasSession: !!session });
     }
 
     return request<T>(endpoint, query, variables, headers);

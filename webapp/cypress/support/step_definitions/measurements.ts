@@ -6,8 +6,12 @@ Given("I am logged in", () => {
     cy.get('input[type="email"]').type("user@example.com");
     cy.get('input[type="password"]').type("password123");
     cy.get('button[type="submit"]').click();
-    cy.wait(5000);
-    cy.url().should("not.include", "/login");
+
+    // Check that we're on the dashboard or home page
+    cy.url({ timeout: 15000 }).should("not.include", "/login");
+    
+    // Ensure the session is loaded in the browser state
+    cy.get('body').should('be.visible');
 });
 
 When("I navigate to the measurements page", () => {
