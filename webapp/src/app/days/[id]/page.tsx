@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { graphqlRequest, gql } from '@/lib/graphql'
-import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
-import DataTable, { Column } from '@/components/DataTable'
+import { graphqlRequest, gql } from '../../../lib/graphql'
+import EntityForm from '../../../components/EntityForm'
+import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '../../../components/FormField'
+import DataTable, { Column } from '../../../components/DataTable'
 
 const DAY_QUERY = gql`
   query GetDay($id: ID!) {
