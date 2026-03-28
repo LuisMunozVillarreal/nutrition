@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "ne../fo../google";
-import ../globals.css";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,8 +12,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-import { Providers } from ../Providers";
-import AppShell from '../componen../AppShell';
+import { Providers } from "./Providers";
+import AppShell from '@/components/AppShell';
 
 export const metadata: Metadata = {
   title: "Nutrition Tracker",
@@ -31,9 +31,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
-          <AppShell>{children../AppShell>
-       ../Providers>
-     ../body>
-   ../html>
+          <AppShell>{children}</AppShell>
+        </Providers>
+      </body>
+    </html>
   );
 }
