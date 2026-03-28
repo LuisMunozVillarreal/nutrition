@@ -17,12 +17,7 @@ RUN npm ci
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY src ./src
-COPY public ./public
-COPY next.config.ts .
-COPY tsconfig.json .
-COPY package.json .
-COPY package-lock.json* .
+COPY . .
 RUN rm -rf .next
 
 # Next.js collects completely anonymous telemetry data about general usage.
