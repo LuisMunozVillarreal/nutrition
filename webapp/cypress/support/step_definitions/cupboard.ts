@@ -17,13 +17,13 @@ When("I navigate to the add to cupboard page", () => {
 Given("a food product exists named {string}", (name: string) => {
     // Navigate to products and create it via UI to ensure auth/context is correct
     cy.visit("/products/new");
-    cy.get('[data-testid="field-name"]').type(name);
-    cy.get('[data-testid="field-size"]').clear().type("1000");
-    cy.get('[data-testid="field-numServings"]').clear().type("4");
-    cy.get('[data-testid="field-energyKcal"]').clear().type("500");
-    cy.get('[data-testid="field-proteinG"]').clear().type("30");
-    cy.get('[data-testid="field-fatG"]').clear().type("15");
-    cy.get('[data-testid="field-carbsG"]').clear().type("50");
+    cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true}).type(name, {force: true});
+    cy.get('[data-testid="field-size"]').clear({force: true}).type("1000", {force: true});
+    cy.get('[data-testid="field-numServings"]').clear({force: true}).type("4", {force: true});
+    cy.get('[data-testid="field-energyKcal"]').clear({force: true}).type("500", {force: true});
+    cy.get('[data-testid="field-proteinG"]').clear({force: true}).type("30", {force: true});
+    cy.get('[data-testid="field-fatG"]').clear({force: true}).type("15", {force: true});
+    cy.get('[data-testid="field-carbsG"]').clear({force: true}).type("50", {force: true});
     cy.get('[data-testid="save-btn"]').click();
     cy.url().should("match", /\/products$/);
     cy.wait(2000); // Give backend/cache time to stabilize
