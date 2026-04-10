@@ -28,7 +28,18 @@ export async function graphqlRequest<T>(
         console.warn('graphqlRequest: No access token found in session', { hasSession: !!session });
     }
 
-    return request<T>(endpoint, query, variables, headers);
+    const extras: Record<string, unknown> = {};
+    extras.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        return fetch(input, { ...init, cache: 'no-store' });
+    };
+
+    return request<T>({
+        url: endpoint,
+        document: query,
+        variables,
+        requestHeaders: headers,
+        ...extras
+    });
 }
 
 export { gql };
