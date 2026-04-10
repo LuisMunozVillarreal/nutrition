@@ -85,9 +85,9 @@ spec:
                 - name: backend
                   env:
                     - name: ALLOWED_HOSTS
-                      value: "{preview_host}"
+                      value: "{preview_host},nutrition-backend"
                     - name: CSRF_TRUSTED_ORIGINS
-                      value: "https://{preview_host}"
+                      value: "https://{preview_host},http://nutrition-backend"
       target:
         kind: Deployment
         name: nutrition-backend
@@ -103,7 +103,7 @@ spec:
                 - name: webapp
                   env:
                     - name: GRAPHQL_ENDPOINT
-                      value: "https://{preview_host}/graphql/"
+                      value: "http://nutrition-backend/graphql/"
                     - name: NEXTAUTH_URL
                       value: "https://{preview_host}"
       target:
