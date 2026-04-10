@@ -7,8 +7,9 @@ Feature: Exercises CRUD
 
   Scenario: Create a new exercise
     Given I am logged in
+    And a day exists for the exercise
     When I navigate to the new exercise page
-    And I fill in the exercise day id with "1"
+    And I fill in the exercise day id with the valid day ID
     And I select the exercise type "walk"
     And I fill in the exercise kcals with "200"
     And I click the save button

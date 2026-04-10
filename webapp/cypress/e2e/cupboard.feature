@@ -9,7 +9,7 @@ Feature: Cupboard CRUD
     Given I am logged in
     And a food product exists named "Cypress Milk TEST"
     When I navigate to the add to cupboard page
-    And I select "Product: Cypress Milk TEST" as the food item
+    And I select "Cypress Milk TEST" as the food item
     And I click the save button
     Then I should be redirected to the cupboard list
     And I should see "Cypress Milk TEST" in the list

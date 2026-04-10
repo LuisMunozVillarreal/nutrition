@@ -17,25 +17,34 @@ When("I navigate to the add to cupboard page", () => {
 Given("a food product exists named {string}", (name: string) => {
     // Navigate to products and create it via UI to ensure auth/context is correct
     cy.visit("/products/new");
-    cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true}).type(name, {force: true});
-    cy.get('[data-testid="field-size"]').clear({force: true}).type("1000", {force: true});
-    cy.get('[data-testid="field-numServings"]').clear({force: true}).type("4", {force: true});
-    cy.get('[data-testid="field-energyKcal"]').clear({force: true}).type("500", {force: true});
-    cy.get('[data-testid="field-proteinG"]').clear({force: true}).type("30", {force: true});
-    cy.get('[data-testid="field-fatG"]').clear({force: true}).type("15", {force: true});
-    cy.get('[data-testid="field-carbsG"]').clear({force: true}).type("50", {force: true});
+    cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true});
+    cy.get('[data-testid="field-name"]').type(name, {force: true});
+    cy.get('[data-testid="field-size"]').clear({force: true});
+    cy.get('[data-testid="field-size"]').type("1000", {force: true});
+    cy.get('[data-testid="field-numServings"]').clear({force: true});
+    cy.get('[data-testid="field-numServings"]').type("4", {force: true});
+    cy.get('[data-testid="field-energyKcal"]').clear({force: true});
+    cy.get('[data-testid="field-energyKcal"]').type("500", {force: true});
+    cy.get('[data-testid="field-proteinG"]').clear({force: true});
+    cy.get('[data-testid="field-proteinG"]').type("30", {force: true});
+    cy.get('[data-testid="field-fatG"]').clear({force: true});
+    cy.get('[data-testid="field-fatG"]').type("15", {force: true});
+    cy.get('[data-testid="field-carbsG"]').clear({force: true});
+    cy.get('[data-testid="field-carbsG"]').type("50", {force: true}).blur();
+    cy.wait(100);
     cy.get('[data-testid="save-btn"]').click();
     cy.url().should("match", /\/products$/);
     cy.wait(2000); // Give backend/cache time to stabilize
 });
 
 When("I select {string} as the food item", (label: string) => {
-    cy.get('[data-testid="field-foodId"] option', { timeout: 10000 }).then($options => {
-        const texts = [...$options].map(opt => opt.innerText);
-        cy.log('Available options:', JSON.stringify(texts));
-    });
-    cy.get('[data-testid="field-foodId"] option', { timeout: 10000 }).should('contain', label);
-    cy.get('[data-testid="field-foodId"]').select(label);
+    cy.get('[data-testid="field-foodId"] option', { timeout: 10000 })
+        .should('contain.text', label)
+        .contains(label)
+        .invoke('val')
+        .then((val) => {
+            cy.get('[data-testid="field-foodId"]').select(val as string);
+        });
 });
 
 Then("I should see {string} in the list", (text: string) => {
