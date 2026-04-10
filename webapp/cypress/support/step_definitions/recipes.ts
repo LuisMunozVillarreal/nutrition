@@ -15,11 +15,15 @@ When("I navigate to the new recipe page", () => {
 });
 
 When("I fill in the recipe name with {string}", (value: string) => {
-    cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true}).type(value, {force: true});
+    cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true});
+    cy.get('[data-testid="field-name"]').type(value, {force: true});
+    cy.wait(100);
 });
 
 When("I fill in the recipe energy with {string}", (value: string) => {
-    cy.get('[data-testid="field-energyKcal"]').should('be.visible').clear({force: true}).type(value, {force: true});
+    cy.get('[data-testid="field-energyKcal"]').should('be.visible').clear({force: true});
+    cy.get('[data-testid="field-energyKcal"]').type(value, {force: true});
+    cy.wait(100);
 });
 
 Then("I should be redirected to the recipes list", () => {

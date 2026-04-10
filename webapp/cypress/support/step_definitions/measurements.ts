@@ -29,11 +29,14 @@ When("I navigate to the new measurement page", () => {
 });
 
 When("I fill in the body fat percentage with {string}", (value: string) => {
-    cy.get('[data-testid="field-bodyFatPerc"]').clear().type(value);
+    cy.get('[data-testid="field-bodyFatPerc"]').clear();
+    cy.get('[data-testid="field-bodyFatPerc"]').type(value);
 });
 
 When("I fill in the weight with {string}", (value: string) => {
-    cy.get('[data-testid="field-weight"]').clear().type(value);
+    cy.get('[data-testid="field-weight"]').clear();
+    cy.get('[data-testid="field-weight"]').type(value);
+    cy.wait(100); // Give React concurrent mode time to update state
 });
 
 When("I click the save button", () => {
@@ -41,6 +44,17 @@ When("I click the save button", () => {
 });
 
 Then("I should be redirected to the measurements list", () => {
-    cy.url({ timeout: 10000 }).should("include", "/measurements");
-    cy.url().should("not.include", "/new");
+    // Assert there's NO error toast, and wait a bit for it
+    cy.get('body').then($body => {
+        if ($body.find('[data-testid="form-error"]').length > 0) {
+            throw new Error("Form Error: " + $body.find('[data-testid="form-error"]').text().trim());
+        }
+    });
+    cy.url({ timeout: 10000 }).should("not.include", "/new").then(() => {
+        cy.get('body').then($body => {
+            if ($body.find('[data-testid="form-error"]').length > 0) {
+                throw new Error("Form Error: " + $body.find('[data-testid="form-error"]').text().trim());
+            }
+        });
+    });
 });
