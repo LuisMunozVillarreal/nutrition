@@ -18,7 +18,7 @@ let validDayId = "1";
 
 Given("a day exists for the exercise", () => {
     // We execute the python script to ensure the DB state is valid for testing
-    cy.exec('cd ../backend && uv run python seed_test_day.py', { failOnNonZeroExit: true })
+    cy.exec('cd ../backend && .venv/bin/python scripts/seed_test_day.py', { failOnNonZeroExit: true })
       .then((result) => {
           if (result.stdout) {
               const lines = result.stdout.split("\n");
