@@ -33,7 +33,15 @@ SITE_ID = 1
 
 ENVIRONMENT = ENV("ENVIRONMENT", default="development")
 if ENVIRONMENT == "development":  # pragma: no cover
-    ALLOWED_HOSTS = ["192.168.1.101", "localhost"]
+    ALLOWED_HOSTS = [
+        "192.168.1.101",
+        "localhost",
+        "127.0.0.1",
+        "localhost:3000",
+        "localhost:8000",
+        "127.0.0.1:3000",
+        "127.0.0.1:8000",
+    ]
     DEBUG = True
 
 
@@ -68,6 +76,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.middleware.JWTAuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]

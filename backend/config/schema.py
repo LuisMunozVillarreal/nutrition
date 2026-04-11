@@ -6,10 +6,22 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 import strawberry
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from strawberry.types import Info
+
+from apps.exercises.schema import ExerciseMutation, ExerciseQuery
+from apps.foods.schema import (
+    CupboardMutation,
+    CupboardQuery,
+    FoodMutation,
+    FoodQuery,
+    RecipeMutation,
+    RecipeQuery,
+)
+from apps.goals.schema import GoalMutation, GoalQuery
+from apps.measurements.schema import MeasurementMutation, MeasurementQuery
+from apps.plans.schema import PlanMutation, PlanQuery
 
 User = get_user_model()
 
@@ -71,7 +83,15 @@ class AuthPayload:
 
 
 @strawberry.type
-class Query:
+class Query(
+    MeasurementQuery,
+    GoalQuery,
+    ExerciseQuery,
+    PlanQuery,
+    FoodQuery,
+    RecipeQuery,
+    CupboardQuery,
+):
     """Root Query."""
 
     @strawberry.field
@@ -93,7 +113,8 @@ class Query:
         Returns:
             UserType | None: Current user or None
         """
-        user = getattr(info.context, "user", None)
+        request = getattr(info.context, "request", None)
+        user = getattr(request, "user", None)
         if user is None or not user.is_authenticated:
             return None
         # Explicit conversion to UserType
@@ -106,11 +127,19 @@ class Query:
 
 
 @strawberry.type
-class Mutation:
+class Mutation(
+    MeasurementMutation,
+    GoalMutation,
+    ExerciseMutation,
+    PlanMutation,
+    FoodMutation,
+    RecipeMutation,
+    CupboardMutation,
+):
     """Root Mutation."""
 
     @strawberry.mutation
-    async def login(self, email: str, password: str) -> AuthPayload:
+    def login(self, email: str, password: str) -> AuthPayload:
         """Authenticate user and return token.
 
         Args:
@@ -123,9 +152,7 @@ class Mutation:
         Raises:
             ValueError: If credentials are invalid
         """
-        user = await sync_to_async(authenticate)(
-            username=email, password=password
-        )
+        user = authenticate(username=email, password=password)
         if user is not None:
 
             token = jwt.encode(

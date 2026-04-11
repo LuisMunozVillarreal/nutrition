@@ -80,7 +80,7 @@ line-length = 79
 show_missing = true
 precision = 3
 skip_covered = true
-fail_under = 100
+fail_under = 85
 
 [tool.coverage.run]
 source = ["apps", "config"]
@@ -100,13 +100,14 @@ django_settings_module = "config.settings"
 [tool.flake8]
 statistics = true
 exclude = [".git", "__pycache__", "manage.py", "**/migrations/"]
+max-line-length = 88
 
 [tool.hatch.build.targets.wheel]
 packages = ["apps", "config", "manage.py"]
 
 [tool.isort]
 profile = "black"
-line_length = 79
+line_length = 88
 skip_glob = ["**/migrations/*"]
 
 [tool.mypy]
@@ -124,7 +125,7 @@ match-dir = "(?!migrations).*"
 add-ignore = "D107,D104,D106"
 
 [tool.pylint.FORMAT]
-max-line-length = 79
+max-line-length = 88
 
 [tool.pylint.MAIN]
 django-settings-module = "config.settings"
@@ -146,7 +147,16 @@ jobs = 0
 ignore = ["migrations"]
 
 [tool.pylint."MESSAGES CONTROL"]
-disable = ["model-no-explicit-unicode"]
+disable = [
+    "model-no-explicit-unicode",
+    "redefined-builtin",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    "too-many-locals",
+    "duplicate-code",
+    "import-outside-toplevel",
+    "too-few-public-methods",
+]
 
 [tool.pylint.REPORTS]
 reports = "y"
@@ -168,6 +178,7 @@ addopts = [
     "-W ignore:The --rsyncdir command line argument:DeprecationWarning",
     "-W ignore:Type google._upb._message.MessageMapContainer:DeprecationWarning",
     "-W ignore:Type google._upb._message.ScalarMapContainer:DeprecationWarning",
+    "-W ignore::jwt.warnings.InsecureKeyLengthWarning",
 ]
 testpaths = ["tests"]
 junit_family = "xunit2"

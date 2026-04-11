@@ -92,11 +92,10 @@ class Intake(Nutrients):
         self.meal_order = self.MEAL_ORDER[self.meal]
         self.processed = self.food is not None
 
-        for nutrient in NUTRIENT_LIST:
-            value = 0
-            if self.food:
+        if self.food:
+            for nutrient in NUTRIENT_LIST:
                 value = getattr(self.food, nutrient) or 0
-            setattr(self, nutrient, value * self.num_servings)
+                setattr(self, nutrient, value * self.num_servings)
 
         super().save(*args, **kwargs)
 

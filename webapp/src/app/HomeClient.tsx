@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import Dashboard from "./components/Dashboard";
+import Dashboard from '@/components/Dashboard';
 
 export default function HomeClient() {
     const { data: session, status } = useSession();
