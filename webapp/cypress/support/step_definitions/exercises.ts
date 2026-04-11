@@ -14,25 +14,44 @@ When("I navigate to the new exercise page", () => {
     cy.visit("/exercises/new");
 });
 
-let validDayId = "1";
-
 Given("a day exists for the exercise", () => {
-    // We execute the python script to ensure the DB state is valid for testing
-    cy.exec('cd ../backend && .venv/bin/python scripts/seed_test_day.py', { failOnNonZeroExit: true })
+    // Try local Python script first (dev environment).
+    // In CI, the seed is done as a setup step, so this may fail — we then
+    // query the GraphQL API to get the day ID.
+    cy.exec('cd ../backend && .venv/bin/python scripts/seed_test_day.py', { failOnNonZeroExit: false })
       .then((result) => {
-          if (result.stdout) {
-              const lines = result.stdout.split("\n");
-              validDayId = lines[lines.length - 1].trim() || "1";
+          if ((result.code === 0 || result.exitCode === 0) && result.stdout) {
+              const lines = result.stdout.trim().split("\n");
+              const id = lines[lines.length - 1].trim() || "1";
+              cy.wrap(id).as('validDayId');
+          } else {
+              // Fallback: query GraphQL API for the first day ID
+              cy.request({
+                  method: 'POST',
+                  url: '/graphql/',
+                  body: {
+                      query: '{ weekPlans { days { id } } }'
+                  },
+                  headers: { 'Content-Type': 'application/json' },
+              }).then((resp) => {
+                  const plans = resp.body?.data?.weekPlans;
+                  if (plans && plans.length > 0 && plans[0].days?.length > 0) {
+                      cy.wrap(String(plans[0].days[0].id)).as('validDayId');
+                  } else {
+                      throw new Error("Could not find any days via Python or GraphQL! Python script result: " + JSON.stringify(result));
+                  }
+              });
           }
       });
 });
 
 When("I fill in the exercise day id with the valid day ID", () => {
     cy.get('[data-testid="field-dayId"]').should('be.visible').clear({force: true});
-    cy.get('[data-testid="field-dayId"]').type(validDayId, {force: true});
+    cy.get('@validDayId').then((dayId) => {
+        cy.log("RESOLVED DAY ID: " + dayId);
+        cy.get('[data-testid="field-dayId"]').type(String(dayId), {force: true});
+    });
 });
-
-
 
 When("I select the exercise type {string}", (value: string) => {
     cy.get('[data-testid="field-type"]').select(value);
