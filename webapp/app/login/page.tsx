@@ -1,12 +1,13 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 
 const LoginPage = () => {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [isPending, startTransition] = useTransition()
     const router = useRouter()
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -18,7 +19,10 @@ const LoginPage = () => {
         })
 
         if (result?.ok) {
-            router.push('/')
+            startTransition(() => {
+                router.refresh()
+                router.push('/')
+            })
         } else {
             alert("Login failed")
         }
@@ -42,8 +46,8 @@ const LoginPage = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     className="border p-2 rounded"
                 />
-                <button type="submit" className="bg-blue-500 text-white p-2 rounded">
-                    Sign In
+                <button type="submit" disabled={isPending} className="bg-blue-500 text-white p-2 rounded disabled:opacity-50">
+                    {isPending ? 'Signing in...' : 'Sign In'}
                 </button>
             </form>
         </div>

@@ -34,9 +34,9 @@ To keep sensitive domains and secrets out of Git, we use **Flux Variable Substit
 You **MUST** create the following ConfigMap in the `flux-system` namespace:
 
 ```bash
-# Replace 'nutfeex.ddns.net' with your actual base domain
+# Replace 'example.com' with your actual base domain
 kubectl -n flux-system create configmap cluster-settings \
-  --from-literal=BASE_DOMAIN=nutfeex.ddns.net
+  --from-literal=BASE_DOMAIN=example.com
 ```
 
 ### 4. How it Works
@@ -46,7 +46,7 @@ kubectl -n flux-system create configmap cluster-settings \
     - Applies them **directly to the cluster** via `kubectl` (Pure Imperative).
     - **No files are committed** to the repo for previews.
 3.  **Flux Sync:** Flux detects the new resources, clones the branch, substitutes `${BASE_DOMAIN}`, and creates a new Namespace (e.g., `nutrition-staging--my-branch`).
-4.  **Access:** The app is available at `https://staging--my-branch.nutfeex.ddns.net`.
+4.  **Access:** The app is available at `https://staging--my-branch.example.com`.
 
 ### 5. Cleanup
 We support two methods for cleanup:
