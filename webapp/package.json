@@ -11,9 +11,9 @@
     "cypress:run": "cypress run"
   },
   "dependencies": {
-    "graphql": "^16.14.1",
+    "graphql": "^17.0.1",
     "graphql-request": "^7.4.0",
-    "next": "16.2.7",
+    "next": "16.2.9",
     "next-auth": "^4.24.14",
     "react": "19.2.7",
     "react-dom": "19.2.7"
@@ -25,10 +25,10 @@
     "@types/node": "^25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "cypress": "^15.16.0",
-    "esbuild": "^0.28.0",
+    "cypress": "^15.17.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10",
-    "eslint-config-next": "16.2.7",
+    "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
     "typescript": "^6"
   }
