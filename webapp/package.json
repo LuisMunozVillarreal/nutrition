@@ -19,7 +19,7 @@
     "react-dom": "19.2.7"
   },
   "devDependencies": {
-    "@badeball/cypress-cucumber-preprocessor": "^24.0.1",
+    "@badeball/cypress-cucumber-preprocessor": "^25.0.0",
     "@bahmutov/cypress-esbuild-preprocessor": "^2.2.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^25",

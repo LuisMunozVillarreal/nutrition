@@ -3,7 +3,6 @@ kind: Kustomization
 namespace: nutrition-staging
 resources:
   - namespace.yaml
-  - secret-cloner.yaml
   - ../../base
 patches:
   - path: env-patch.yaml

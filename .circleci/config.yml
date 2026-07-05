@@ -225,6 +225,34 @@ jobs:
           command: |
             python3 .circleci/scripts/generate_flux_preview.py "$CIRCLE_BRANCH" "$CIRCLE_SHA1"
       - run:
+          name: Clone Secrets to Preview Namespace
+          command: |
+            SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
+            TARGET_NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
+            SOURCE_NAMESPACE="nutrition-staging"
+
+            echo "Waiting for namespace ${TARGET_NAMESPACE} to exist..."
+            for i in $(seq 1 30); do
+              if kubectl get namespace "${TARGET_NAMESPACE}" &>/dev/null; then
+                echo "Namespace ${TARGET_NAMESPACE} exists."
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "ERROR: Namespace ${TARGET_NAMESPACE} did not appear after 5 minutes."
+                exit 1
+              fi
+              echo "Waiting... ($i/30)"
+              sleep 10
+            done
+
+            SECRETS="nutrition-webapp-nextauth-secret nutrition-postgresql nutrition-django-secret-key nutrition-gemini-api-key nutrition-gcp-db-backup-credentials"
+            for SECRET in $SECRETS; do
+              echo "Copying $SECRET from $SOURCE_NAMESPACE to $TARGET_NAMESPACE..."
+              kubectl get secret "$SECRET" -n "$SOURCE_NAMESPACE" -o json | \
+                python3 -c "import sys,json; d=json.load(sys.stdin); [d['metadata'].pop(k,None) for k in ['namespace','resourceVersion','uid','creationTimestamp','ownerReferences']]; json.dump(d,sys.stdout)" | \
+                kubectl apply -n "$TARGET_NAMESPACE" -f -
+            done
+      - run:
           name: Wait for Deployment Readiness
           no_output_timeout: 10m
           command: |
