@@ -71,6 +71,7 @@ exclude_dirs = [
     "tests",
     "../.circleci/scripts/test_generate_preview.py",
     "../.circleci/scripts/test_cleanup_preview.py",
+    "../.circleci/scripts/test_clone_secrets.py",
 ]
 
 [tool.black]
@@ -111,7 +112,7 @@ skip_glob = ["**/migrations/*"]
 
 [tool.mypy]
 plugins = "mypy_django_plugin.main"
-exclude = ["test_generate_preview\\.py", "test_cleanup_preview\\.py", "migrations"]
+exclude = ["test_generate_preview\\.py", "test_cleanup_preview\\.py", "test_clone_secrets\\.py", "migrations"]
 
 [[tool.mypy.overrides]]
 module = "taggit.models,django_sql_dashboard,django_sql_dashboard.models"
@@ -131,6 +132,7 @@ django-settings-module = "config.settings"
 ignore-paths = [
     "../.circleci/scripts/test_generate_preview.py",
     "../.circleci/scripts/test_cleanup_preview.py",
+    "../.circleci/scripts/test_clone_secrets.py",
 ]
 [tool.pylint.MASTER]
 load-plugins = [
