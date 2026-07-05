@@ -66,10 +66,12 @@ def test_main_success(mock_run, mocker):
     assert result.exit_code == 0
     msg_ns = (
         "Waiting for namespace "
-        "nutrition-staging--feature-test-branch to exist..."
+        + "nutrition-staging--feature-test-branch to exist..."
     )
     assert msg_ns in result.output
-    msg_exists = "Namespace nutrition-staging--" "feature-test-branch exists."
+    msg_exists = (
+        "Namespace nutrition-staging--" + "feature-test-branch exists."
+    )
     assert msg_exists in result.output
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
 
