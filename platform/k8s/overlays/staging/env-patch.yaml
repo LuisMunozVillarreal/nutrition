@@ -20,3 +20,10 @@ metadata:
   name: nutrition-webapp
 spec:
   replicas: 1
+  template:
+    spec:
+      containers:
+        - name: webapp
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
