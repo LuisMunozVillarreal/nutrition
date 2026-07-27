@@ -13,7 +13,7 @@
   "dependencies": {
     "graphql": "^17.0.2",
     "graphql-request": "^7.4.0",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "next-auth": "^4.24.15",
     "react": "19.2.7",
     "react-dom": "19.2.7"
