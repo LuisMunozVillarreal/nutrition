@@ -6,6 +6,12 @@ const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:8000/graphql/
 const client = new GraphQLClient(endpoint);
 
 export const authOptions: NextAuthOptions = {
+    session: {
+        maxAge: 24 * 60 * 60,
+    },
+    jwt: {
+        maxAge: 24 * 60 * 60,
+    },
     providers: [
         CredentialsProvider({
             name: 'Credentials',

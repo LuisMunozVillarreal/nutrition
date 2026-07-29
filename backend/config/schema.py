@@ -15,7 +15,7 @@ from strawberry.types import Info
 User = get_user_model()
 
 
-def authenticated_user(context: Any) -> Any:
+async def authenticated_user(context: Any) -> Any:
     """Return the bearer user, falling back to the session user.
 
     Args:
@@ -38,7 +38,7 @@ def authenticated_user(context: Any) -> Any:
             payload = jwt.decode(
                 parts[1], settings.SECRET_KEY, algorithms=["HS256"]
             )
-            return User.objects.get(pk=payload["sub"], is_active=True)
+            return await User.objects.aget(pk=payload["sub"], is_active=True)
         except (
             jwt.InvalidTokenError,
             KeyError,
@@ -73,7 +73,7 @@ class UserType:
     last_name: str
 
     @strawberry.field
-    def dashboard(self) -> DashboardData:
+    async def dashboard(self) -> DashboardData:
         """Get dashboard data.
 
         Returns:
@@ -89,9 +89,9 @@ class UserType:
         # To satisfy mypy, casting or fresh query is needed.
         # Let's use the ID to be safe and clear.
 
-        user_model = User.objects.get(pk=self.id)
-        measurement = user_model.measurements.last()  # type: ignore
-        goal = user_model.fat_perc_goals.last()  # type: ignore
+        user_model = await User.objects.aget(pk=self.id)
+        measurement = await user_model.measurements.alast()  # type: ignore
+        goal = await user_model.fat_perc_goals.alast()  # type: ignore
 
         return DashboardData(
             latest_weight=float(measurement.weight) if measurement else None,
@@ -124,7 +124,7 @@ class Query:
         return "world"
 
     @strawberry.field
-    def me(self, info: Info) -> UserType | None:
+    async def me(self, info: Info) -> UserType | None:
         """Return current user info.
 
         Args:
@@ -133,7 +133,7 @@ class Query:
         Returns:
             UserType | None: Current user or None
         """
-        user = authenticated_user(info.context)
+        user = await authenticated_user(info.context)
         if user is None:
             return None
         # Explicit conversion to UserType
