@@ -1,14 +1,38 @@
 """Tests for GraphQL schema configuration."""
 
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import jwt
 import pytest
 from asgiref.sync import sync_to_async
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
+from django.test import RequestFactory
 
 from apps.goals.models import FatPercGoal
 from apps.measurements.models import Measurement
 from config.schema import schema
 
 User = get_user_model()
+
+
+def bearer_context(user_id, session_user=None):
+    """Build a GraphQL request context carrying a signed bearer token."""
+    token = jwt.encode(
+        {
+            "sub": str(user_id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.SECRET_KEY,
+        algorithm="HS256",
+    )
+    request = RequestFactory().post(
+        "/graphql/", HTTP_AUTHORIZATION=f"Bearer {token}"
+    )
+    request.user = session_user or AnonymousUser()
+    return request
 
 
 @pytest.mark.django_db
@@ -34,7 +58,19 @@ def test_me_query_unauthenticated():
 
 
 @pytest.mark.django_db
-def test_me_query_authenticated(mocker):
+def test_me_query_with_anonymous_request():
+    """Test me query with an anonymous Django request."""
+    context = RequestFactory().post("/graphql/")
+    context.user = AnonymousUser()
+
+    result = schema.execute_sync("{ me { id email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"] is None
+
+
+@pytest.mark.django_db
+def test_me_query_authenticated():
     """Test me query resolver when authenticated."""
     # Given an authenticated user
     user = User.objects.create_user(
@@ -44,9 +80,8 @@ def test_me_query_authenticated(mocker):
         height=170.0,
     )
 
-    # And a mock context
-    mock_context = mocker.Mock()
-    mock_context.user = user
+    # And a session-authenticated context
+    mock_context = SimpleNamespace(user=user)
 
     # When executing a me query with authentication
     query = "{ me { email } }"
@@ -57,7 +92,101 @@ def test_me_query_authenticated(mocker):
 
 
 @pytest.mark.django_db
-def test_user_dashboard(mocker):
+def test_me_query_authenticated_by_bearer_token():
+    """Test me query resolves the user identified by its bearer token."""
+    user = User.objects.create_user(
+        email="bearer@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    context = bearer_context(user.id)
+
+    result = schema.execute_sync("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"]["email"] == "bearer@example.com"
+
+
+@pytest.mark.django_db
+def test_me_query_bearer_token_overrides_session_user():
+    """Test a bearer identity takes precedence over a Django session."""
+    bearer_user = User.objects.create_user(
+        email="bearer@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    session_user = User.objects.create_user(
+        email="session@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    context = bearer_context(bearer_user.id, session_user)
+
+    result = schema.execute_sync("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"]["email"] == "bearer@example.com"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "authorization", ["Bearer", "Basic credentials", "Bearer invalid-token"]
+)
+def test_me_query_rejects_invalid_bearer_without_session_fallback(
+    authorization,
+):
+    """Test an invalid bearer token cannot expose a session user."""
+    session_user = User.objects.create_user(
+        email="session@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    context = RequestFactory().post(
+        "/graphql/", HTTP_AUTHORIZATION=authorization
+    )
+    context.user = session_user
+
+    result = schema.execute_sync("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"] is None
+
+
+@pytest.mark.django_db
+def test_me_query_rejects_bearer_for_missing_user():
+    """Test a valid token cannot authenticate a deleted user."""
+    context = bearer_context(999999)
+
+    result = schema.execute_sync("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"] is None
+
+
+@pytest.mark.django_db
+def test_me_query_rejects_bearer_for_inactive_user():
+    """Test a bearer token cannot authenticate an inactive user."""
+    user = User.objects.create_user(
+        email="inactive@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+        is_active=False,
+    )
+    context = bearer_context(user.id)
+
+    result = schema.execute_sync("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"] is None
+
+
+@pytest.mark.django_db
+def test_user_dashboard():
     """Test dashboard resolver in UserType."""
     # Given a user with measurements and goals
     user = User.objects.create_user(
@@ -79,9 +208,8 @@ def test_user_dashboard(mocker):
             }
         }
     """
-    # Mock authenticated user
-    mock_context = mocker.Mock()
-    mock_context.user = user
+    # Use an authenticated session context
+    mock_context = SimpleNamespace(user=user)
 
     result = schema.execute_sync(query, context_value=mock_context)
 

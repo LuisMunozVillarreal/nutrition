@@ -3,6 +3,7 @@
 # pylint: disable=too-few-public-methods
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import jwt
 import strawberry
@@ -12,6 +13,45 @@ from django.contrib.auth import authenticate, get_user_model
 from strawberry.types import Info
 
 User = get_user_model()
+
+
+def authenticated_user(context: Any) -> Any:
+    """Return the bearer user, falling back to the session user.
+
+    Args:
+        context: Strawberry GraphQL request context.
+
+    Returns:
+        The authenticated Django user, or None.
+    """
+    if context is None:
+        return None
+
+    headers = getattr(context, "headers", None)
+    authorization = headers.get("Authorization", "") if headers else ""
+    if authorization:
+        parts = authorization.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+
+        try:
+            payload = jwt.decode(
+                parts[1], settings.SECRET_KEY, algorithms=["HS256"]
+            )
+            return User.objects.get(pk=payload["sub"], is_active=True)
+        except (
+            jwt.InvalidTokenError,
+            KeyError,
+            TypeError,
+            ValueError,
+            User.DoesNotExist,
+        ):
+            return None
+
+    user = getattr(context, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    return user
 
 
 @strawberry.type
@@ -93,8 +133,8 @@ class Query:
         Returns:
             UserType | None: Current user or None
         """
-        user = getattr(info.context, "user", None)
-        if user is None or not user.is_authenticated:
+        user = authenticated_user(info.context)
+        if user is None:
             return None
         # Explicit conversion to UserType
         return UserType(
