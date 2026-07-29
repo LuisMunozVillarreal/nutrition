@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import jwt
 import pytest
@@ -13,7 +14,7 @@ from django.test import RequestFactory
 
 from apps.goals.models import FatPercGoal
 from apps.measurements.models import Measurement
-from config.schema import schema
+from config.schema import authenticated_session_user, schema
 
 User = get_user_model()
 
@@ -44,6 +45,19 @@ def test_hello_query():
 
     # Then the result is correct
     assert result.data["hello"] == "world"
+
+
+def test_authenticated_session_user_helper():
+    """Test synchronous resolution for non-request GraphQL contexts."""
+    authenticated = SimpleNamespace(is_authenticated=True)
+
+    assert (
+        authenticated_session_user(SimpleNamespace(user=authenticated))
+        is authenticated
+    )
+    anonymous_context = SimpleNamespace(user=AnonymousUser())
+    assert authenticated_session_user(anonymous_context) is None
+    assert authenticated_session_user(SimpleNamespace()) is None
 
 
 @pytest.mark.django_db
@@ -92,6 +106,25 @@ async def test_me_query_authenticated():
 
     # Then the result contains the user email
     assert result.data["me"]["email"] == "me@example.com"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_me_query_resolves_session_user_with_async_request_api():
+    """Test session fallback uses Django's async user resolver."""
+    user = await sync_to_async(User.objects.create_user)(
+        email="async-session@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    context = SimpleNamespace(headers={}, auser=AsyncMock(return_value=user))
+
+    result = await schema.execute("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"]["email"] == "async-session@example.com"
+    context.auser.assert_awaited_once_with()
 
 
 @pytest.mark.django_db

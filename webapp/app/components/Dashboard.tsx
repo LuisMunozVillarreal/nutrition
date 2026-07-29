@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, Droplets, Flame, Target, User } from "lucide-react";
+import { Activity, Droplets, Target } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { request, gql } from "graphql-request";
@@ -91,7 +91,9 @@ export default function Dashboard() {
                 <h1 data-testid="dashboard-greeting" className="text-4xl md:text-6xl font-black tracking-tight mb-2">
                     {`Time to dominate, ${firstName}!`}
                 </h1>
-                <p className="text-slate-400 text-lg">Your daily metrics are looking strong.</p>
+                <p className="text-slate-400 text-lg">
+                    Review your latest measurements and goals.
+                </p>
             </motion.div>
 
             {/* Grid */}
@@ -108,13 +110,6 @@ export default function Dashboard() {
                     <div className="flex items-end gap-2">
                         <span className="text-5xl font-black">{data?.latestWeight ?? "--"}</span>
                         <span className="text-slate-400 text-xl font-medium mb-1">kg</span>
-                    </div>
-                    <div className="mt-4 h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: "60%" }} // flexible based on data ideally
-                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500"
-                        />
                     </div>
                 </Card>
 
@@ -154,32 +149,24 @@ export default function Dashboard() {
                         </div>
                     </div>
                     <div className="text-center py-6">
-                        <div className="text-5xl font-black text-blue-400 mb-2">2.4L</div>
-                        <p className="text-slate-400">Daily Target: 3.0L</p>
+                        <div className="text-4xl font-black text-blue-400 mb-2">--</div>
+                        <p className="text-slate-400">Data unavailable</p>
                     </div>
                 </Card>
 
             </div>
 
-            {/* Activity Feed / Footer */}
+            {/* Measurement logging status */}
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.5, duration: 0.8 }}
-                className="mt-12 p-6 glass-card rounded-2xl flex items-center justify-between"
+                className="mt-12 p-6 glass-card rounded-2xl"
             >
-                <div className="flex items-center gap-4">
-                    <div className="p-3 bg-orange-500/20 rounded-full text-orange-400">
-                        <Flame size={24} />
-                    </div>
-                    <div>
-                        <h4 className="font-bold text-lg">Keep the streak alive!</h4>
-                        <p className="text-slate-400">You've logged measurements 3 days in a row.</p>
-                    </div>
-                </div>
-                <button className="px-6 py-2 bg-white text-black font-bold rounded-full hover:scale-105 transition-transform">
-                    Log Now
-                </button>
+                <h4 className="font-bold text-lg">Measurement logging</h4>
+                <p className="text-slate-400">
+                    Logging new measurements from the dashboard is not available yet.
+                </p>
             </motion.div>
         </div>
     );

@@ -15,6 +15,21 @@ from strawberry.types import Info
 User = get_user_model()
 
 
+def authenticated_session_user(context: Any) -> Any:
+    """Resolve a possibly lazy Django session user synchronously.
+
+    Args:
+        context: Strawberry GraphQL request context.
+
+    Returns:
+        The authenticated Django session user, or None.
+    """
+    user = getattr(context, "user", None)
+    if user is None or not user.is_authenticated:
+        return None
+    return user
+
+
 async def authenticated_user(context: Any) -> Any:
     """Return the bearer user, falling back to the session user.
 
@@ -48,10 +63,14 @@ async def authenticated_user(context: Any) -> Any:
         ):
             return None
 
-    user = getattr(context, "user", None)
-    if user is None or not user.is_authenticated:
-        return None
-    return user
+    async_user: Any = getattr(context, "auser", None)
+    if callable(async_user):
+        user = await async_user()
+        return user if user.is_authenticated else None
+
+    return await sync_to_async(
+        authenticated_session_user, thread_sensitive=True
+    )(context)
 
 
 @strawberry.type
