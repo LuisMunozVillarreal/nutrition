@@ -47,33 +47,36 @@ def test_hello_query():
 
 
 @pytest.mark.django_db
-def test_me_query_unauthenticated():
+@pytest.mark.asyncio
+async def test_me_query_unauthenticated():
     """Test me query resolver when not authenticated."""
     # When executing a me query without authentication
     query = "{ me { id email } }"
-    result = schema.execute_sync(query, context_value=None)
+    result = await schema.execute(query, context_value=None)
 
     # Then the result is None
     assert result.data["me"] is None
 
 
 @pytest.mark.django_db
-def test_me_query_with_anonymous_request():
+@pytest.mark.asyncio
+async def test_me_query_with_anonymous_request():
     """Test me query with an anonymous Django request."""
     context = RequestFactory().post("/graphql/")
     context.user = AnonymousUser()
 
-    result = schema.execute_sync("{ me { id email } }", context_value=context)
+    result = await schema.execute("{ me { id email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"] is None
 
 
 @pytest.mark.django_db
-def test_me_query_authenticated():
+@pytest.mark.asyncio
+async def test_me_query_authenticated():
     """Test me query resolver when authenticated."""
     # Given an authenticated user
-    user = User.objects.create_user(
+    user = await sync_to_async(User.objects.create_user)(
         email="me@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -85,16 +88,17 @@ def test_me_query_authenticated():
 
     # When executing a me query with authentication
     query = "{ me { email } }"
-    result = schema.execute_sync(query, context_value=mock_context)
+    result = await schema.execute(query, context_value=mock_context)
 
     # Then the result contains the user email
     assert result.data["me"]["email"] == "me@example.com"
 
 
 @pytest.mark.django_db
-def test_me_query_authenticated_by_bearer_token():
+@pytest.mark.asyncio
+async def test_me_query_authenticated_by_bearer_token():
     """Test me query resolves the user identified by its bearer token."""
-    user = User.objects.create_user(
+    user = await sync_to_async(User.objects.create_user)(
         email="bearer@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -102,22 +106,41 @@ def test_me_query_authenticated_by_bearer_token():
     )
     context = bearer_context(user.id)
 
-    result = schema.execute_sync("{ me { email } }", context_value=context)
+    result = await schema.execute("{ me { email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"]["email"] == "bearer@example.com"
 
 
 @pytest.mark.django_db
-def test_me_query_bearer_token_overrides_session_user():
+@pytest.mark.asyncio
+async def test_me_query_bearer_token_is_async_safe():
+    """Test bearer authentication does not run sync ORM in an async view."""
+    user = await sync_to_async(User.objects.create_user)(
+        email="async-bearer@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    context = bearer_context(user.id)
+
+    result = await schema.execute("{ me { email } }", context_value=context)
+
+    assert result.errors is None
+    assert result.data["me"]["email"] == "async-bearer@example.com"
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_me_query_bearer_token_overrides_session_user():
     """Test a bearer identity takes precedence over a Django session."""
-    bearer_user = User.objects.create_user(
+    bearer_user = await sync_to_async(User.objects.create_user)(
         email="bearer@example.com",
         password="password123",
         date_of_birth="2000-01-01",
         height=170.0,
     )
-    session_user = User.objects.create_user(
+    session_user = await sync_to_async(User.objects.create_user)(
         email="session@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -125,21 +148,22 @@ def test_me_query_bearer_token_overrides_session_user():
     )
     context = bearer_context(bearer_user.id, session_user)
 
-    result = schema.execute_sync("{ me { email } }", context_value=context)
+    result = await schema.execute("{ me { email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"]["email"] == "bearer@example.com"
 
 
 @pytest.mark.django_db
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "authorization", ["Bearer", "Basic credentials", "Bearer invalid-token"]
 )
-def test_me_query_rejects_invalid_bearer_without_session_fallback(
+async def test_me_query_rejects_invalid_bearer_without_session_fallback(
     authorization,
 ):
     """Test an invalid bearer token cannot expose a session user."""
-    session_user = User.objects.create_user(
+    session_user = await sync_to_async(User.objects.create_user)(
         email="session@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -150,27 +174,29 @@ def test_me_query_rejects_invalid_bearer_without_session_fallback(
     )
     context.user = session_user
 
-    result = schema.execute_sync("{ me { email } }", context_value=context)
+    result = await schema.execute("{ me { email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"] is None
 
 
 @pytest.mark.django_db
-def test_me_query_rejects_bearer_for_missing_user():
+@pytest.mark.asyncio
+async def test_me_query_rejects_bearer_for_missing_user():
     """Test a valid token cannot authenticate a deleted user."""
     context = bearer_context(999999)
 
-    result = schema.execute_sync("{ me { email } }", context_value=context)
+    result = await schema.execute("{ me { email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"] is None
 
 
 @pytest.mark.django_db
-def test_me_query_rejects_bearer_for_inactive_user():
+@pytest.mark.asyncio
+async def test_me_query_rejects_bearer_for_inactive_user():
     """Test a bearer token cannot authenticate an inactive user."""
-    user = User.objects.create_user(
+    user = await sync_to_async(User.objects.create_user)(
         email="inactive@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -179,17 +205,18 @@ def test_me_query_rejects_bearer_for_inactive_user():
     )
     context = bearer_context(user.id)
 
-    result = schema.execute_sync("{ me { email } }", context_value=context)
+    result = await schema.execute("{ me { email } }", context_value=context)
 
     assert result.errors is None
     assert result.data["me"] is None
 
 
 @pytest.mark.django_db
-def test_user_dashboard():
+@pytest.mark.asyncio
+async def test_user_dashboard():
     """Test dashboard resolver in UserType."""
     # Given a user with measurements and goals
-    user = User.objects.create_user(
+    user = await sync_to_async(User.objects.create_user)(
         email="dash@example.com",
         password="password123",
         date_of_birth="2000-01-01",
@@ -211,17 +238,21 @@ def test_user_dashboard():
     # Use an authenticated session context
     mock_context = SimpleNamespace(user=user)
 
-    result = schema.execute_sync(query, context_value=mock_context)
+    result = await schema.execute(query, context_value=mock_context)
 
     # Then we get null values since no measurements exist
     assert result.data["me"]["dashboard"]["latestWeight"] is None
 
     # When we add a measurement and a goal
-    Measurement.objects.create(user=user, weight=80.5, body_fat_perc=20.0)
-    FatPercGoal.objects.create(user=user, body_fat_perc=15.0)
+    await sync_to_async(Measurement.objects.create)(
+        user=user, weight=80.5, body_fat_perc=20.0
+    )
+    await sync_to_async(FatPercGoal.objects.create)(
+        user=user, body_fat_perc=15.0
+    )
 
     # And query again
-    result = schema.execute_sync(query, context_value=mock_context)
+    result = await schema.execute(query, context_value=mock_context)
 
     # Then we get the real values
     dash = result.data["me"]["dashboard"]

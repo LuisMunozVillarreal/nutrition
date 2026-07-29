@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Activity, Droplets, Flame, Target, User } from "lucide-react";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { request, gql } from "graphql-request";
 
@@ -25,6 +25,13 @@ interface DashboardData {
     goalBodyFat: number | null;
 }
 
+interface DashboardResponse {
+    me: {
+        firstName: string;
+        dashboard: DashboardData | null;
+    } | null;
+}
+
 export default function Dashboard() {
     const { data: session } = useSession();
     const [data, setData] = useState<DashboardData | null>(null);
@@ -32,27 +39,42 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        // In a real app we'd use SWR or React Query or a proper GQL client hook
-        // For this prototype, fetch directly if session exists
-        if (session?.accessToken) {
-            setLoading(true);
-            // Use relative URL for client-side fetch to work across preview environments
-            const endpoint = "/graphql/";
+        if (!session?.accessToken) return;
 
-            // Very basic fetch for prototype
-            request(endpoint, DASHBOARD_QUERY, {}, {
-                "Authorization": `Bearer ${session.accessToken}`
-            }).then((res: any) => {
-                if (res.me) {
-                    if (res.me.dashboard) setData(res.me.dashboard);
-                    if (res.me.firstName) setFetchedName(res.me.firstName);
+        let cancelled = false;
+        setLoading(true);
+
+        const loadDashboard = async () => {
+            try {
+                const response = await request<DashboardResponse>(
+                    "/graphql",
+                    DASHBOARD_QUERY,
+                    {},
+                    { Authorization: `Bearer ${session.accessToken}` },
+                );
+
+                if (!response.me) {
+                    await signOut({ callbackUrl: "/login" });
+                    return;
                 }
-                setLoading(false);
-            }).catch(err => {
-                console.error("Failed to fetch dashboard data", err);
-                setLoading(false);
-            });
-        }
+
+                if (!cancelled && response.me.dashboard) {
+                    setData(response.me.dashboard);
+                }
+                if (!cancelled && response.me.firstName) {
+                    setFetchedName(response.me.firstName);
+                }
+            } catch (error) {
+                console.error("Failed to fetch dashboard data", error);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+
+        void loadDashboard();
+        return () => {
+            cancelled = true;
+        };
     }, [session]);
 
     const firstName = fetchedName || session?.user?.name?.split(" ")[0] || "Athlete";
