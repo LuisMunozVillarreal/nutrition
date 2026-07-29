@@ -47,7 +47,7 @@ export default function Dashboard() {
         const loadDashboard = async () => {
             try {
                 const response = await request<DashboardResponse>(
-                    "/graphql",
+                    "/api/graphql",
                     DASHBOARD_QUERY,
                     {},
                     { Authorization: `Bearer ${session.accessToken}` },
