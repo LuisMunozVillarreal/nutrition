@@ -83,6 +83,8 @@ def test_generate_manifest_default_domain():
 
     # Then
     assert "value: staging--flux.${BASE_DOMAIN}" in manifest
+    assert 'value: "https://staging--flux.${BASE_DOMAIN}/graphql/"' in manifest
+    assert 'value: "https://staging--flux.${BASE_DOMAIN}"' in manifest
 
 
 def test_main_execution(mock_check_output, mock_run):
