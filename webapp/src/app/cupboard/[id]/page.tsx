@@ -82,8 +82,8 @@ export default function EditCupboardItemPage() {
               </div>
               <FormField label="Consumed Percentage (%)" name="consumedPerc" type="number" step="1" min="0" max="100" value={form.consumedPerc} onChange={handleChange} required />
               <div className="mt-4 h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-indigo-500 transition-all duration-500" 
+                <div
+                  className="h-full bg-indigo-500 transition-all duration-500"
                   style={{ width: `${form.consumedPerc}%` }}
                 />
               </div>

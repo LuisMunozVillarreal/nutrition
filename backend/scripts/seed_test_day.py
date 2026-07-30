@@ -25,7 +25,7 @@ if not p:
     p = WeekPlan.objects.create(user=u, start_date=datetime.date.today(), protein_g_kg=Decimal('2'), fat_perc=Decimal('25'), deficit=0, measurement=m)
 
 d = p.days.order_by('id').first()
-# For some reason in the signals it uses day_set or days? 
+# For some reason in the signals it uses day_set or days?
 # In models it's Day (ForeignKey to plan).
 # Django default related_name is day_set but it is overridden to days.
 print(d.id if d else '1')

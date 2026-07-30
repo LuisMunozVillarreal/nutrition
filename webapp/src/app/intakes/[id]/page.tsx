@@ -107,7 +107,7 @@ export default function EditIntakePage() {
           <>
             <SelectField label="Meal" name="meal" value={form.meal} onChange={handleChange} options={MEAL_CHOICES} required />
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" value={form.numServings} onChange={handleChange} required />
-            
+
             <div className="mt-6 mb-2">
               <p className="text-sm font-semibold text-slate-300">Macros</p>
               {!isCustom && <p className="text-xs text-slate-500">Computed from Food Product (read-only)</p>}
