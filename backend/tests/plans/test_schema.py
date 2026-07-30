@@ -5,7 +5,12 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
+from apps.foods.models import CupboardItem, FoodProduct
+from apps.foods.signals.handlers.cupboard import (
+    CupboardItemConsumptionTooBigError,
+)
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
 from config.schema import schema
@@ -306,6 +311,83 @@ class TestIntakeSchema:
         assert result.errors is None
         assert result.data["updateIntake"]["energyKcal"] == 400.0
         assert result.data["updateIntake"]["numServings"] == 2.0
+
+    def test_update_food_intake_overconsumption_rolls_back_everything(
+        self, mocker
+    ):
+        """Failed cupboard consumption leaves intake and aggregates unchanged."""
+        user, plan = _create_user_and_plan("intake-atomic@test.com")
+        day = Day.objects.filter(plan=plan).first()
+        product = FoodProduct.objects.create(
+            name="Atomic food",
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+            size=400,
+            size_unit="g",
+            num_servings=4,
+            energy_kcal=100,
+            protein_g=10,
+            fat_g=5,
+            carbs_g=20,
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        cupboard_item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+        )
+        intake = Intake.objects.create(
+            day=day,
+            meal="lunch",
+            num_servings=1,
+            food=serving,
+        )
+        day.refresh_from_db()
+        cupboard_item.refresh_from_db()
+        original_totals = (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            plan.energy_kcal,
+        )
+        original_consumption = cupboard_item.consumed_perc
+        original_consumption_id = intake.cupboard_item_consumption.id
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateIntake($id: ID!) {
+                updateIntake(
+                    id: $id, meal: "dinner", numServings: 5
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(intake.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert isinstance(
+            result.errors[0].original_error,
+            CupboardItemConsumptionTooBigError,
+        )
+        intake.refresh_from_db()
+        day.refresh_from_db()
+        cupboard_item.refresh_from_db()
+        assert intake.meal == "lunch"
+        assert intake.num_servings == 1
+        assert (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            plan.energy_kcal,
+        ) == original_totals
+        assert cupboard_item.consumed_perc == original_consumption
+        assert intake.cupboard_item_consumption.id == original_consumption_id
 
     def test_delete_intake(self, mocker):
         """Test deleting an intake."""

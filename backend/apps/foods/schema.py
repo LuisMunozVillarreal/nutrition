@@ -21,7 +21,7 @@ from apps.libs.graphql import get_request_user
 
 
 def _require_staff_user(info: Info) -> None:
-    """Require an authenticated staff user for shared catalog deletion."""
+    """Require an authenticated staff user for shared catalog writes."""
     user = get_request_user(info.context)
     if user is None or not user.is_authenticated:
         raise PermissionError("Authentication required")
@@ -202,6 +202,15 @@ def _validated_product_num_servings(num_servings: float) -> Decimal:
     return Decimal(str(num_servings))
 
 
+def _validated_product_nutritional_info_size(
+    nutritional_info_size: float,
+) -> Decimal:
+    """Return a finite positive product nutritional information size."""
+    if not math.isfinite(nutritional_info_size) or nutritional_info_size <= 0:
+        raise ValueError("nutritionalInfoSize must be greater than 0")
+    return Decimal(str(nutritional_info_size))
+
+
 @strawberry.type
 class FoodMutation:
     """Food mutations."""
@@ -258,9 +267,7 @@ class FoodMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         obj = FoodProduct.objects.create(
             name=name,
@@ -268,7 +275,9 @@ class FoodMutation:
             url=url or "",
             barcode=barcode,
             notes=notes,
-            nutritional_info_size=Decimal(str(nutritional_info_size)),
+            nutritional_info_size=_validated_product_nutritional_info_size(
+                nutritional_info_size
+            ),
             nutritional_info_unit=nutritional_info_unit,
             size=Decimal(str(size)),
             size_unit=size_unit,
@@ -347,9 +356,10 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if product not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
+        validated_nutritional_info_size = (
+            _validated_product_nutritional_info_size(nutritional_info_size)
+        )
 
         try:
             obj = FoodProduct.objects.get(pk=id)
@@ -362,7 +372,7 @@ class FoodMutation:
             obj.url = url
         obj.barcode = barcode
         obj.notes = notes
-        obj.nutritional_info_size = Decimal(str(nutritional_info_size))
+        obj.nutritional_info_size = validated_nutritional_info_size
         obj.nutritional_info_unit = nutritional_info_unit
         obj.size = Decimal(str(size))
         obj.size_unit = size_unit
@@ -431,9 +441,7 @@ class FoodMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         obj = Serving.objects.create(
             food_id=int(food_id),
@@ -465,9 +473,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if serving not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             obj = Serving.objects.get(pk=id)
@@ -711,9 +717,7 @@ class RecipeMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         obj = Recipe.objects.create(
             name=name,
@@ -788,9 +792,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if recipe not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             obj = Recipe.objects.get(pk=id)
@@ -867,9 +869,7 @@ class RecipeMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         obj = RecipeIngredient(
             recipe_id=int(recipe_id),
@@ -902,9 +902,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if ingredient not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             obj = RecipeIngredient.objects.get(pk=id)

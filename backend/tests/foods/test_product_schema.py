@@ -4,7 +4,10 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from apps.foods.models import FoodProduct, Serving
-from apps.foods.schema import _validated_product_num_servings
+from apps.foods.schema import (
+    _validated_product_num_servings,
+    _validated_product_nutritional_info_size,
+)
 from config.schema import schema
 
 User = get_user_model()
@@ -17,6 +20,20 @@ def test_product_num_servings_must_be_finite(num_servings):
     """Non-finite product serving counts are rejected."""
     with pytest.raises(ValueError, match="numServings must be greater than 0"):
         _validated_product_num_servings(num_servings)
+
+
+@pytest.mark.parametrize(
+    "nutritional_info_size",
+    [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+)
+def test_product_nutritional_info_size_must_be_finite_and_positive(
+    nutritional_info_size,
+):
+    """Every invalid nutrition basis is rejected by product validation."""
+    with pytest.raises(
+        ValueError, match="nutritionalInfoSize must be greater than 0"
+    ):
+        _validated_product_nutritional_info_size(nutritional_info_size)
 
 
 def _create_user(email: str, *, is_staff: bool = False):
@@ -58,7 +75,7 @@ class TestFoodProductSchema:
 
     def test_create_food_product(self, mocker):
         """Test creating a food product."""
-        user = _create_user("fpcreate@test.com")
+        user = _create_user("fpcreate@test.com", is_staff=True)
         mock_context = mocker.Mock()
         mock_context.request.user = user
 
@@ -99,9 +116,24 @@ class TestFoodProductSchema:
         assert result.data["createFoodProduct"]["name"] == "Oats"
         assert result.data["createFoodProduct"]["brand"] == "Quaker"
 
+    def test_create_food_product_rejects_non_staff_user(self, mocker):
+        """A regular user cannot create a shared food product."""
+        user = _create_user("fpcreate-regular@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            'mutation { createFoodProduct(name: "Shared") { id } }',
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert not FoodProduct.objects.filter(name="Shared").exists()
+
     def test_create_food_product_rejects_zero_num_servings(self, mocker):
         """A product must contain at least one positive serving fraction."""
-        user = _create_user("fp-zero-servings@test.com")
+        user = _create_user("fp-zero-servings@test.com", is_staff=True)
         mock_context = mocker.Mock()
         mock_context.request.user = user
         mutation = """
@@ -116,9 +148,49 @@ class TestFoodProductSchema:
         assert "numServings must be greater than 0" in str(result.errors[0])
         assert not FoodProduct.objects.filter(name="Invalid").exists()
 
+    @pytest.mark.parametrize(
+        "nutritional_info_size",
+        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_create_food_product_rejects_invalid_nutritional_info_size(
+        self, mocker, nutritional_info_size
+    ):
+        """Creating a product requires a finite positive nutrition basis."""
+        user = _create_user(
+            f"fp-invalid-nutrition-{repr(nutritional_info_size)}@test.com",
+            is_staff=True,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateProduct($nutritionalInfoSize: Float!) {
+                createFoodProduct(
+                    name: "Invalid nutrition basis",
+                    nutritionalInfoSize: $nutritionalInfoSize
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "nutritionalInfoSize": nutritional_info_size,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        if nutritional_info_size in (0.0, -1.0):
+            assert "nutritionalInfoSize must be greater than 0" in str(
+                result.errors[0]
+            )
+        assert not FoodProduct.objects.filter(
+            name="Invalid nutrition basis"
+        ).exists()
+
     def test_update_food_product(self, mocker):
         """Test updating a food product."""
-        user = _create_user("fpupd@test.com")
+        user = _create_user("fpupd@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Milko",
             size=1000,
@@ -152,9 +224,32 @@ class TestFoodProductSchema:
         assert result.errors is None
         assert result.data["updateFoodProduct"]["name"] == "Milko Lite"
 
+    def test_update_food_product_rejects_non_staff_user(self, mocker):
+        """A regular user cannot update a shared food product."""
+        user = _create_user("fpupd-regular@test.com")
+        product = FoodProduct.objects.create(name="Shared", num_servings=1)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateProduct($id: ID!) {
+                updateFoodProduct(id: $id, name: "Changed") { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(product.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        product.refresh_from_db()
+        assert product.name == "Shared"
+
     def test_update_food_product_rejects_negative_num_servings(self, mocker):
         """Updating a product cannot persist a negative serving count."""
-        user = _create_user("fp-negative-servings@test.com")
+        user = _create_user("fp-negative-servings@test.com", is_staff=True)
         product = FoodProduct.objects.create(
             name="Valid",
             size=100,
@@ -184,9 +279,57 @@ class TestFoodProductSchema:
         assert product.name == "Valid"
         assert product.num_servings == 4
 
+    @pytest.mark.parametrize(
+        "nutritional_info_size",
+        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_update_food_product_rejects_invalid_nutritional_info_size(
+        self, mocker, nutritional_info_size
+    ):
+        """Invalid nutrition bases cannot partially update a product."""
+        user = _create_user(
+            f"fp-upd-invalid-nutrition-{repr(nutritional_info_size)}@test.com",
+            is_staff=True,
+        )
+        product = FoodProduct.objects.create(
+            name="Valid nutrition basis",
+            nutritional_info_size=100,
+            num_servings=1,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateProduct(
+                $id: ID!, $nutritionalInfoSize: Float!
+            ) {
+                updateFoodProduct(
+                    id: $id, name: "Partially changed",
+                    nutritionalInfoSize: $nutritionalInfoSize
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(product.id),
+                "nutritionalInfoSize": nutritional_info_size,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        if nutritional_info_size in (0.0, -1.0):
+            assert "nutritionalInfoSize must be greater than 0" in str(
+                result.errors[0]
+            )
+        product.refresh_from_db()
+        assert product.name == "Valid nutrition basis"
+        assert product.nutritional_info_size == 100
+
     def test_update_food_product_preserves_omitted_url(self, mocker):
         """Updating unrelated fields preserves the existing product URL."""
-        user = _create_user("fp-url@test.com")
+        user = _create_user("fp-url@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Milk",
             size=1000,
@@ -279,7 +422,7 @@ class TestServingSchema:
 
     def test_create_serving(self, mocker):
         """Test creating a serving."""
-        user = _create_user("srvcreate@test.com")
+        user = _create_user("srvcreate@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Peanut Butter",
             size=500,
@@ -322,9 +465,34 @@ class TestServingSchema:
         # 100g = 600kcal -> 15g = 90kcal
         assert result.data["createServing"]["energyKcal"] == 90.0
 
+    def test_create_serving_rejects_non_staff_user(self, mocker):
+        """A regular user cannot create a shared serving."""
+        user = _create_user("srvcreate-regular@test.com")
+        product = FoodProduct.objects.create(name="Shared", num_servings=1)
+        initial_count = product.servings.count()
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateServing($foodId: ID!) {
+                createServing(
+                    foodId: $foodId, servingSize: 25, servingUnit: "g"
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"foodId": str(product.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert product.servings.count() == initial_count
+
     def test_update_serving(self, mocker):
         """Test updating a serving."""
-        user = _create_user("srvupd@test.com")
+        user = _create_user("srvupd@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Peanut Butter",
             size=500,
@@ -368,6 +536,33 @@ class TestServingSchema:
         assert result.errors is None
         # 100g = 600kcal -> 30g = 180kcal
         assert result.data["updateServing"]["energyKcal"] == 180.0
+
+    def test_update_serving_rejects_non_staff_user(self, mocker):
+        """A regular user cannot update a shared serving."""
+        user = _create_user("srvupd-regular@test.com")
+        product = FoodProduct.objects.create(name="Shared", num_servings=1)
+        serving = product.servings.first()
+        original_size = serving.serving_size
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateServing($id: ID!) {
+                updateServing(id: $id, servingSize: 25, servingUnit: "g") {
+                    id
+                }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(serving.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        serving.refresh_from_db()
+        assert serving.serving_size == original_size
 
     def test_delete_serving(self, mocker):
         """Test deleting a serving."""
