@@ -7,7 +7,6 @@ from typing import Any
 
 import jwt
 import strawberry
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from strawberry.types import Info
@@ -22,6 +21,7 @@ from apps.foods.schema import (
     RecipeQuery,
 )
 from apps.goals.schema import GoalMutation, GoalQuery
+from apps.libs.graphql import get_request_user
 from apps.measurements.schema import MeasurementMutation, MeasurementQuery
 from apps.plans.schema import PlanMutation, PlanQuery
 
@@ -37,13 +37,10 @@ def authenticated_session_user(context: Any) -> Any:
     Returns:
         The authenticated Django session user, or None.
     """
-    user = getattr(context, "user", None)
-    if user is None or not user.is_authenticated:
-        return None
-    return user
+    return get_request_user(context)
 
 
-async def authenticated_user(context: Any) -> Any:
+def authenticated_user(context: Any) -> Any:
     """Return the bearer user, falling back to the session user.
 
     Args:
@@ -55,7 +52,8 @@ async def authenticated_user(context: Any) -> Any:
     if context is None:
         return None
 
-    headers = getattr(context, "headers", None)
+    request = getattr(context, "request", context)
+    headers = getattr(request, "headers", None)
     authorization = headers.get("Authorization", "") if headers else ""
     if authorization:
         parts = authorization.split()
@@ -66,7 +64,7 @@ async def authenticated_user(context: Any) -> Any:
             payload = jwt.decode(
                 parts[1], settings.SECRET_KEY, algorithms=["HS256"]
             )
-            return await User.objects.aget(pk=payload["sub"], is_active=True)
+            return User.objects.get(pk=payload["sub"], is_active=True)
         except (
             jwt.InvalidTokenError,
             KeyError,
@@ -76,14 +74,7 @@ async def authenticated_user(context: Any) -> Any:
         ):
             return None
 
-    async_user: Any = getattr(context, "auser", None)
-    if callable(async_user):
-        user = await async_user()
-        return user if user.is_authenticated else None
-
-    return await sync_to_async(
-        authenticated_session_user, thread_sensitive=True
-    )(context)
+    return authenticated_session_user(context)
 
 
 @strawberry.type
@@ -105,7 +96,7 @@ class UserType:
     last_name: str
 
     @strawberry.field
-    async def dashboard(self) -> DashboardData:
+    def dashboard(self) -> DashboardData:
         """Get dashboard data.
 
         Returns:
@@ -121,9 +112,9 @@ class UserType:
         # To satisfy mypy, casting or fresh query is needed.
         # Let's use the ID to be safe and clear.
 
-        user_model = await User.objects.aget(pk=self.id)
-        measurement = await user_model.measurements.alast()  # type: ignore
-        goal = await user_model.fat_perc_goals.alast()  # type: ignore
+        user_model = User.objects.get(pk=self.id)
+        measurement = user_model.measurements.last()  # type: ignore
+        goal = user_model.fat_perc_goals.last()  # type: ignore
 
         return DashboardData(
             latest_weight=float(measurement.weight) if measurement else None,
@@ -164,7 +155,7 @@ class Query(
         return "world"
 
     @strawberry.field
-    async def me(self, info: Info) -> UserType | None:
+    def me(self, info: Info) -> UserType | None:
         """Return current user info.
 
         Args:
@@ -173,7 +164,7 @@ class Query(
         Returns:
             UserType | None: Current user or None
         """
-        user = await authenticated_user(info.context)
+        user = authenticated_user(info.context)
         if user is None:
             return None
         # Explicit conversion to UserType
@@ -198,7 +189,7 @@ class Mutation(
     """Root Mutation."""
 
     @strawberry.mutation
-    async def login(self, email: str, password: str) -> AuthPayload:
+    def login(self, email: str, password: str) -> AuthPayload:
         """Authenticate user and return token.
 
         Args:
@@ -211,9 +202,7 @@ class Mutation(
         Raises:
             ValueError: If credentials are invalid
         """
-        user = await sync_to_async(authenticate)(
-            username=email, password=password
-        )
+        user = authenticate(username=email, password=password)
         if user is not None:
 
             token = jwt.encode(

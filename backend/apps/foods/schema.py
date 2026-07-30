@@ -8,11 +8,13 @@ from strawberry.types import Info
 
 from apps.foods.models import (
     CupboardItem,
+    Food,
     FoodProduct,
     Recipe,
     RecipeIngredient,
     Serving,
 )
+from apps.libs.graphql import get_request_user
 
 # pylint: disable=too-few-public-methods,too-many-lines
 
@@ -151,8 +153,7 @@ class FoodQuery:
         Returns:
             list[FoodProductType]: list of food products.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -174,8 +175,7 @@ class FoodQuery:
         Returns:
             FoodProductType | None: the product or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -241,8 +241,7 @@ class FoodMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -331,8 +330,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if product not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -385,8 +383,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if product not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -418,8 +415,7 @@ class FoodMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -453,8 +449,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if serving not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -482,8 +477,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if serving not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -620,8 +614,7 @@ class RecipeQuery:
         Returns:
             list[RecipeType]: list of recipes.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
         return [
@@ -640,8 +633,7 @@ class RecipeQuery:
         Returns:
             RecipeType | None: the recipe or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
         try:
@@ -698,8 +690,7 @@ class RecipeMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -776,8 +767,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if recipe not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -826,8 +816,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if recipe not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -859,8 +848,7 @@ class RecipeMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -895,8 +883,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if ingredient not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -925,8 +912,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if ingredient not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -988,8 +974,7 @@ class CupboardQuery:
         Returns:
             list[CupboardItemType]: list of cupboard items.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
         return [
@@ -1010,8 +995,7 @@ class CupboardQuery:
         Returns:
             CupboardItemType | None: the item or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
         try:
@@ -1045,17 +1029,16 @@ class CupboardMutation:
 
         Raises:
             PermissionError: if user is not authenticated.
-            ValueError: if food product not found.
+            ValueError: if food not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
         try:
-            food = FoodProduct.objects.get(pk=food_id)
-        except FoodProduct.DoesNotExist as e:
-            raise ValueError("FoodProduct not found") from e
+            food = Food.objects.get(pk=food_id)
+        except Food.DoesNotExist as e:
+            raise ValueError("Food not found") from e
 
         obj = CupboardItem.objects.create(
             food=food,
@@ -1085,8 +1068,7 @@ class CupboardMutation:
             PermissionError: if user is not authenticated.
             ValueError: if item not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -1114,8 +1096,7 @@ class CupboardMutation:
             PermissionError: if user is not authenticated.
             ValueError: if item not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 

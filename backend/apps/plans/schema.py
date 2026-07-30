@@ -8,6 +8,7 @@ from decimal import Decimal
 import strawberry
 from strawberry.types import Info
 
+from apps.libs.graphql import get_request_user
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
 
@@ -191,8 +192,7 @@ class PlanQuery:
         Returns:
             list[WeekPlanType]: list of week plans.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -212,8 +212,7 @@ class PlanQuery:
         Returns:
             WeekPlanType | None: the plan or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -234,8 +233,7 @@ class PlanQuery:
         Returns:
             DayType | None: the day or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -256,8 +254,7 @@ class PlanQuery:
         Returns:
             IntakeType | None: the intake or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -299,8 +296,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if measurement not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -344,8 +340,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if week plan not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -358,6 +353,11 @@ class PlanMutation:
         obj.fat_perc = Decimal(str(fat_perc))
         obj.deficit = deficit
         obj.save()
+        for day, deficit_perc in zip(
+            obj.days.order_by("day_num"), obj.DEFICIT_DISTRIBUTION
+        ):
+            day.deficit = obj.deficit * deficit_perc / 100
+            day.save()
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation
@@ -375,8 +375,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if week plan not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -409,8 +408,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -456,8 +454,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -516,8 +513,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if intake not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -559,8 +555,7 @@ class PlanMutation:
             PermissionError: if user is not authenticated.
             ValueError: if intake not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
