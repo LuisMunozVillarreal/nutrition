@@ -270,6 +270,150 @@ class TestIntakeSchema:
         assert day.protein_g == Decimal("30.00")
         assert plan.energy_kcal == Decimal("400.00")
 
+    @pytest.mark.parametrize(
+        "field", ["energyKcal", "proteinG", "fatG", "carbsG"]
+    )
+    @pytest.mark.parametrize(
+        "value", [-1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    def test_create_custom_intake_rejects_invalid_macros_without_writes(
+        self, mocker, field, value
+    ):
+        """Invalid custom macros do not create an intake or alter rollups."""
+        user, plan = _create_user_and_plan(
+            f"custom-create-{field}-{repr(value)}@example.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        original_day_state = (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+        )
+        original_plan_energy = plan.energy_kcal
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateCustomIntake(
+                $dayId: Int!, $energyKcal: Float,
+                $proteinG: Float, $fatG: Float, $carbsG: Float
+            ) {
+                createIntake(
+                    dayId: $dayId, meal: "lunch", numServings: 1,
+                    energyKcal: $energyKcal, proteinG: $proteinG,
+                    fatG: $fatG, carbsG: $carbsG
+                ) { id }
+            }
+        """
+        variables = {
+            "dayId": day.id,
+            "energyKcal": 0.0,
+            "proteinG": 0.0,
+            "fatG": 0.0,
+            "carbsG": 0.0,
+        }
+        variables[field] = value
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variables,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert not Intake.objects.filter(day=day).exists()
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        assert (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+        ) == original_day_state
+        assert plan.energy_kcal == original_plan_energy
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_food_backed_intakes_ignore_direct_macro_inputs(
+        self, mocker, operation
+    ):
+        """Food-backed create and update always persist derived nutrients."""
+        user, plan = _create_user_and_plan(
+            f"food-macros-{operation}@example.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        product = FoodProduct.objects.create(
+            name=f"Derived macro food {operation}",
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+            size=200,
+            size_unit="g",
+            num_servings=2,
+            energy_kcal=100,
+            protein_g=10,
+            fat_g=5,
+            carbs_g=20,
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        intake = None
+        if operation == "update":
+            intake = Intake.objects.create(
+                day=day,
+                food=serving,
+                meal="lunch",
+                num_servings=1,
+            )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        direct_macros = """
+            energyKcal: -1, proteinG: -1, fatG: -1, carbsG: -1
+        """
+        if operation == "create":
+            mutation = f"""
+                mutation CreateFoodIntake($dayId: Int!, $foodId: ID!) {{
+                    createIntake(
+                        dayId: $dayId, foodId: $foodId,
+                        meal: "lunch", numServings: 2,
+                        {direct_macros}
+                    ) {{ id }}
+                }}
+            """
+            variables = {"dayId": day.id, "foodId": str(serving.id)}
+        else:
+            assert intake is not None
+            mutation = f"""
+                mutation UpdateFoodIntake($id: ID!) {{
+                    updateIntake(
+                        id: $id, meal: "dinner", numServings: 2,
+                        {direct_macros}
+                    ) {{ id }}
+                }}
+            """
+            variables = {"id": str(intake.id)}
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variables,
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        persisted = Intake.objects.get(
+            pk=result.data[
+                "createIntake" if operation == "create" else "updateIntake"
+            ]["id"]
+        )
+        assert (
+            persisted.energy_kcal,
+            persisted.protein_g,
+            persisted.fat_g,
+            persisted.carbs_g,
+        ) == (
+            Decimal("200.00"),
+            Decimal("20.00"),
+            Decimal("10.00"),
+            Decimal("40.00"),
+        )
+
     def test_create_food_intake_overconsumption_rolls_back_everything(
         self, mocker
     ):
@@ -545,6 +689,97 @@ class TestIntakeSchema:
         assert result.errors is None
         assert result.data["updateIntake"]["energyKcal"] == 400.0
         assert result.data["updateIntake"]["numServings"] == 2.0
+
+    @pytest.mark.parametrize(
+        "field", ["energyKcal", "proteinG", "fatG", "carbsG"]
+    )
+    @pytest.mark.parametrize(
+        "value", [-1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    def test_update_custom_intake_rejects_invalid_macros_without_writes(
+        self, mocker, field, value
+    ):
+        """Invalid custom macro updates leave the intake and rollups unchanged."""
+        user, plan = _create_user_and_plan(
+            f"custom-update-{field}-{repr(value)}@example.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        intake = Intake.objects.create(
+            day=day,
+            meal="lunch",
+            num_servings=1,
+            energy_kcal=200,
+            protein_g=15,
+            fat_g=8,
+            carbs_g=25,
+        )
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        original_intake_state = (
+            intake.meal,
+            intake.num_servings,
+            intake.energy_kcal,
+            intake.protein_g,
+            intake.fat_g,
+            intake.carbs_g,
+            intake.processed,
+        )
+        original_day_state = (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+        )
+        original_plan_energy = plan.energy_kcal
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateCustomIntake(
+                $id: ID!, $energyKcal: Float,
+                $proteinG: Float, $fatG: Float, $carbsG: Float
+            ) {
+                updateIntake(
+                    id: $id, meal: "dinner", numServings: 2,
+                    energyKcal: $energyKcal, proteinG: $proteinG,
+                    fatG: $fatG, carbsG: $carbsG
+                ) { id }
+            }
+        """
+        variables = {
+            "id": str(intake.id),
+            "energyKcal": 300.0,
+            "proteinG": 30.0,
+            "fatG": 12.0,
+            "carbsG": 40.0,
+        }
+        variables[field] = value
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variables,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        intake.refresh_from_db()
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        assert (
+            intake.meal,
+            intake.num_servings,
+            intake.energy_kcal,
+            intake.protein_g,
+            intake.fat_g,
+            intake.carbs_g,
+            intake.processed,
+        ) == original_intake_state
+        assert (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+        ) == original_day_state
+        assert plan.energy_kcal == original_plan_energy
 
     def test_update_food_intake_overconsumption_rolls_back_everything(
         self, mocker

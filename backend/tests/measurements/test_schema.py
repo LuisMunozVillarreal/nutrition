@@ -229,6 +229,56 @@ class TestCreateMeasurement:
         # Then an error is returned
         assert result.errors is not None
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("weight", 0.0),
+            ("weight", -1.0),
+            ("weight", float("nan")),
+            ("weight", float("inf")),
+            ("weight", -float("inf")),
+            ("bodyFatPerc", 0.0),
+            ("bodyFatPerc", -1.0),
+            ("bodyFatPerc", 100.0),
+            ("bodyFatPerc", 100.1),
+            ("bodyFatPerc", float("nan")),
+            ("bodyFatPerc", float("inf")),
+            ("bodyFatPerc", -float("inf")),
+        ],
+    )
+    def test_create_measurement_rejects_invalid_values_without_persisting(
+        self, mocker, field, value
+    ):
+        """Creating a measurement requires physiological finite values."""
+        user = User.objects.create_user(
+            email=f"invalid-create-{field}-{repr(value)}@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateMeasurement(
+                $bodyFatPerc: Float!, $weight: Float!
+            ) {
+                createMeasurement(
+                    bodyFatPerc: $bodyFatPerc, weight: $weight
+                ) { id }
+            }
+        """
+        variables = {"bodyFatPerc": 20.0, "weight": 80.0}
+        variables[field] = value
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variables,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert not Measurement.objects.filter(user=user).exists()
+
 
 @pytest.mark.django_db
 class TestUpdateMeasurement:
@@ -354,6 +404,94 @@ class TestUpdateMeasurement:
                 expected_fat,
                 expected_carbs,
             )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("weight", 0.0),
+            ("weight", -1.0),
+            ("weight", float("nan")),
+            ("weight", float("inf")),
+            ("weight", -float("inf")),
+            ("bodyFatPerc", 0.0),
+            ("bodyFatPerc", -1.0),
+            ("bodyFatPerc", 100.0),
+            ("bodyFatPerc", 100.1),
+            ("bodyFatPerc", float("nan")),
+            ("bodyFatPerc", float("inf")),
+            ("bodyFatPerc", -float("inf")),
+        ],
+    )
+    def test_update_measurement_rejects_invalid_values_without_writes(
+        self, mocker, field, value
+    ):
+        """Invalid updates do not persist or recalculate referencing days."""
+        user = User.objects.create_user(
+            email=f"invalid-update-{field}-{repr(value)}@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=user, body_fat_perc=20, weight=80
+        )
+        plan = WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today(),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=500,
+        )
+        original_day_states = list(
+            plan.days.order_by("id").values_list(
+                "energy_kcal_goal",
+                "protein_g_goal",
+                "fat_g_goal",
+                "carbs_g_goal",
+            )
+        )
+        day_save = mocker.patch("apps.plans.models.Day.save", autospec=True)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateMeasurement(
+                $id: ID!, $bodyFatPerc: Float!, $weight: Float!
+            ) {
+                updateMeasurement(
+                    id: $id, bodyFatPerc: $bodyFatPerc, weight: $weight
+                ) { id }
+            }
+        """
+        variables = {
+            "id": str(measurement.id),
+            "bodyFatPerc": 20.0,
+            "weight": 80.0,
+        }
+        variables[field] = value
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variables,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        measurement.refresh_from_db()
+        assert measurement.body_fat_perc == Decimal("20.0")
+        assert measurement.weight == Decimal("80.0")
+        assert (
+            list(
+                plan.days.order_by("id").values_list(
+                    "energy_kcal_goal",
+                    "protein_g_goal",
+                    "fat_g_goal",
+                    "carbs_g_goal",
+                )
+            )
+            == original_day_states
+        )
+        day_save.assert_not_called()
 
     def test_cannot_update_other_users_measurement(self, mocker):
         """Test that a user cannot update another user's measurement."""
