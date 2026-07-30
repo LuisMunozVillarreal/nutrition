@@ -18,7 +18,7 @@ Given("a day exists for the exercise", () => {
     // Try local Python script first (dev environment).
     // In CI, the seed is done as a setup step, so this may fail — we then
     // query the GraphQL API to get the day ID.
-    cy.exec('cd ../backend && .venv/bin/python scripts/seed_test_day.py', { failOnNonZeroExit: false })
+    cy.exec('cd ../backend && .venv/bin/python -m scripts.seed_test_day', { failOnNonZeroExit: false })
       .then((result) => {
           if (result.exitCode === 0 && result.stdout) {
               const lines = result.stdout.trim().split("\n");
