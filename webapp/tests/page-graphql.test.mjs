@@ -83,6 +83,15 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
   assert.match(entityForm, /data-testid="form-hydrating"/)
   assert.match(entityForm, /data-testid="form-ready"/)
 
+  const appShell = await readSource('../src/components/AppShell.tsx')
+  assert.match(appShell, /const \{ data: session, status \} = useSession\(\)/)
+  assert.match(appShell, /if \(status === 'loading'\)/)
+  assert.match(appShell, /data-testid="session-loading"/)
+  assert.ok(
+    appShell.indexOf("status === 'loading'") < appShell.indexOf('if (!session)'),
+    'AppShell renders children before the session is settled',
+  )
+
   const formSupport = await readSource('../cypress/support/form.ts')
   assert.match(formSupport, /export function waitForFormReady/)
   assert.match(formSupport, /data-testid="form-ready"/)
