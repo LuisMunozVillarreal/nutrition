@@ -276,10 +276,43 @@ class TestCupboardSchema:
         assert result.data["updateCupboardItem"]["started"] is True
         assert result.data["updateCupboardItem"]["finished"] is False
 
-    def test_update_cupboard_item_recalculates_from_new_manual_baseline(
+    def test_update_cupboard_item_keeps_linked_only_total_unchanged(
         self, mocker
     ):
-        """Manual edits remain separate from existing linked consumptions."""
+        """Saving a linked-only displayed total does not double-count linked use."""
+        user = _create_user("cupboard-linked-total@test.com")
+        product = FoodProduct.objects.create(
+            name="Linked product", size=400, size_unit="g", num_servings=4
+        )
+        item = CupboardItem.objects.create(
+            owner=user, food=product, purchased_at=timezone.now()
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        CupboardItemConsumption.objects.create(item=item, serving=serving)
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!, $consumedPerc: Float!) {
+                updateCupboardItem(id: $id, consumedPerc: $consumedPerc) {
+                    consumedPerc
+                }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id), "consumedPerc": 25.0},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateCupboardItem"]["consumedPerc"] == 25
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == 0
+        assert item.consumed_perc == 25
+
+    def test_update_cupboard_item_keeps_mixed_total_unchanged(self, mocker):
+        """Saving a mixed displayed total preserves its manual baseline."""
         user = _create_user("cupboard-manual-baseline@test.com")
         product = FoodProduct.objects.create(
             name="Baseline product", size=400, size_unit="g", num_servings=4
@@ -296,7 +329,7 @@ class TestCupboardSchema:
         context.request.user = user
         mutation = """
             mutation UpdateItem($id: ID!) {
-                updateCupboardItem(id: $id, consumedPerc: 10) {
+                updateCupboardItem(id: $id, consumedPerc: 45) {
                     consumedPerc
                 }
             }
@@ -309,10 +342,91 @@ class TestCupboardSchema:
         )
 
         assert result.errors is None
-        assert result.data["updateCupboardItem"]["consumedPerc"] == 35
+        assert result.data["updateCupboardItem"]["consumedPerc"] == 45
         item.refresh_from_db()
-        assert item.manual_consumed_perc == 10
-        assert item.consumed_perc == 35
+        assert item.manual_consumed_perc == 20
+        assert item.consumed_perc == 45
+
+    def test_update_cupboard_item_changes_total_and_recalculates_later_use(
+        self, mocker
+    ):
+        """A changed displayed total becomes a baseline for later linked use."""
+        user = _create_user("cupboard-changed-total@test.com")
+        product = FoodProduct.objects.create(
+            name="Changing product", size=400, size_unit="g", num_servings=4
+        )
+        item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+            consumed_perc=20,
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        CupboardItemConsumption.objects.create(item=item, serving=serving)
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 60) {
+                    consumedPerc
+                }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == 35
+        assert item.consumed_perc == 60
+
+        CupboardItemConsumption.objects.create(item=item, serving=serving)
+
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == 35
+        assert item.consumed_perc == 85
+
+    def test_update_cupboard_item_rejects_total_below_linked_use(self, mocker):
+        """A displayed total cannot be lower than immutable linked consumption."""
+        user = _create_user("cupboard-below-linked@test.com")
+        product = FoodProduct.objects.create(
+            name="Linked floor product",
+            size=400,
+            size_unit="g",
+            num_servings=4,
+        )
+        item = CupboardItem.objects.create(
+            owner=user, food=product, purchased_at=timezone.now()
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        CupboardItemConsumption.objects.create(item=item, serving=serving)
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 24.9) {
+                    consumedPerc
+                }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id)},
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert "consumedPerc cannot be less than linked consumption" in str(
+            result.errors[0]
+        )
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == 0
+        assert item.consumed_perc == 25
 
     def test_update_cupboard_item_rejects_another_user(self, mocker):
         """A user cannot update another user's cupboard item."""
