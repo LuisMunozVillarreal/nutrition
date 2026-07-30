@@ -144,6 +144,8 @@ class TestWeekPlanSchema:
             110,
             110,
         ]
+        # Verify that the persisted fields match the model's goal calculators.
+        # pylint: disable=protected-access
         for day in days:
             assert day.protein_g_goal == Decimal("176.00")
             assert day.energy_kcal_goal == day._energy_kcal_goal.quantize(
@@ -153,6 +155,7 @@ class TestWeekPlanSchema:
             assert day.carbs_g_goal == day._carbs_g_goal.quantize(
                 Decimal("0.01")
             )
+        # pylint: enable=protected-access
 
     def test_delete_week_plan(self, mocker):
         """Test deleting a week plan."""
