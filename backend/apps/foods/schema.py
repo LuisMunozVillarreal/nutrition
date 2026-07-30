@@ -16,7 +16,13 @@ from apps.foods.models import (
     RecipeIngredient,
     Serving,
 )
-from apps.libs.graphql import get_request_user, validated_positive_decimal
+from apps.foods.models.units import UNIT_CHOICES
+from apps.foods.signals.handlers.cupboard import recalculate_consumed_perc
+from apps.libs.graphql import (
+    get_request_user,
+    validated_non_negative_decimal,
+    validated_positive_decimal,
+)
 
 # pylint: disable=too-few-public-methods,too-many-lines
 
@@ -28,6 +34,50 @@ def _require_staff_user(info: Info) -> None:
         raise PermissionError("Authentication required")
     if not user.is_staff:
         raise PermissionError("Staff access required")
+
+
+def _validated_unit(value: str, field_name: str) -> str:
+    """Require a unit from the canonical model choices."""
+    if value not in {unit for unit, _label in UNIT_CHOICES}:
+        raise ValueError(f"{field_name} must be a supported unit")
+    return value
+
+
+def _validated_optional_nutrient(
+    value: float | None, field_name: str
+) -> Decimal | None:
+    """Validate an optional finite, non-negative nutrient value."""
+    if value is None:
+        return None
+    return validated_non_negative_decimal(value, field_name)
+
+
+def _validated_nutrients(
+    *,
+    energy_kcal: float,
+    protein_g: float,
+    fat_g: float,
+    carbs_g: float,
+    saturated_fat_g: float | None,
+    sugars_g: float | None,
+    fibre_g: float | None,
+    salt_g: float | None,
+) -> dict[str, Decimal | None]:
+    """Validate every nutrient exposed by product and recipe mutations."""
+    return {
+        "energy_kcal": validated_non_negative_decimal(
+            energy_kcal, "energyKcal"
+        ),
+        "protein_g": validated_non_negative_decimal(protein_g, "proteinG"),
+        "fat_g": validated_non_negative_decimal(fat_g, "fatG"),
+        "carbs_g": validated_non_negative_decimal(carbs_g, "carbsG"),
+        "saturated_fat_g": _validated_optional_nutrient(
+            saturated_fat_g, "saturatedFatG"
+        ),
+        "sugar_carbs_g": _validated_optional_nutrient(sugars_g, "sugarsG"),
+        "fibre_carbs_g": _validated_optional_nutrient(fibre_g, "fibreG"),
+        "salt_g": _validated_optional_nutrient(salt_g, "saltG"),
+    }
 
 
 @strawberry.type
@@ -217,6 +267,7 @@ class FoodMutation:
     """Food mutations."""
 
     @strawberry.mutation
+    @transaction.atomic
     def create_food_product(
         self,
         info: Info,
@@ -269,6 +320,16 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
         """
         _require_staff_user(info)
+        nutrients = _validated_nutrients(
+            energy_kcal=energy_kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carbs_g=carbs_g,
+            saturated_fat_g=saturated_fat_g,
+            sugars_g=sugars_g,
+            fibre_g=fibre_g,
+            salt_g=salt_g,
+        )
 
         obj = FoodProduct.objects.create(
             name=name,
@@ -279,30 +340,18 @@ class FoodMutation:
             nutritional_info_size=_validated_product_nutritional_info_size(
                 nutritional_info_size
             ),
-            nutritional_info_unit=nutritional_info_unit,
+            nutritional_info_unit=_validated_unit(
+                nutritional_info_unit, "nutritionalInfoUnit"
+            ),
             size=validated_positive_decimal(size, "size"),
-            size_unit=size_unit,
+            size_unit=_validated_unit(size_unit, "sizeUnit"),
             num_servings=_validated_product_num_servings(num_servings),
-            energy_kcal=Decimal(str(energy_kcal)),
-            protein_g=Decimal(str(protein_g)),
-            fat_g=Decimal(str(fat_g)),
-            carbs_g=Decimal(str(carbs_g)),
-            saturated_fat_g=(
-                Decimal(str(saturated_fat_g))
-                if saturated_fat_g is not None
-                else None
-            ),
-            sugar_carbs_g=(
-                Decimal(str(sugars_g)) if sugars_g is not None else None
-            ),
-            fibre_carbs_g=(
-                Decimal(str(fibre_g)) if fibre_g is not None else None
-            ),
-            salt_g=Decimal(str(salt_g)) if salt_g is not None else None,
+            **nutrients,
         )
         return FoodProductType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_food_product(
         self,
         info: Info,
@@ -362,6 +411,21 @@ class FoodMutation:
             _validated_product_nutritional_info_size(nutritional_info_size)
         )
         validated_size = validated_positive_decimal(size, "size")
+        validated_nutritional_info_unit = _validated_unit(
+            nutritional_info_unit, "nutritionalInfoUnit"
+        )
+        validated_size_unit = _validated_unit(size_unit, "sizeUnit")
+        validated_num_servings = _validated_product_num_servings(num_servings)
+        nutrients = _validated_nutrients(
+            energy_kcal=energy_kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carbs_g=carbs_g,
+            saturated_fat_g=saturated_fat_g,
+            sugars_g=sugars_g,
+            fibre_g=fibre_g,
+            salt_g=salt_g,
+        )
 
         try:
             obj = FoodProduct.objects.get(pk=id)
@@ -375,26 +439,12 @@ class FoodMutation:
         obj.barcode = barcode
         obj.notes = notes
         obj.nutritional_info_size = validated_nutritional_info_size
-        obj.nutritional_info_unit = nutritional_info_unit
+        obj.nutritional_info_unit = validated_nutritional_info_unit
         obj.size = validated_size
-        obj.size_unit = size_unit
-        obj.num_servings = _validated_product_num_servings(num_servings)
-        obj.energy_kcal = Decimal(str(energy_kcal))
-        obj.protein_g = Decimal(str(protein_g))
-        obj.fat_g = Decimal(str(fat_g))
-        obj.carbs_g = Decimal(str(carbs_g))
-        obj.saturated_fat_g = (
-            Decimal(str(saturated_fat_g))
-            if saturated_fat_g is not None
-            else None
-        )
-        obj.sugar_carbs_g = (
-            Decimal(str(sugars_g)) if sugars_g is not None else None
-        )
-        obj.fibre_carbs_g = (
-            Decimal(str(fibre_g)) if fibre_g is not None else None
-        )
-        obj.salt_g = Decimal(str(salt_g)) if salt_g is not None else None
+        obj.size_unit = validated_size_unit
+        obj.num_servings = validated_num_servings
+        for nutrient_name, nutrient_value in nutrients.items():
+            setattr(obj, nutrient_name, nutrient_value)
         obj.save()
         return FoodProductType.from_model(obj)
 
@@ -422,6 +472,7 @@ class FoodMutation:
             raise ValueError("FoodProduct not found") from e
 
     @strawberry.mutation
+    @transaction.atomic
     def create_serving(
         self,
         info: Info,
@@ -450,11 +501,12 @@ class FoodMutation:
             serving_size=validated_positive_decimal(
                 serving_size, "servingSize"
             ),
-            serving_unit=serving_unit,
+            serving_unit=_validated_unit(serving_unit, "servingUnit"),
         )
         return ServingType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_serving(
         self,
         info: Info,
@@ -481,11 +533,12 @@ class FoodMutation:
         validated_serving_size = validated_positive_decimal(
             serving_size, "servingSize"
         )
+        validated_serving_unit = _validated_unit(serving_unit, "servingUnit")
 
         try:
             obj = Serving.objects.get(pk=id)
             obj.serving_size = validated_serving_size
-            obj.serving_unit = serving_unit
+            obj.serving_unit = validated_serving_unit
             obj.save()
             return ServingType.from_model(obj)
         except Serving.DoesNotExist as e:
@@ -681,6 +734,7 @@ class RecipeMutation:
     """Recipe mutations."""
 
     @strawberry.mutation
+    @transaction.atomic
     def create_recipe(
         self,
         info: Info,
@@ -725,34 +779,30 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
         """
         _require_staff_user(info)
+        nutrients = _validated_nutrients(
+            energy_kcal=energy_kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carbs_g=carbs_g,
+            saturated_fat_g=saturated_fat_g,
+            sugars_g=sugars_g,
+            fibre_g=fibre_g,
+            salt_g=salt_g,
+        )
 
         obj = Recipe.objects.create(
             name=name,
             brand=brand,
             description=description,
             size=validated_positive_decimal(size, "size"),
-            size_unit=size_unit,
+            size_unit=_validated_unit(size_unit, "sizeUnit"),
             num_servings=_validated_recipe_num_servings(num_servings),
-            energy_kcal=Decimal(str(energy_kcal)),
-            protein_g=Decimal(str(protein_g)),
-            fat_g=Decimal(str(fat_g)),
-            carbs_g=Decimal(str(carbs_g)),
-            saturated_fat_g=(
-                Decimal(str(saturated_fat_g))
-                if saturated_fat_g is not None
-                else None
-            ),
-            sugar_carbs_g=(
-                Decimal(str(sugars_g)) if sugars_g is not None else None
-            ),
-            fibre_carbs_g=(
-                Decimal(str(fibre_g)) if fibre_g is not None else None
-            ),
-            salt_g=(Decimal(str(salt_g)) if salt_g is not None else None),
+            **nutrients,
         )
         return RecipeType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_recipe(
         self,
         info: Info,
@@ -801,6 +851,18 @@ class RecipeMutation:
         """
         _require_staff_user(info)
         validated_size = validated_positive_decimal(size, "size")
+        validated_size_unit = _validated_unit(size_unit, "sizeUnit")
+        validated_num_servings = _validated_recipe_num_servings(num_servings)
+        nutrients = _validated_nutrients(
+            energy_kcal=energy_kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carbs_g=carbs_g,
+            saturated_fat_g=saturated_fat_g,
+            sugars_g=sugars_g,
+            fibre_g=fibre_g,
+            salt_g=salt_g,
+        )
 
         try:
             obj = Recipe.objects.get(pk=id)
@@ -811,24 +873,10 @@ class RecipeMutation:
         obj.brand = brand
         obj.description = description
         obj.size = validated_size
-        obj.size_unit = size_unit
-        obj.num_servings = _validated_recipe_num_servings(num_servings)
-        obj.energy_kcal = Decimal(str(energy_kcal))
-        obj.protein_g = Decimal(str(protein_g))
-        obj.fat_g = Decimal(str(fat_g))
-        obj.carbs_g = Decimal(str(carbs_g))
-        obj.saturated_fat_g = (
-            Decimal(str(saturated_fat_g))
-            if saturated_fat_g is not None
-            else None
-        )
-        obj.sugar_carbs_g = (
-            Decimal(str(sugars_g)) if sugars_g is not None else None
-        )
-        obj.fibre_carbs_g = (
-            Decimal(str(fibre_g)) if fibre_g is not None else None
-        )
-        obj.salt_g = Decimal(str(salt_g)) if salt_g is not None else None
+        obj.size_unit = validated_size_unit
+        obj.num_servings = validated_num_servings
+        for nutrient_name, nutrient_value in nutrients.items():
+            setattr(obj, nutrient_name, nutrient_value)
         obj.save()
         return RecipeType.from_model(obj)
 
@@ -1094,6 +1142,7 @@ class CupboardMutation:
         return CupboardItemType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_cupboard_item(
         self,
         info: Info,
@@ -1123,8 +1172,9 @@ class CupboardMutation:
         except CupboardItem.DoesNotExist as e:
             raise ValueError("Item not found") from e
 
-        obj.consumed_perc = _validated_consumed_perc(consumed_perc)
-        obj.save()
+        obj.manual_consumed_perc = _validated_consumed_perc(consumed_perc)
+        obj.save(update_fields=["manual_consumed_perc"])
+        recalculate_consumed_perc(obj)
         return CupboardItemType.from_model(obj)
 
     @strawberry.mutation

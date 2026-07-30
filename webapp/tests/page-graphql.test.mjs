@@ -207,6 +207,56 @@ test('custom intake macro fields declare native non-negative constraints', async
   }
 })
 
+test('week plan forms constrain nutrition parameters to server ranges', async () => {
+  for (const pagePath of [
+    '../src/app/plans/new/page.tsx',
+    '../src/app/plans/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    for (const [fieldName, minimum, maximum] of [
+      ['proteinGKg', '0.1', null],
+      ['fatPerc', '0.1', '99.9'],
+      ['deficit', '0', null],
+    ]) {
+      const field = page.match(
+        new RegExp(`<FormField[^>]*name=["']${fieldName}["'][^>]*/>`),
+      )
+      assert.ok(field, `${fieldName} field was not found in ${pagePath}`)
+      assert.match(field[0], new RegExp(`min=["']${minimum.replace('.', '\\.')}["']`))
+      if (maximum) {
+        assert.match(field[0], new RegExp(`max=["']${maximum.replace('.', '\\.')}["']`))
+      }
+    }
+  }
+})
+
+test('product and recipe nutrient fields declare non-negative constraints', async () => {
+  for (const pagePath of [
+    '../src/app/products/new/page.tsx',
+    '../src/app/products/[id]/page.tsx',
+    '../src/app/recipes/new/page.tsx',
+    '../src/app/recipes/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    for (const fieldName of [
+      'energyKcal',
+      'proteinG',
+      'fatG',
+      'carbsG',
+      'saturatedFatG',
+      'sugarsG',
+      'fibreG',
+      'saltG',
+    ]) {
+      const field = page.match(
+        new RegExp(`<FormField[^>]*name=["']${fieldName}["'][^>]*/>`),
+      )
+      assert.ok(field, `${fieldName} field was not found in ${pagePath}`)
+      assert.match(field[0], /min=["']0["']/)
+    }
+  }
+})
+
 test('EntityForm uses native form submission so invalid fields block saves', async () => {
   const entityForm = await readFile(
     new URL('../src/components/EntityForm.tsx', import.meta.url),

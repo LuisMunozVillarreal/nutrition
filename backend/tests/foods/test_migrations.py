@@ -9,7 +9,11 @@ from django.contrib.auth import get_user_model
 from django.db.migrations import RunPython
 from django.utils import timezone
 
-from apps.foods.models import CupboardItem, FoodProduct
+from apps.foods.models import (
+    CupboardItem,
+    CupboardItemConsumption,
+    FoodProduct,
+)
 
 User = get_user_model()
 
@@ -42,6 +46,20 @@ def _run_owner_data_migration() -> None:
     """Run the registered owner reconciliation operation."""
     migration = importlib.import_module(
         "apps.foods.migrations.0031_cupboarditem_owner"
+    )
+    operations = [
+        operation
+        for operation in migration.Migration.operations
+        if isinstance(operation, RunPython)
+    ]
+    assert len(operations) == 1
+    operations[0].code(apps, None)
+
+
+def _run_manual_consumption_data_migration() -> None:
+    """Run the manual cupboard baseline initialization operation."""
+    migration = importlib.import_module(
+        "apps.foods.migrations.0032_cupboarditem_manual_consumed_perc"
     )
     operations = [
         operation
@@ -110,3 +128,29 @@ class TestCupboardOwnerMigration:
 
         item.refresh_from_db()
         assert item.owner is None
+
+
+@pytest.mark.django_db
+def test_manual_consumption_migration_preserves_only_unlinked_baselines():
+    """Legacy manual totals are retained without double-counting linked use."""
+    product = FoodProduct.objects.create(name="Legacy baseline", size=400)
+    manual_item = CupboardItem.objects.create(
+        food=product, purchased_at=timezone.now(), consumed_perc=25
+    )
+    linked_item = CupboardItem.objects.create(
+        food=product, purchased_at=timezone.now(), consumed_perc=25
+    )
+    CupboardItemConsumption.objects.create(
+        item=linked_item,
+        serving=product.servings.get(serving_size=100, serving_unit="g"),
+    )
+    CupboardItem.objects.filter(
+        pk__in=[manual_item.pk, linked_item.pk]
+    ).update(manual_consumed_perc=0)
+
+    _run_manual_consumption_data_migration()
+
+    manual_item.refresh_from_db()
+    linked_item.refresh_from_db()
+    assert manual_item.manual_consumed_perc == 25
+    assert linked_item.manual_consumed_perc == 0

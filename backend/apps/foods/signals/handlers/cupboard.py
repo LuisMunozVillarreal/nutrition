@@ -62,12 +62,14 @@ def _get_consumed_perc(food: Food, consumed_g: Decimal) -> Decimal:
     return consumed_g * 100 / item_g
 
 
-def _set_total_consumed_perc(cupboard_item: CupboardItem) -> None:
-    """Set total consumed percentage.
+def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
+    """Recalculate total consumption from manual and linked portions.
 
     Args:
-        cupboard_item (CupboardItem): cupboard item to set the total consumed
-            percentage.
+        cupboard_item (CupboardItem): cupboard item to recalculate.
+
+    Raises:
+        CupboardItemConsumptionTooBigError: if total consumption exceeds 100%.
     """
     consumed_g = Decimal("0")
     for consumption in cupboard_item.consumptions.all():
@@ -77,14 +79,25 @@ def _set_total_consumed_perc(cupboard_item: CupboardItem) -> None:
 
         consumed_g += _get_consumed_g(consumption.serving, num_servings)
 
+    linked_consumed_perc = Decimal("0")
     if consumed_g:
-        cupboard_item.consumed_perc = _get_consumed_perc(
+        linked_consumed_perc = _get_consumed_perc(
             cupboard_item.food, consumed_g
         )
-    else:
-        cupboard_item.consumed_perc = 0
+    total_consumed_perc = (
+        cupboard_item.manual_consumed_perc + linked_consumed_perc
+    )
+    if total_consumed_perc > 100:
+        raise CupboardItemConsumptionTooBigError()
 
-    cupboard_item.save()
+    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
+        consumed_perc=total_consumed_perc,
+        started=total_consumed_perc > 0,
+        finished=total_consumed_perc == 100,
+    )
+    cupboard_item.consumed_perc = total_consumed_perc
+    cupboard_item.started = total_consumed_perc > 0
+    cupboard_item.finished = total_consumed_perc == 100
 
 
 @receiver(post_save, sender=CupboardItem)
@@ -124,7 +137,7 @@ def calculate_consumption_from_cooked_recipes(
             item=cupboard_item, serving=serving
         )
 
-        _set_total_consumed_perc(cupboard_item)
+        recalculate_consumed_perc(cupboard_item)
 
 
 @receiver(post_save, sender=Intake)
@@ -207,7 +220,7 @@ def recalculate_consumption_after_creation(
         created (bool): whether the instance is created or not.
         kwargs (Any): keyword arguments.
     """
-    _set_total_consumed_perc(instance.item)
+    recalculate_consumed_perc(instance.item)
 
 
 @receiver(post_delete, sender=CupboardItemConsumption)
@@ -223,7 +236,7 @@ def recalculate_consumption_after_deletion(
         instance (CupboardItemConsumption): instance that will be deleted.
         kwargs (Any): keyword arguments.
     """
-    _set_total_consumed_perc(instance.item)
+    recalculate_consumed_perc(instance.item)
 
 
 class CupboardItemConsumptionTooBigError(Exception):

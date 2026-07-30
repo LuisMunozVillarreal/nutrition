@@ -324,6 +324,158 @@ class TestRecipeMutation:
         assert recipe.name == "Valid"
         assert recipe.num_servings == 1
 
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "energyKcal",
+            "proteinG",
+            "fatG",
+            "carbsG",
+            "saturatedFatG",
+            "sugarsG",
+            "fibreG",
+            "saltG",
+        ],
+    )
+    @pytest.mark.parametrize("value", [-0.1, float("nan"), float("inf")])
+    def test_recipe_rejects_invalid_nutrients_without_partial_writes(
+        self, mocker, operation, field_name, value
+    ):
+        """Every exposed recipe nutrient is finite and non-negative."""
+        user = _create_user(
+            f"recipe-nutrient-{operation}-{field_name}-{repr(value)}@test.com",
+            is_staff=True,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Original recipe nutrients",
+            energy_kcal=100,
+            protein_g=10,
+            fat_g=5,
+            carbs_g=15,
+            saturated_fat_g=2,
+            sugar_carbs_g=3,
+            fibre_carbs_g=4,
+            salt_g=1,
+        )
+        original_count = Recipe.objects.count()
+        nutrient_fields = (
+            "name",
+            "energy_kcal",
+            "protein_g",
+            "fat_g",
+            "carbs_g",
+            "saturated_fat_g",
+            "sugar_carbs_g",
+            "fibre_carbs_g",
+            "salt_g",
+        )
+        original_state = tuple(
+            getattr(recipe, field) for field in nutrient_fields
+        )
+        original_servings = list(
+            recipe.servings.order_by("id").values_list(
+                "id", "serving_size", "serving_unit", "energy_kcal"
+            )
+        )
+        if operation == "create":
+            mutation = f"""
+                mutation InvalidNutrient($value: Float!) {{
+                    createRecipe(
+                        name: "Invalid recipe nutrient", {field_name}: $value
+                    ) {{ id }}
+                }}
+            """
+            variables = {"value": value}
+        else:
+            mutation = f"""
+                mutation InvalidNutrient($id: ID!, $value: Float!) {{
+                    updateRecipe(
+                        id: $id, name: "Changed", {field_name}: $value
+                    ) {{ id }}
+                }}
+            """
+            variables = {"id": str(recipe.id), "value": value}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        if value == -0.1:
+            assert f"{field_name} must be greater than or equal to 0" in str(
+                result.errors[0]
+            )
+        assert Recipe.objects.count() == original_count
+        recipe.refresh_from_db()
+        assert (
+            tuple(getattr(recipe, field) for field in nutrient_fields)
+            == original_state
+        )
+        assert (
+            list(
+                recipe.servings.order_by("id").values_list(
+                    "id", "serving_size", "serving_unit", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_recipe_rejects_unsupported_size_unit_without_partial_writes(
+        self, mocker, operation
+    ):
+        """Recipe size units must come from the canonical model choices."""
+        user = _create_user(f"recipe-unit-{operation}@test.com", is_staff=True)
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(name="Original recipe unit")
+        original_count = Recipe.objects.count()
+        original_state = (recipe.name, recipe.size_unit)
+        original_servings = list(
+            recipe.servings.order_by("id").values_list(
+                "id", "serving_size", "serving_unit", "energy_kcal"
+            )
+        )
+        if operation == "create":
+            mutation = """
+                mutation {
+                    createRecipe(
+                        name: "Invalid recipe unit", sizeUnit: "unsupported"
+                    ) { id }
+                }
+            """
+            variables = None
+        else:
+            mutation = """
+                mutation InvalidUnit($id: ID!) {
+                    updateRecipe(
+                        id: $id, name: "Changed", sizeUnit: "unsupported"
+                    ) { id }
+                }
+            """
+            variables = {"id": str(recipe.id)}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        assert "sizeUnit must be a supported unit" in str(result.errors[0])
+        assert Recipe.objects.count() == original_count
+        recipe.refresh_from_db()
+        assert (recipe.name, recipe.size_unit) == original_state
+        assert (
+            list(
+                recipe.servings.order_by("id").values_list(
+                    "id", "serving_size", "serving_unit", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
+
     def test_delete_recipe(self, mocker):
         """Test deleting a recipe."""
         # Given an authenticated user and a recipe

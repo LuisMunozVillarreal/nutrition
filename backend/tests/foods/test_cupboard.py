@@ -252,6 +252,51 @@ def test_modify_intake(
     assert cupboard_item.consumed_perc == 93.75
 
 
+def test_manual_consumption_is_preserved_when_intake_is_created(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
+    """Creating a linked intake adds to, rather than replaces, manual use."""
+    cupboard_item.consumed_perc = Decimal("20")
+    cupboard_item.save()
+
+    intake_factory(day=owned_cupboard_day, food=serving)
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("20")
+    assert cupboard_item.consumed_perc == Decimal("51.25")
+
+
+def test_manual_consumption_is_preserved_when_intake_is_updated(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
+    """Changing a linked intake recalculates on top of the durable baseline."""
+    cupboard_item.consumed_perc = Decimal("20")
+    cupboard_item.save()
+    intake = intake_factory(day=owned_cupboard_day, food=serving)
+
+    intake.num_servings = 2
+    intake.save()
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("20")
+    assert cupboard_item.consumed_perc == Decimal("82.5")
+
+
+def test_manual_consumption_is_restored_when_intake_is_deleted(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
+    """Deleting the last linked intake restores the manual baseline."""
+    cupboard_item.consumed_perc = Decimal("20")
+    cupboard_item.save()
+    intake = intake_factory(day=owned_cupboard_day, food=serving)
+
+    intake.delete()
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("20")
+    assert cupboard_item.consumed_perc == Decimal("20")
+
+
 def test_finish_cupboard_item(
     day, intake_factory, cupboard_item_factory, food_product_factory
 ):
