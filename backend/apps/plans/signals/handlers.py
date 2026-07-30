@@ -61,7 +61,7 @@ def _recalculate_intake_days(instance: Intake, using: str) -> None:
     """
     day_ids = getattr(instance, "_nutrition_day_ids", (instance.day_id,))
     days = list(
-        Day.objects.select_for_update()
+        Day.objects.select_for_update(of=("self",))
         .using(using)
         .select_related("plan__measurement")
         .filter(pk__in=day_ids)
@@ -106,7 +106,7 @@ def lock_day_and_intake_before_delete(
     using = kwargs["using"]
     with transaction.atomic(using=using):
         day = (
-            Day.objects.select_for_update()
+            Day.objects.select_for_update(of=("self",))
             .using(using)
             .select_related("plan__measurement")
             .get(pk=instance.day_id)
