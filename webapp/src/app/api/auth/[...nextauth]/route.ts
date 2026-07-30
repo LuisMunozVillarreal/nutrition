@@ -1,6 +1,10 @@
 import NextAuth, { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { gql, GraphQLClient } from 'graphql-request'
+import {
+    applyTokenCapabilitiesToSession,
+    applyUserCapabilitiesToToken,
+} from '@/lib/sessionCapabilities'
 
 const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:8000/graphql/';
 const client = new GraphQLClient(endpoint);
@@ -29,6 +33,7 @@ export const authOptions: NextAuthOptions = {
                 email
                 firstName
                 lastName
+                isStaff
               }
             }
           }
@@ -44,7 +49,8 @@ export const authOptions: NextAuthOptions = {
                             id: data.login.user.id,
                             email: data.login.user.email,
                             name: `${data.login.user.firstName} ${data.login.user.lastName}`,
-                            accessToken: data.login.token
+                            accessToken: data.login.token,
+                            isStaff: data.login.user.isStaff
                         }
                     }
                     return null
@@ -57,14 +63,10 @@ export const authOptions: NextAuthOptions = {
     ],
     callbacks: {
         async jwt({ token, user }: any) {
-            if (user) {
-                token.accessToken = user.accessToken
-            }
-            return token
+            return applyUserCapabilitiesToToken(token, user)
         },
         async session({ session, token }: any) {
-            session.accessToken = token.accessToken
-            return session
+            return applyTokenCapabilitiesToSession(session, token)
         }
     },
     pages: {

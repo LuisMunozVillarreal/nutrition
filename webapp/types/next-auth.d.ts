@@ -1,4 +1,13 @@
+import type { DefaultSession } from "next-auth";
 import "next-auth";
+
+interface StaffCapability {
+    isStaff: boolean;
+}
+
+interface OptionalStaffCapability {
+    isStaff?: boolean;
+}
 
 declare module "next-auth" {
     /**
@@ -6,15 +15,16 @@ declare module "next-auth" {
      */
     interface Session {
         accessToken?: string;
+        user: DefaultSession["user"] & StaffCapability;
     }
 
-    interface User {
+    interface User extends StaffCapability {
         accessToken?: string;
     }
 }
 
 declare module "next-auth/jwt" {
-    interface JWT {
+    interface JWT extends OptionalStaffCapability {
         accessToken?: string;
     }
 }
