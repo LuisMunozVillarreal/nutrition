@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { buildCustomIntakeVariables } from './intakeVariables'
 
 const CREATE_MUTATION = gql`
   mutation CreateIntake(
@@ -36,15 +37,7 @@ export default function NewIntakePage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await graphqlRequest(CREATE_MUTATION, {
-        dayId: parseInt(form.dayId),
-        meal: form.meal,
-        numServings: parseFloat(form.numServings),
-        energyKcal: form.energyKcal ? parseFloat(form.energyKcal) : 0,
-        proteinG: form.proteinG ? parseFloat(form.proteinG) : 0,
-        fatG: form.fatG ? parseFloat(form.fatG) : 0,
-        carbsG: form.carbsG ? parseFloat(form.carbsG) : 0,
-      })
+      await graphqlRequest(CREATE_MUTATION, buildCustomIntakeVariables(form))
     } finally { setSaving(false) }
   }
 

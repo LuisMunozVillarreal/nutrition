@@ -124,6 +124,45 @@ class TestFoodProductSchema:
         assert result.errors is None
         assert result.data["updateFoodProduct"]["name"] == "Milko Lite"
 
+    def test_update_food_product_preserves_omitted_url(self, mocker):
+        """Updating unrelated fields preserves the existing product URL."""
+        user = _create_user("fp-url@test.com")
+        fp = FoodProduct.objects.create(
+            name="Milk",
+            size=1000,
+            size_unit="ml",
+            num_servings=4,
+            nutritional_info_unit="ml",
+            url="https://example.com/milk",
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateProduct($id: ID!, $name: String!) {
+                updateFoodProduct(
+                    id: $id, name: $name,
+                    size: 1000.0, sizeUnit: "ml", numServings: 4.0,
+                    nutritionalInfoSize: 100.0,
+                    nutritionalInfoUnit: "ml",
+                    energyKcal: 50.0, proteinG: 3.5,
+                    fatG: 1.5, carbsG: 5.0
+                ) { name url }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(fp.id), "name": "Milk Lite"},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateFoodProduct"]["url"] == (
+            "https://example.com/milk"
+        )
+        fp.refresh_from_db()
+        assert fp.url == "https://example.com/milk"
+
     def test_delete_food_product(self, mocker):
         """Test deleting a food product."""
         user = _create_user("fpdel@test.com")
