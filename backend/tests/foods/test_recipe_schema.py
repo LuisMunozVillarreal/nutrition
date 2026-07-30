@@ -89,7 +89,7 @@ class TestRecipeMutation:
     def test_create_recipe(self, mocker):
         """Test creating a recipe."""
         # Given an authenticated user
-        user = _create_user("rc@test.com")
+        user = _create_user("rc@test.com", is_staff=True)
 
         # And a mock context
         mock_context = mocker.Mock()
@@ -112,10 +112,25 @@ class TestRecipeMutation:
         assert result.data["createRecipe"]["name"] == "Porridge"
         assert Recipe.objects.filter(name="Porridge").exists()
 
+    def test_create_recipe_rejects_non_staff_user(self, mocker):
+        """A regular user cannot create a shared recipe."""
+        user = _create_user("rc-regular@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            'mutation { createRecipe(name: "Shared") { id } }',
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert not Recipe.objects.filter(name="Shared").exists()
+
     def test_update_recipe(self, mocker):
         """Test updating a recipe."""
         # Given an authenticated user and a recipe
-        user = _create_user("ru@test.com")
+        user = _create_user("ru@test.com", is_staff=True)
         recipe = Recipe.objects.create(
             name="Old Name", size=100, size_unit="g", num_servings=1
         )
@@ -140,12 +155,37 @@ class TestRecipeMutation:
         assert result.errors is None
         assert result.data["updateRecipe"]["name"] == "New Name"
 
+    def test_update_recipe_rejects_non_staff_user(self, mocker):
+        """A regular user cannot update a shared recipe."""
+        user = _create_user("ru-regular@test.com")
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateRecipe($id: ID!) {
+                updateRecipe(id: $id, name: "Changed") { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(recipe.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        recipe.refresh_from_db()
+        assert recipe.name == "Shared"
+
     @pytest.mark.parametrize("num_servings", [0.0, -1.0])
     def test_create_recipe_rejects_non_positive_serving_count(
         self, mocker, num_servings
     ):
         """Creating a recipe requires a positive serving count."""
-        user = _create_user(f"rc-invalid-{num_servings}@test.com")
+        user = _create_user(
+            f"rc-invalid-{num_servings}@test.com", is_staff=True
+        )
         mock_context = mocker.Mock()
         mock_context.request.user = user
         mutation = """
@@ -172,7 +212,9 @@ class TestRecipeMutation:
         self, mocker, num_servings
     ):
         """Updating a recipe requires a positive serving count."""
-        user = _create_user(f"ru-invalid-{num_servings}@test.com")
+        user = _create_user(
+            f"ru-invalid-{num_servings}@test.com", is_staff=True
+        )
         recipe = Recipe.objects.create(
             name="Valid", size=100, size_unit="g", num_servings=1
         )
@@ -274,6 +316,126 @@ class TestRecipeMutation:
         assert result.errors is not None
         assert "Staff access required" in str(result.errors[0])
         assert RecipeIngredient.objects.filter(pk=ingredient.id).exists()
+
+    def test_add_recipe_ingredient_rejects_non_staff_user(self, mocker):
+        """A regular user cannot add a shared recipe ingredient."""
+        user = _create_user("ingredient-add-regular@test.com")
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation AddIngredient($recipeId: ID!, $foodId: ID!) {
+                addRecipeIngredient(
+                    recipeId: $recipeId, foodId: $foodId
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "recipeId": str(recipe.id),
+                "foodId": str(product.servings.first().id),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert recipe.ingredients.count() == 0
+
+    def test_staff_can_add_recipe_ingredient(self, mocker):
+        """Staff can add a shared recipe ingredient."""
+        user = _create_user("ingredient-add-staff@test.com", is_staff=True)
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation AddIngredient($recipeId: ID!, $foodId: ID!) {
+                addRecipeIngredient(
+                    recipeId: $recipeId, foodId: $foodId, numServings: 2
+                ) { id numServings }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "recipeId": str(recipe.id),
+                "foodId": str(product.servings.first().id),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["addRecipeIngredient"]["numServings"] == 2
+        assert recipe.ingredients.count() == 1
+
+    def test_update_recipe_ingredient_rejects_non_staff_user(self, mocker):
+        """A regular user cannot update a shared recipe ingredient."""
+        user = _create_user("ingredient-upd-regular@test.com")
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe, food=product.servings.first(), num_servings=1
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateIngredient($id: ID!, $foodId: ID!) {
+                updateRecipeIngredient(
+                    id: $id, foodId: $foodId, numServings: 2
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(ingredient.id),
+                "foodId": str(product.servings.first().id),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        ingredient.refresh_from_db()
+        assert ingredient.num_servings == 1
+
+    def test_staff_can_update_recipe_ingredient(self, mocker):
+        """Staff can update a shared recipe ingredient."""
+        user = _create_user("ingredient-upd-staff@test.com", is_staff=True)
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe, food=product.servings.first(), num_servings=1
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateIngredient($id: ID!, $foodId: ID!) {
+                updateRecipeIngredient(
+                    id: $id, foodId: $foodId, numServings: 2
+                ) { numServings }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(ingredient.id),
+                "foodId": str(product.servings.first().id),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateRecipeIngredient"]["numServings"] == 2
+        ingredient.refresh_from_db()
+        assert ingredient.num_servings == 2
 
     def test_staff_can_delete_recipe_ingredient(self, mocker):
         """Staff can delete a shared recipe ingredient."""
