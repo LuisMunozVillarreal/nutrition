@@ -384,4 +384,9 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
     assert.ok(readyIndex >= 0, `${path} does not wait for hydration`)
     assert.ok(inputIndex > readyIndex, `${path} edits inputs before hydration`)
   }
+
+  const exerciseSteps = await readSource('../cypress/support/step_definitions/exercises.ts')
+  assert.match(exerciseSteps, /cy\.get\('body', \{ timeout: 20000 \}\)\.should/)
+  assert.match(exerciseSteps, /data-testid="form-error"/)
+  assert.match(exerciseSteps, /window\.location\.pathname\)\.to\.equal\('\/exercises'\)/)
 })

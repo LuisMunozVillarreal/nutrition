@@ -77,10 +77,11 @@ When("I fill in the exercise kcals with {string}", (value: string) => {
 });
 
 Then("I should be redirected to the exercises list", () => {
-    cy.get('body').then($body => {
-        if ($body.find('[data-testid="form-error"]').length > 0) {
-            throw new Error("Form Error: " + $body.find('[data-testid="form-error"]').text().trim());
+    cy.get('body', { timeout: 20000 }).should($body => {
+        const formError = $body.find('[data-testid="form-error"]');
+        if (formError.length > 0) {
+            throw new Error("Form Error: " + formError.text().trim());
         }
+        expect(window.location.pathname).to.equal('/exercises');
     });
-    cy.url({ timeout: 10000 }).should("not.include", "/new");
 });
