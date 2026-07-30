@@ -17,7 +17,10 @@ from apps.foods.models import (
     Serving,
 )
 from apps.foods.models.units import UNIT_CHOICES
-from apps.foods.signals.handlers.cupboard import recalculate_consumed_perc
+from apps.foods.signals.handlers.cupboard import (
+    get_linked_consumed_perc,
+    recalculate_consumed_perc,
+)
 from apps.libs.graphql import (
     get_request_user,
     validated_non_negative_decimal,
@@ -930,7 +933,9 @@ class RecipeMutation:
         obj = RecipeIngredient(
             recipe_id=int(recipe_id),
             food_id=int(food_id),
-            num_servings=Decimal(str(num_servings)),
+            num_servings=validated_positive_decimal(
+                num_servings, "numServings"
+            ),
         )
         obj.save()
         return RecipeIngredientType.from_model(obj)
@@ -959,6 +964,9 @@ class RecipeMutation:
             ValueError: if ingredient not found.
         """
         _require_staff_user(info)
+        validated_num_servings = validated_positive_decimal(
+            num_servings, "numServings"
+        )
 
         try:
             obj = RecipeIngredient.objects.get(pk=id)
@@ -966,7 +974,7 @@ class RecipeMutation:
             raise ValueError("RecipeIngredient not found") from e
 
         obj.food_id = int(food_id)
-        obj.num_servings = Decimal(str(num_servings))
+        obj.num_servings = validated_num_servings
         obj.save()
         return RecipeIngredientType.from_model(obj)
 
@@ -1172,7 +1180,13 @@ class CupboardMutation:
         except CupboardItem.DoesNotExist as e:
             raise ValueError("Item not found") from e
 
-        obj.manual_consumed_perc = _validated_consumed_perc(consumed_perc)
+        requested_total = _validated_consumed_perc(consumed_perc)
+        linked_consumed_perc = get_linked_consumed_perc(obj)
+        if requested_total < linked_consumed_perc:
+            raise ValueError(
+                "consumedPerc cannot be less than linked consumption"
+            )
+        obj.manual_consumed_perc = requested_total - linked_consumed_perc
         obj.save(update_fields=["manual_consumed_perc"])
         recalculate_consumed_perc(obj)
         return CupboardItemType.from_model(obj)

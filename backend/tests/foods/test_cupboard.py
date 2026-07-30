@@ -266,6 +266,22 @@ def test_manual_consumption_is_preserved_when_intake_is_created(
     assert cupboard_item.consumed_perc == Decimal("51.25")
 
 
+def test_model_save_treats_consumed_percentage_as_total_with_linked_use(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
+    """The model's public consumed percentage retains total-value semantics."""
+    intake_factory(day=owned_cupboard_day, food=serving)
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+    cupboard_item.consumed_perc = Decimal("40")
+    cupboard_item.save()
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("8.75")
+    assert cupboard_item.consumed_perc == Decimal("40")
+
+
 def test_manual_consumption_is_preserved_when_intake_is_updated(
     cupboard_item, serving, intake_factory, owned_cupboard_day
 ):

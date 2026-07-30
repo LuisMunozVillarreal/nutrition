@@ -2,13 +2,11 @@
 
 # pylint: disable=too-few-public-methods
 
-from decimal import Decimal
-
 import strawberry
 from strawberry.types import Info
 
 from apps.goals.models import FatPercGoal
-from apps.libs.graphql import get_request_user
+from apps.libs.graphql import get_request_user, validated_percentage_decimal
 
 
 @strawberry.type
@@ -114,7 +112,9 @@ class GoalMutation:
 
         obj = FatPercGoal.objects.create(
             user=user,
-            body_fat_perc=Decimal(str(body_fat_perc)),
+            body_fat_perc=validated_percentage_decimal(
+                body_fat_perc, "bodyFatPerc"
+            ),
         )
         return FatPercGoalType.from_model(obj)
 
@@ -143,12 +143,15 @@ class GoalMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
+        validated_body_fat_perc = validated_percentage_decimal(
+            body_fat_perc, "bodyFatPerc"
+        )
         try:
             obj = FatPercGoal.objects.get(pk=id, user=user)
         except FatPercGoal.DoesNotExist as e:
             raise ValueError("Goal not found") from e
 
-        obj.body_fat_perc = Decimal(str(body_fat_perc))
+        obj.body_fat_perc = validated_body_fat_perc
         obj.save()
         return FatPercGoalType.from_model(obj)
 
