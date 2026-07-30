@@ -1,3 +1,8 @@
+import type { StaffCapabilityResult } from './auth'
+
+export const BACKEND_REAUTHENTICATION_REQUIRED =
+  'BackendReauthenticationRequired' as const
+
 export interface CapabilityUser {
   accessToken?: string
   isStaff?: boolean
@@ -7,10 +12,13 @@ export interface CapabilityToken {
   accessToken?: string
   isStaff?: boolean
   staffCapabilityRefreshedAt?: number
+  error?: typeof BACKEND_REAUTHENTICATION_REQUIRED
   [key: string]: unknown
 }
 
-export type StaffCapabilityFetcher = (accessToken: string) => Promise<boolean>
+export type StaffCapabilityFetcher = (
+  accessToken: string,
+) => Promise<StaffCapabilityResult>
 
 export const STAFF_CAPABILITY_REFRESH_INTERVAL_MS = 5 * 60 * 1_000
 
@@ -20,6 +28,7 @@ export interface JwtCapabilityCallbackOptions {
 
 export interface CapabilitySession {
   accessToken?: string
+  error?: typeof BACKEND_REAUTHENTICATION_REQUIRED
   user?: Record<string, unknown> | null
   [key: string]: unknown
 }
@@ -32,6 +41,7 @@ export function applyUserCapabilitiesToToken<Token extends CapabilityToken>(
 
   token.accessToken = user.accessToken
   token.isStaff = user.isStaff === true
+  delete token.error
   return token
 }
 
@@ -39,7 +49,10 @@ export function applyTokenCapabilitiesToSession<Session extends CapabilitySessio
   session: Session,
   token: CapabilityToken,
 ): Session & { user: Record<string, unknown> & { isStaff: boolean } } {
-  session.accessToken = token.accessToken
+  if (token.accessToken) session.accessToken = token.accessToken
+  else delete session.accessToken
+  if (token.error) session.error = token.error
+  else delete session.error
   session.user = {
     ...(session.user ?? {}),
     isStaff: token.isStaff === true,
@@ -82,7 +95,15 @@ export function createJwtCapabilityCallback(
     if (!refreshIsDue) return token
 
     try {
-      token.isStaff = (await fetchStaffCapability(token.accessToken)) === true
+      const capability = await fetchStaffCapability(token.accessToken)
+      if (capability.authentication === 'unauthenticated') {
+        delete token.accessToken
+        token.isStaff = false
+        token.error = BACKEND_REAUTHENTICATION_REQUIRED
+      } else {
+        token.isStaff = capability.isStaff
+        delete token.error
+      }
     } catch {
       token.isStaff = false
     }

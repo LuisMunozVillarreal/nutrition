@@ -365,6 +365,125 @@ def test_linked_consumption_keeps_serving_snapshot_until_intake_edit(
     assert cupboard_item.consumed_perc == Decimal("93.75")
 
 
+@pytest.mark.django_db
+def test_legacy_null_consumption_snapshots_are_lazily_resolved(
+    cupboard_item, serving
+):
+    """Rows written by an old replica remain readable during expansion."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+        num_servings=Decimal("2"),
+    )
+    CupboardItemConsumption.objects.filter(pk=consumption.pk).update(
+        num_servings=None,
+        consumed_amount=None,
+        consumed_unit=None,
+    )
+    consumption.refresh_from_db()
+
+    recalculate_consumed_perc(cupboard_item)
+
+    cupboard_item.refresh_from_db()
+    assert consumption.resolved_num_servings == Decimal("1")
+    assert consumption.resolved_consumed_snapshot == (Decimal("100"), "g")
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+
+@pytest.mark.django_db
+def test_saving_legacy_null_consumption_dual_writes_snapshots(
+    cupboard_item, serving
+):
+    """A new writer reconciles every nullable expansion field on save."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+    )
+    CupboardItemConsumption.objects.filter(pk=consumption.pk).update(
+        num_servings=None,
+        consumed_amount=None,
+        consumed_unit=None,
+    )
+    consumption.refresh_from_db()
+
+    consumption.save(update_fields=["item"])
+
+    consumption.refresh_from_db()
+    assert consumption.num_servings == Decimal("1")
+    assert consumption.consumed_amount == Decimal("100")
+    assert consumption.consumed_unit == "g"
+
+
+@pytest.mark.django_db
+def test_legacy_null_manual_baseline_is_lazily_reconciled(
+    cupboard_item, serving
+):
+    """An old-writer update remains authoritative until lazily split."""
+    CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+    )
+    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
+        consumed_perc=Decimal("50"),
+        manual_consumed_perc=None,
+    )
+    cupboard_item.refresh_from_db()
+
+    recalculate_consumed_perc(cupboard_item)
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("18.75")
+    assert cupboard_item.consumed_perc == Decimal("50")
+
+
+@pytest.mark.django_db
+def test_legacy_null_manual_baseline_is_split_before_a_new_link(
+    cupboard_item, serving
+):
+    """A new link adds to the authoritative legacy total exactly once."""
+    CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+    )
+    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
+        consumed_perc=Decimal("50"),
+        manual_consumed_perc=None,
+    )
+    cupboard_item.refresh_from_db()
+
+    CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+    )
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("18.75")
+    assert cupboard_item.consumed_perc == Decimal("81.25")
+
+
+@pytest.mark.django_db
+def test_saving_legacy_null_manual_baseline_dual_writes_the_split(
+    cupboard_item, serving
+):
+    """A new writer safely turns a nullable old-writer total into a baseline."""
+    CupboardItemConsumption.objects.create(
+        item=cupboard_item,
+        serving=serving,
+    )
+    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
+        consumed_perc=Decimal("50"),
+        manual_consumed_perc=None,
+    )
+    cupboard_item.refresh_from_db()
+
+    cupboard_item.consumed_perc = Decimal("60")
+    cupboard_item.save()
+
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.manual_consumed_perc == Decimal("28.75")
+    assert cupboard_item.consumed_perc == Decimal("60")
+
+
 def test_manual_consumption_is_preserved_when_intake_is_created(
     cupboard_item, serving, intake_factory, owned_cupboard_day
 ):

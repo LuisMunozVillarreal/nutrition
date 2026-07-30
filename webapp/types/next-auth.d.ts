@@ -1,6 +1,8 @@
 import type { DefaultSession } from "next-auth";
 import "next-auth";
 
+type BackendSessionError = "BackendReauthenticationRequired";
+
 interface StaffCapability {
     isStaff: boolean;
 }
@@ -15,6 +17,7 @@ declare module "next-auth" {
      */
     interface Session {
         accessToken?: string;
+        error?: BackendSessionError;
         user: DefaultSession["user"] & StaffCapability;
     }
 
@@ -26,6 +29,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
     interface JWT extends OptionalStaffCapability {
         accessToken?: string;
+        error?: BackendSessionError;
         staffCapabilityRefreshedAt?: number;
     }
 }
