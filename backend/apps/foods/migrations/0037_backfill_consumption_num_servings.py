@@ -17,7 +17,7 @@ def backfill_consumption_num_servings(apps, schema_editor):
     while True:
         with transaction.atomic(using=database):
             batch = list(
-                consumptions.select_for_update()
+                consumptions.select_for_update(of=("self",))
                 .filter(num_servings__isnull=True)
                 .select_related("intake")
                 .order_by("pk")[:BATCH_SIZE]
