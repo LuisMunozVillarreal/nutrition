@@ -147,7 +147,7 @@ export default function EditRecipePage() {
                 <FormField label="Name" name="name" value={form.name} onChange={handleChange} required />
                 <TextareaField label="Description" name="description" value={form.description} onChange={handleChange} />
                 <div className="grid grid-cols-2 gap-4 mt-4">
-                  <FormField label="Size" name="size" type="number" step="0.1" value={form.size} onChange={handleChange} required />
+                  <FormField label="Size" name="size" type="number" step="0.1" min="0.1" value={form.size} onChange={handleChange} required />
                   <SelectField label="Size Unit" name="sizeUnit" value={form.sizeUnit} onChange={handleChange} options={UNIT_CHOICES} required />
                 </div>
                 <FormField label="Number of Servings" name="numServings" type="number" step="0.1" value={form.numServings} onChange={handleChange} required />

@@ -153,6 +153,8 @@ test('positive quantity forms declare native minimum constraints', async () => {
     ['../src/app/servings/[id]/page.tsx', 'servingSize'],
     ['../src/app/products/new/page.tsx', 'size'],
     ['../src/app/products/[id]/page.tsx', 'size'],
+    ['../src/app/recipes/new/page.tsx', 'size'],
+    ['../src/app/recipes/[id]/page.tsx', 'size'],
   ]
 
   for (const [pagePath, fieldName] of constrainedFields) {
@@ -162,6 +164,46 @@ test('positive quantity forms declare native minimum constraints', async () => {
     )
     assert.ok(field, `${fieldName} field was not found in ${pagePath}`)
     assert.match(field[0], /min=["']0\.1["']/)
+  }
+})
+
+test('measurement forms constrain weight and body fat to valid ranges', async () => {
+  const formFieldTag = (page, fieldName, pagePath) => {
+    const marker = `name="${fieldName}"`
+    const markerIndex = page.indexOf(marker)
+    assert.ok(markerIndex >= 0, `${fieldName} field was not found in ${pagePath}`)
+    const startIndex = page.lastIndexOf('<FormField', markerIndex)
+    const endIndex = page.indexOf('/>', markerIndex)
+    assert.ok(startIndex >= 0 && endIndex >= 0, `${fieldName} tag is incomplete`)
+    return page.slice(startIndex, endIndex + 2)
+  }
+
+  for (const pagePath of [
+    '../src/app/measurements/new/page.tsx',
+    '../src/app/measurements/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    const weight = formFieldTag(page, 'weight', pagePath)
+    const bodyFat = formFieldTag(page, 'bodyFatPerc', pagePath)
+    assert.match(weight, /min="0\.1"/)
+    assert.match(bodyFat, /min="0\.1"/)
+    assert.match(bodyFat, /max="99\.9"/)
+  }
+})
+
+test('custom intake macro fields declare native non-negative constraints', async () => {
+  for (const pagePath of [
+    '../src/app/intakes/new/page.tsx',
+    '../src/app/intakes/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    for (const fieldName of ['energyKcal', 'proteinG', 'fatG', 'carbsG']) {
+      const field = page.match(
+        new RegExp(`<FormField[^>]*name=["']${fieldName}["'][^>]*/>`),
+      )
+      assert.ok(field, `${fieldName} field was not found in ${pagePath}`)
+      assert.match(field[0], /min=["']0["']/)
+    }
   }
 })
 

@@ -115,6 +115,8 @@ export default function EditMeasurementPage() {
                 name="bodyFatPerc"
                 type="number"
                 step="0.1"
+                min="0.1"
+                max="99.9"
                 value={form.bodyFatPerc}
                 onChange={handleChange}
                 required
@@ -124,6 +126,7 @@ export default function EditMeasurementPage() {
                 name="weight"
                 type="number"
                 step="0.1"
+                min="0.1"
                 value={form.weight}
                 onChange={handleChange}
                 required
