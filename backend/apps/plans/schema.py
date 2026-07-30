@@ -9,7 +9,7 @@ import strawberry
 from django.db import transaction
 from strawberry.types import Info
 
-from apps.libs.graphql import get_request_user
+from apps.libs.graphql import get_request_user, validated_positive_decimal
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
 
@@ -423,6 +423,7 @@ class PlanMutation:
         return DayType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def create_intake(
         self,
         info: Info,
@@ -458,6 +459,9 @@ class PlanMutation:
         user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
+        validated_num_servings = validated_positive_decimal(
+            num_servings, "numServings"
+        )
 
         try:
             day = Day.objects.get(pk=day_id, plan__user=user)
@@ -469,7 +473,7 @@ class PlanMutation:
         kwargs = {
             "day": day,
             "meal": meal,
-            "num_servings": Decimal(str(num_servings)),
+            "num_servings": validated_num_servings,
         }
 
         if food_id:
@@ -524,8 +528,11 @@ class PlanMutation:
         except Intake.DoesNotExist as e:
             raise ValueError("Intake not found") from e
 
+        validated_num_servings = validated_positive_decimal(
+            num_servings, "numServings"
+        )
         obj.meal = meal
-        obj.num_servings = Decimal(str(num_servings))
+        obj.num_servings = validated_num_servings
 
         # Update nutrients directly ONLY if there's no food assigned or if
         # modifying custom intakes.

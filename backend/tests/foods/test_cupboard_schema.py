@@ -4,7 +4,17 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from apps.foods.models import CupboardItem, FoodProduct, Recipe
+from apps.foods.models import (
+    CupboardItem,
+    CupboardItemConsumption,
+    FoodProduct,
+    Recipe,
+    RecipeIngredient,
+    Serving,
+)
+from apps.foods.signals.handlers.cupboard import (
+    CupboardItemConsumptionTooBigError,
+)
 from config.schema import schema
 
 User = get_user_model()
@@ -145,6 +155,88 @@ class TestCupboardSchema:
         assert result.errors is None
         assert "Soup" in result.data["createCupboardItem"]["foodLabel"]
         assert CupboardItem.objects.filter(food_id=recipe.food_ptr_id).exists()
+
+    def test_create_cooked_recipe_overconsumption_rolls_back_everything(
+        self, mocker
+    ):
+        """Failed cooking leaves recipe and all ingredient stocks unchanged."""
+        user = _create_user("recipe-cupboard-atomic@test.com")
+        first_product = FoodProduct.objects.create(
+            name="First ingredient",
+            size=400,
+            size_unit="g",
+            num_servings=4,
+        )
+        second_product = FoodProduct.objects.create(
+            name="Second ingredient",
+            size=400,
+            size_unit="g",
+            num_servings=4,
+        )
+        first_serving = first_product.servings.get(
+            serving_size=100, serving_unit="g"
+        )
+        oversized_second_serving = Serving.objects.create(
+            food=second_product,
+            serving_size=200,
+            serving_unit="g",
+        )
+        first_item = CupboardItem.objects.create(
+            owner=user,
+            food=first_product,
+            purchased_at=timezone.now(),
+        )
+        second_item = CupboardItem.objects.create(
+            owner=user,
+            food=second_product,
+            purchased_at=timezone.now(),
+            consumed_perc=75,
+        )
+        recipe = Recipe.objects.create(
+            name="Atomic recipe", size=1, size_unit="count", num_servings=1
+        )
+        RecipeIngredient.objects.create(
+            recipe=recipe, food=first_serving, num_servings=1
+        )
+        RecipeIngredient.objects.create(
+            recipe=recipe, food=oversized_second_serving, num_servings=1
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateItem($foodId: ID!, $purchasedAt: String!) {
+                createCupboardItem(
+                    foodId: $foodId,
+                    purchasedAt: $purchasedAt,
+                    consumedPerc: 0
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "foodId": str(recipe.food_ptr_id),
+                "purchasedAt": timezone.now().isoformat(),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert isinstance(
+            result.errors[0].original_error,
+            CupboardItemConsumptionTooBigError,
+        )
+        first_item.refresh_from_db()
+        second_item.refresh_from_db()
+        assert not CupboardItem.objects.filter(
+            owner=user, food_id=recipe.food_ptr_id
+        ).exists()
+        assert first_item.consumed_perc == 0
+        assert second_item.consumed_perc == 75
+        assert not CupboardItemConsumption.objects.filter(
+            item__in=[first_item, second_item]
+        ).exists()
 
     def test_update_cupboard_item(self, mocker):
         """Test updating a cupboard item's consumption."""

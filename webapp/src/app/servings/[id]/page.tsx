@@ -99,7 +99,7 @@ function EditServingForm() {
           title: 'Serving Details',
           content: (
             <div className="grid grid-cols-2 gap-4">
-              <FormField label="Size" name="servingSize" type="number" step="0.1" value={form.servingSize} onChange={handleChange} required />
+              <FormField label="Size" name="servingSize" type="number" step="0.1" min="0.1" value={form.servingSize} onChange={handleChange} required />
               <SelectField label="Unit" name="servingUnit" value={form.servingUnit} onChange={handleChange} options={UNIT_CHOICES} required />
             </div>
           ),

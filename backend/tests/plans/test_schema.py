@@ -270,6 +270,240 @@ class TestIntakeSchema:
         assert day.protein_g == Decimal("30.00")
         assert plan.energy_kcal == Decimal("400.00")
 
+    def test_create_food_intake_overconsumption_rolls_back_everything(
+        self, mocker
+    ):
+        """Failed create leaves no intake or aggregate and cupboard changes."""
+        user, plan = _create_user_and_plan("intake-create-atomic@test.com")
+        day = Day.objects.filter(plan=plan).first()
+        product = FoodProduct.objects.create(
+            name="Create atomic food",
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+            size=400,
+            size_unit="g",
+            num_servings=4,
+            energy_kcal=100,
+            protein_g=10,
+            fat_g=5,
+            carbs_g=20,
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        cupboard_item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+        )
+        original_day_state = (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            day.energy_kcal_intake_perc,
+            day.protein_g_intake_perc,
+            day.fat_g_intake_perc,
+            day.carbs_g_intake_perc,
+            day.breakfast_flag,
+            day.lunch_flag,
+            day.snack_flag,
+            day.dinner_flag,
+            day.completed,
+        )
+        original_plan_state = (plan.energy_kcal, plan.completed)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateIntake($dayId: Int!, $foodId: ID!) {
+                createIntake(
+                    dayId: $dayId, foodId: $foodId,
+                    meal: "lunch", numServings: 5
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"dayId": day.id, "foodId": str(serving.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert isinstance(
+            result.errors[0].original_error,
+            CupboardItemConsumptionTooBigError,
+        )
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        cupboard_item.refresh_from_db()
+        assert not Intake.objects.filter(day=day).exists()
+        assert (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            day.energy_kcal_intake_perc,
+            day.protein_g_intake_perc,
+            day.fat_g_intake_perc,
+            day.carbs_g_intake_perc,
+            day.breakfast_flag,
+            day.lunch_flag,
+            day.snack_flag,
+            day.dinner_flag,
+            day.completed,
+        ) == original_day_state
+        assert (plan.energy_kcal, plan.completed) == original_plan_state
+        assert cupboard_item.consumed_perc == 0
+        assert not cupboard_item.consumptions.exists()
+
+    @pytest.mark.parametrize(
+        "num_servings",
+        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+    )
+    @pytest.mark.parametrize("food_backed", [False, True])
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    # pylint: disable-next=too-many-locals
+    def test_intake_rejects_invalid_num_servings_without_partial_writes(
+        self, mocker, operation, food_backed, num_servings
+    ):
+        """All intake write paths require a finite positive serving count."""
+        user, plan = _create_user_and_plan(
+            f"intake-invalid-{operation}-{food_backed}-{repr(num_servings)}@test.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        food = None
+        if food_backed:
+            product = FoodProduct.objects.create(
+                name=f"Invalid intake food {operation} {repr(num_servings)}",
+                nutritional_info_size=100,
+                nutritional_info_unit="g",
+                size=100,
+                size_unit="g",
+                num_servings=1,
+                energy_kcal=100,
+                protein_g=10,
+            )
+            food = product.servings.get(serving_size=100, serving_unit="g")
+
+        intake = None
+        if operation == "update":
+            intake = Intake.objects.create(
+                day=day,
+                food=food,
+                meal="lunch",
+                num_servings=1,
+                energy_kcal=100 if not food_backed else 0,
+                protein_g=10 if not food_backed else 0,
+            )
+
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        original_day_state = (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            day.energy_kcal_intake_perc,
+            day.protein_g_intake_perc,
+            day.fat_g_intake_perc,
+            day.carbs_g_intake_perc,
+            day.breakfast_flag,
+            day.lunch_flag,
+            day.snack_flag,
+            day.dinner_flag,
+            day.completed,
+        )
+        original_plan_state = (plan.energy_kcal, plan.completed)
+        original_intake_state = None
+        if intake:
+            original_intake_state = (
+                intake.meal,
+                intake.num_servings,
+                intake.energy_kcal,
+                intake.protein_g,
+                intake.fat_g,
+                intake.carbs_g,
+                intake.processed,
+            )
+
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        if operation == "create":
+            mutation = """
+                mutation CreateIntake(
+                    $dayId: Int!, $foodId: ID, $numServings: Float!
+                ) {
+                    createIntake(
+                        dayId: $dayId, foodId: $foodId,
+                        meal: "dinner", numServings: $numServings,
+                        energyKcal: 999, proteinG: 99
+                    ) { id }
+                }
+            """
+            variable_values = {
+                "dayId": day.id,
+                "foodId": str(food.id) if food else None,
+                "numServings": num_servings,
+            }
+        else:
+            assert intake is not None
+            mutation = """
+                mutation UpdateIntake($id: ID!, $numServings: Float!) {
+                    updateIntake(
+                        id: $id, meal: "dinner",
+                        numServings: $numServings,
+                        energyKcal: 999, proteinG: 99
+                    ) { id }
+                }
+            """
+            variable_values = {
+                "id": str(intake.id),
+                "numServings": num_servings,
+            }
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variable_values,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        if num_servings in (0.0, -1.0):
+            assert "numServings must be greater than 0" in str(
+                result.errors[0]
+            )
+        day.refresh_from_db()
+        plan.refresh_from_db()
+        assert (
+            day.energy_kcal,
+            day.protein_g,
+            day.fat_g,
+            day.carbs_g,
+            day.energy_kcal_intake_perc,
+            day.protein_g_intake_perc,
+            day.fat_g_intake_perc,
+            day.carbs_g_intake_perc,
+            day.breakfast_flag,
+            day.lunch_flag,
+            day.snack_flag,
+            day.dinner_flag,
+            day.completed,
+        ) == original_day_state
+        assert (plan.energy_kcal, plan.completed) == original_plan_state
+        if operation == "create":
+            assert not Intake.objects.filter(day=day).exists()
+        else:
+            assert intake is not None
+            intake.refresh_from_db()
+            assert (
+                intake.meal,
+                intake.num_servings,
+                intake.energy_kcal,
+                intake.protein_g,
+                intake.fat_g,
+                intake.carbs_g,
+                intake.processed,
+            ) == original_intake_state
+
     def test_update_intake(self, mocker):
         """Test updating an intake."""
         user, plan = _create_user_and_plan("intupd@test.com")
