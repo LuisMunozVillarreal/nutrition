@@ -1,12 +1,6 @@
-export type PurchaseDateMonthStyle = 'short' | 'long'
+export { localDateInputValue } from '../../lib/dateInput.ts'
 
-export function localDateInputValue(
-  date: Date = new Date(),
-  timezoneOffsetMinutes: number = date.getTimezoneOffset(),
-): string {
-  const localTime = new Date(date.getTime() - timezoneOffsetMinutes * 60_000)
-  return localTime.toISOString().slice(0, 10)
-}
+export type PurchaseDateMonthStyle = 'short' | 'long'
 
 export function purchaseDateToISOString(date: string): string {
   return `${date}T00:00:00.000Z`

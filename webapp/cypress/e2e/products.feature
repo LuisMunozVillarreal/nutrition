@@ -6,7 +6,7 @@ Feature: Food Products CRUD
     Then I should see the products page title
 
   Scenario: Create a new food product
-    Given I am logged in
+    Given I am logged in as staff
     When I navigate to the new product page
     And I fill in the product name with "Oats"
     And I fill in the product energy with "370"

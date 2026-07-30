@@ -3,7 +3,12 @@
 from decimal import Decimal
 from typing import Any
 
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import (
+    post_delete,
+    post_save,
+    pre_delete,
+    pre_save,
+)
 from django.dispatch import receiver
 
 from apps.foods.models import (
@@ -15,51 +20,62 @@ from apps.foods.models import (
 )
 from apps.foods.models.units import (
     UNIT_CONTAINER,
-    UNIT_GRAM,
     UNIT_SERVING,
+    UNIT_UNIT,
     UREG,
 )
 from apps.libs.utils import round_no_trailing_zeros
 from apps.plans.models import Intake
 
+CONTEXTUAL_UNITS = {UNIT_CONTAINER, UNIT_SERVING, UNIT_UNIT}
 
-def _get_consumed_g(serving: Serving, num_servings: Decimal) -> Decimal:
-    """Get consumed grams.
+
+def _get_consumed_amount(
+    serving: Serving, num_servings: Decimal
+) -> tuple[Decimal, str]:
+    """Get consumed amount in the serving's concrete stock unit.
 
     Args:
         serving (Serving): serving to get the consumed grams from.
         num_servings (Decimal): number of servings.
 
     Returns:
-        Decimal: consumed grams.
+        tuple[Decimal, str]: consumed amount and its concrete unit.
     """
     unit = serving.serving_unit
     if unit in (UNIT_CONTAINER, UNIT_SERVING):
         unit = serving.size_unit
 
-    return (
-        (UREG.Quantity(Decimal(str(serving.size))) * num_servings * UREG(unit))
-        .to(UNIT_GRAM)
-        .m
-    )
+    return Decimal(str(serving.size)) * num_servings, unit
 
 
-def _get_consumed_perc(food: Food, consumed_g: Decimal) -> Decimal:
+def _get_consumed_perc(
+    food: Food, consumed_amount: Decimal, consumed_unit: str
+) -> Decimal:
     """Get consumed percentage.
 
     Args:
         food (Food): food to get the consumed percentage from.
-        consumed_g (Decimal): consumed grams.
+        consumed_amount (Decimal): amount consumed.
+        consumed_unit (str): unit for the consumed amount.
 
     Returns:
         Decimal: consumed percentage.
     """
-    item_g = (
-        UREG.Quantity(Decimal(str(food.size)) * UREG(food.size_unit))
-        .to(UNIT_GRAM)
-        .m
-    )
-    return consumed_g * 100 / item_g
+    stock_unit = food.size_unit
+    if consumed_unit in CONTEXTUAL_UNITS or stock_unit in CONTEXTUAL_UNITS:
+        if consumed_unit != stock_unit:
+            raise ValueError(
+                "Consumption unit is incompatible with cupboard stock"
+            )
+        converted_amount = consumed_amount
+    else:
+        converted_amount = (
+            UREG.Quantity(consumed_amount * UREG(consumed_unit))
+            .to(stock_unit)
+            .m
+        )
+    return converted_amount * 100 / Decimal(str(food.size))
 
 
 def get_linked_consumed_perc(cupboard_item: CupboardItem) -> Decimal:
@@ -71,17 +87,15 @@ def get_linked_consumed_perc(cupboard_item: CupboardItem) -> Decimal:
     Returns:
         Decimal: percentage represented by linked consumptions.
     """
-    consumed_g = Decimal("0")
+    linked_consumed_perc = Decimal("0")
     for consumption in cupboard_item.consumptions.all():
-        num_servings = Decimal("1")
-        if consumption.intake:
-            num_servings = consumption.intake.num_servings
+        linked_consumed_perc += _get_consumed_perc(
+            cupboard_item.food,
+            consumption.consumed_amount,
+            consumption.consumed_unit,
+        )
 
-        consumed_g += _get_consumed_g(consumption.serving, num_servings)
-
-    if not consumed_g:
-        return Decimal("0")
-    return _get_consumed_perc(cupboard_item.food, consumed_g)
+    return linked_consumed_perc
 
 
 def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
@@ -144,7 +158,9 @@ def calculate_consumption_from_cooked_recipes(
             continue
 
         CupboardItemConsumption.objects.create(
-            item=cupboard_item, serving=serving
+            item=cupboard_item,
+            serving=serving,
+            num_servings=recipe_ingredient.num_servings,
         )
 
         recalculate_consumed_perc(cupboard_item)
@@ -182,6 +198,7 @@ def calculate_consumption_from_intakes(
         CupboardItemConsumption.objects.create(
             item=item,
             serving=instance.food,
+            num_servings=instance.num_servings,
             intake=instance,
         )
         return
@@ -211,6 +228,7 @@ def calculate_consumption_from_intakes(
     CupboardItemConsumption.objects.create(  # type: ignore
         item=item,
         serving=instance.food,
+        num_servings=instance.num_servings,
         intake=instance,
     )
 
@@ -253,10 +271,43 @@ class CupboardItemConsumptionTooBigError(Exception):
     """Cupboard Item Serving Too Big Error."""
 
 
+def _lock_cupboard_item(
+    instance: CupboardItemConsumption, using: str
+) -> CupboardItem:
+    """Lock and return the authoritative cupboard row for a linked write."""
+    cupboard_item = (
+        CupboardItem.objects.select_for_update()
+        .using(using)
+        .select_related("food")
+        .get(pk=instance.item_id)
+    )
+    instance.item = cupboard_item
+    return cupboard_item
+
+
+@receiver(pre_delete, sender=CupboardItemConsumption)
+def lock_cupboard_item_before_deletion(
+    sender: CupboardItemConsumption,  # pylint: disable=unused-argument
+    instance: CupboardItemConsumption,
+    using: str,
+    **kwargs: Any,
+) -> None:
+    """Serialize link deletion and its post-delete total recalculation.
+
+    Args:
+        sender (CupboardItemConsumption): signal sender.
+        instance (CupboardItemConsumption): instance that will be deleted.
+        using (str): database alias used by the deletion.
+        kwargs (Any): keyword arguments.
+    """
+    _lock_cupboard_item(instance, using)
+
+
 @receiver(pre_save, sender=CupboardItemConsumption)
 def control_finished_items(
     sender: CupboardItemConsumption,  # pylint: disable=unused-argument
     instance: CupboardItemConsumption,
+    using: str,
     **kwargs: Any,
 ) -> None:
     """Control finished items.
@@ -264,24 +315,22 @@ def control_finished_items(
     Args:
         sender (CupboardItemConsumption): signal sender.
         instance (CupboardItemConsumption): instance to be saved.
+        using (str): database alias used by the save.
         kwargs (Any): keyword arguments.
 
     Raises:
         CupboardItemConsumptionTooBigError: if the cupboard item serving is too
             big to be consumed.
     """
+    cupboard_item = _lock_cupboard_item(instance, using)
     if instance.id is not None:
         return
 
-    serving = instance.serving
-    num_servings = 1
-    if instance.intake:
-        num_servings = instance.intake.num_servings
-
-    consumed_g = _get_consumed_g(serving, num_servings)
-
-    cupboard_item = instance.item
-    consumed_perc = _get_consumed_perc(cupboard_item.food, consumed_g)
+    consumed_perc = _get_consumed_perc(
+        cupboard_item.food,
+        instance.consumed_amount,
+        instance.consumed_unit,
+    )
 
     if (
         cupboard_item.consumed_perc + round_no_trailing_zeros(consumed_perc)

@@ -98,6 +98,27 @@ test('custom intake edit converts totals to per-serving values and recalculates 
   assert.match(editPage, /buildCustomIntakeUpdateVariables\(id, form\)/)
 })
 
+test('local date inputs preserve the calendar date across positive and negative offsets', async () => {
+  const { localDateInputValue } = await import('../src/lib/dateInput.ts')
+
+  assert.equal(
+    localDateInputValue(new Date('2025-01-01T01:00:00.000Z'), 480),
+    '2024-12-31',
+  )
+  assert.equal(
+    localDateInputValue(new Date('2025-01-01T23:30:00.000Z'), -120),
+    '2025-01-02',
+  )
+
+  const newPlanPage = await readFile(
+    new URL('../src/app/plans/new/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(newPlanPage, /import \{ localDateInputValue \} from '@\/lib\/dateInput'/)
+  assert.match(newPlanPage, /startDate: localDateInputValue\(\)/)
+  assert.doesNotMatch(newPlanPage, /new Date\(\)\.toISOString\(\)/)
+})
+
 test('cupboard purchase dates remain stable across timezones and pages', async () => {
   const {
     formatPurchaseDate,
@@ -340,7 +361,7 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
 
   const appShell = await readSource('../src/components/AppShell.tsx')
   assert.match(appShell, /const \{ data: session, status \} = useSession\(\)/)
-  assert.match(appShell, /if \(status === 'loading'\)/)
+  assert.match(appShell, /if \(status === 'loading'[^)]*\)/)
   assert.match(appShell, /data-testid="session-loading"/)
   assert.ok(
     appShell.indexOf("status === 'loading'") < appShell.indexOf('if (!session)'),

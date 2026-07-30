@@ -6,7 +6,7 @@ Feature: Cupboard CRUD
     Then I should see the cupboard page title
 
   Scenario: Add an item to the cupboard
-    Given I am logged in
+    Given I am logged in as staff
     And a food product exists named "Cypress Milk TEST"
     When I navigate to the add to cupboard page
     And I select "Cypress Milk TEST" as the food item

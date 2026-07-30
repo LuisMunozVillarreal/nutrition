@@ -824,6 +824,131 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
             == original_servings
         )
 
+    @pytest.mark.parametrize("operation", ["add", "update"])
+    def test_recipe_ingredient_rejects_decimal_overflow_before_side_effects(
+        self, mocker, operation
+    ):
+        """Ingredient quantity precision is checked before parent signals run."""
+        user = _create_user(
+            f"ingredient-overflow-{operation}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Overflow parent",
+            nutrients_from_ingredients=True,
+            size=10,
+            energy_kcal=20,
+        )
+        product = FoodProduct.objects.create(
+            name="Overflow serving", size=100, energy_kcal=100
+        )
+        ingredient = None
+        if operation == "update":
+            ingredient = RecipeIngredient.objects.create(
+                recipe=recipe, food=product.servings.first(), num_servings=1
+            )
+        recipe.refresh_from_db()
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_count = recipe.ingredients.count()
+        mutation_name = (
+            "addRecipeIngredient"
+            if operation == "add"
+            else "updateRecipeIngredient"
+        )
+        identifier = (
+            f'recipeId: "{recipe.pk}"'
+            if operation == "add"
+            else f'id: "{ingredient.pk}"'
+        )
+        mutation = f"""
+            mutation {{
+                {mutation_name}(
+                    {identifier}, foodId: "{product.servings.first().pk}",
+                    numServings: 1000000000
+                ) {{ id }}
+            }}
+        """
+
+        result = schema.execute_sync(mutation, context_value=context)
+
+        assert result.errors is not None
+        assert "numServings exceeds supported precision" in str(
+            result.errors[0]
+        )
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert recipe.ingredients.count() == original_count
+
+    @pytest.mark.parametrize("operation", ["add", "update"])
+    # pylint: disable-next=R0914
+    def test_recipe_ingredient_mutation_rolls_back_signal_side_effects(
+        self, mocker, operation
+    ):
+        """A late ingredient failure rolls back ingredient and parent updates."""
+        user = _create_user(
+            f"ingredient-atomic-{operation}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Atomic parent", nutrients_from_ingredients=True
+        )
+        product = FoodProduct.objects.create(
+            name="Atomic serving", energy_kcal=100
+        )
+        ingredient = None
+        if operation == "update":
+            ingredient = RecipeIngredient.objects.create(
+                recipe=recipe, food=product.servings.first(), num_servings=1
+            )
+        recipe.refresh_from_db()
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_ingredients = list(
+            recipe.ingredients.values_list(
+                "pk", "food_id", "num_servings", "energy_kcal"
+            )
+        )
+        real_save = RecipeIngredient.save
+
+        def save_then_fail(instance, *args, **kwargs):
+            real_save(instance, *args, **kwargs)
+            raise RuntimeError("injected late persistence failure")
+
+        mocker.patch.object(RecipeIngredient, "save", save_then_fail)
+        mutation_name = (
+            "addRecipeIngredient"
+            if operation == "add"
+            else "updateRecipeIngredient"
+        )
+        identifier = (
+            f'recipeId: "{recipe.pk}"'
+            if operation == "add"
+            else f'id: "{ingredient.pk}"'
+        )
+        mutation = f"""
+            mutation {{
+                {mutation_name}(
+                    {identifier}, foodId: "{product.servings.first().pk}",
+                    numServings: 2
+                ) {{ id }}
+            }}
+        """
+
+        result = schema.execute_sync(mutation, context_value=context)
+
+        assert result.errors is not None
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert (
+            list(
+                recipe.ingredients.values_list(
+                    "pk", "food_id", "num_servings", "energy_kcal"
+                )
+            )
+            == original_ingredients
+        )
+
     def test_staff_can_delete_recipe_ingredient(self, mocker):
         """Staff can delete a shared recipe ingredient."""
         user = _create_user("ingredient-del-staff@test.com", is_staff=True)

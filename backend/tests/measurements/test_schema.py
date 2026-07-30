@@ -493,6 +493,142 @@ class TestUpdateMeasurement:
         )
         day_save.assert_not_called()
 
+    def test_update_measurement_prevalidates_referencing_day_goals(
+        self, mocker
+    ):
+        """An infeasible proposed measurement leaves its plan unchanged."""
+        user = User.objects.create_user(
+            email="infeasible-measurement-update@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=user, body_fat_perc=20, weight=80
+        )
+        plan = WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today(),
+            protein_g_kg=Decimal("2.8"),
+            fat_perc=Decimal("25"),
+            deficit=500,
+        )
+        original_day_states = list(
+            plan.days.order_by("id").values_list(
+                "energy_kcal_goal",
+                "protein_g_goal",
+                "fat_g_goal",
+                "carbs_g_goal",
+            )
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateMeasurement($id: ID!) {
+                    updateMeasurement(
+                        id: $id, bodyFatPerc: 99, weight: 500
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(measurement.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert result.errors[0].message == (
+            "carbsGGoal must be greater than or equal to 0"
+        )
+        measurement.refresh_from_db()
+        assert measurement.body_fat_perc == Decimal("20.0")
+        assert measurement.weight == Decimal("80.0")
+        assert (
+            list(
+                plan.days.order_by("id").values_list(
+                    "energy_kcal_goal",
+                    "protein_g_goal",
+                    "fat_g_goal",
+                    "carbs_g_goal",
+                )
+            )
+            == original_day_states
+        )
+
+    def test_update_measurement_rolls_back_injected_day_save_failure(
+        self, mocker
+    ):
+        """A mid-recalculation failure rolls back the measurement and all days."""
+        user = User.objects.create_user(
+            email="atomic-measurement-update@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=user, body_fat_perc=20, weight=80
+        )
+        plan = WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today(),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=500,
+        )
+        original_day_states = list(
+            plan.days.order_by("id").values_list(
+                "energy_kcal_goal",
+                "protein_g_goal",
+                "fat_g_goal",
+                "carbs_g_goal",
+            )
+        )
+        original_save = Day.save
+        save_count = 0
+
+        def fail_on_third_day(day, *args, **kwargs):
+            nonlocal save_count
+            save_count += 1
+            if save_count == 3:
+                raise RuntimeError("injected day save failure")
+            return original_save(day, *args, **kwargs)
+
+        mocker.patch("apps.plans.models.Day.save", new=fail_on_third_day)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateMeasurement($id: ID!) {
+                    updateMeasurement(
+                        id: $id, bodyFatPerc: 10, weight: 100
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(measurement.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert result.errors[0].message == "injected day save failure"
+        assert save_count == 3
+        measurement.refresh_from_db()
+        assert measurement.body_fat_perc == Decimal("20.0")
+        assert measurement.weight == Decimal("80.0")
+        assert (
+            list(
+                plan.days.order_by("id").values_list(
+                    "energy_kcal_goal",
+                    "protein_g_goal",
+                    "fat_g_goal",
+                    "carbs_g_goal",
+                )
+            )
+            == original_day_states
+        )
+
     def test_cannot_update_other_users_measurement(self, mocker):
         """Test that a user cannot update another user's measurement."""
         # Given two users, where user2 has a measurement

@@ -1,19 +1,5 @@
-import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { When, Then } from "@badeball/cypress-cucumber-preprocessor";
 import { replaceInputValue, waitForFormReady } from "../form";
-
-Given("I am logged in", () => {
-    // Use the known test user credentials
-    cy.visit("/login");
-    cy.get('input[type="email"]').type("user@example.com");
-    cy.get('input[type="password"]').type("password123");
-    cy.get('button[type="submit"]').click();
-
-    // Check that we're on the dashboard or home page
-    cy.url({ timeout: 15000 }).should("not.include", "/login");
-
-    // Ensure the session is loaded in the browser state
-    cy.get('body').should('be.visible');
-});
 
 When("I navigate to the measurements page", () => {
     cy.visit("/measurements");

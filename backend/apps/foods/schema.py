@@ -5,6 +5,7 @@ import math
 from decimal import Decimal
 
 import strawberry
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from strawberry.types import Info
 
@@ -732,6 +733,17 @@ def _validated_recipe_num_servings(num_servings: float) -> Decimal:
     return Decimal(str(num_servings))
 
 
+def _validated_ingredient_num_servings(num_servings: float) -> Decimal:
+    """Validate positivity and the model field's persisted decimal precision."""
+    value = validated_positive_decimal(num_servings, "numServings")
+    field = RecipeIngredient._meta.get_field("num_servings")
+    try:
+        field.clean(value, None)
+    except ValidationError as exc:
+        raise ValueError("numServings exceeds supported precision") from exc
+    return value
+
+
 @strawberry.type
 class RecipeMutation:
     """Recipe mutations."""
@@ -907,6 +919,7 @@ class RecipeMutation:
             raise ValueError("Recipe not found") from e
 
     @strawberry.mutation
+    @transaction.atomic
     def add_recipe_ingredient(
         self,
         info: Info,
@@ -933,14 +946,13 @@ class RecipeMutation:
         obj = RecipeIngredient(
             recipe_id=int(recipe_id),
             food_id=int(food_id),
-            num_servings=validated_positive_decimal(
-                num_servings, "numServings"
-            ),
+            num_servings=_validated_ingredient_num_servings(num_servings),
         )
         obj.save()
         return RecipeIngredientType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_recipe_ingredient(
         self,
         info: Info,
@@ -964,8 +976,8 @@ class RecipeMutation:
             ValueError: if ingredient not found.
         """
         _require_staff_user(info)
-        validated_num_servings = validated_positive_decimal(
-            num_servings, "numServings"
+        validated_num_servings = _validated_ingredient_num_servings(
+            num_servings
         )
 
         try:

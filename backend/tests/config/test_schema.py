@@ -1,5 +1,6 @@
 """Tests for GraphQL schema configuration."""
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -43,6 +44,35 @@ def test_hello_query():
 
     # Then the result is correct
     assert result.data["hello"] == "world"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("is_staff", [False, True])
+def test_login_exposes_staff_capability(is_staff):
+    """Login identifies regular and staff sessions without granting extra privilege."""
+    email = f"capability-{str(is_staff).lower()}@example.com"
+    password = secrets.token_urlsafe(24)
+    User.objects.create_user(
+        email=email,
+        password=password,
+        date_of_birth="2000-01-01",
+        height=170.0,
+        is_staff=is_staff,
+    )
+
+    result = schema.execute_sync(
+        """
+        mutation Login($email: String!, $password: String!) {
+            login(email: $email, password: $password) {
+                user { isStaff }
+            }
+        }
+        """,
+        variable_values={"email": email, "password": password},
+    )
+
+    assert result.errors is None
+    assert result.data["login"]["user"]["isStaff"] is is_staff
 
 
 @pytest.mark.django_db

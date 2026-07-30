@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { localDateInputValue } from '@/lib/dateInput'
 
 const CREATE_MUTATION = gql`
   mutation CreateWeekPlan(
@@ -19,7 +20,7 @@ const CREATE_MUTATION = gql`
 
 export default function NewPlanPage() {
   const [form, setForm] = useState({
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: localDateInputValue(),
     proteinGKg: '2.0',
     fatPerc: '25.0',
     deficit: '0',

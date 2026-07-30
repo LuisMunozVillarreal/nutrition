@@ -6,7 +6,7 @@ Feature: Recipes CRUD
     Then I should see the recipes page title
 
   Scenario: Create a new recipe
-    Given I am logged in
+    Given I am logged in as staff
     When I navigate to the new recipe page
     And I fill in the recipe name with "Omelette"
     And I fill in the recipe energy with "250"

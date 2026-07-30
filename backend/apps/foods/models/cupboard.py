@@ -3,10 +3,11 @@
 from decimal import Decimal
 from typing import Any
 
-from django.db import models
+from django.db import models, router, transaction
 
 from .product import FoodProduct
 from .recipe import Recipe
+from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_SERVING
 
 
 class CupboardItem(models.Model):
@@ -187,9 +188,53 @@ class CupboardItemConsumption(models.Model):
         related_name="cupboard_items",
     )
 
+    num_servings = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        default=1,
+        help_text="Serving quantity captured when this consumption was linked.",
+    )
+
+    consumed_amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=10,
+        default=0,
+        editable=False,
+    )
+
+    consumed_unit = models.CharField(
+        max_length=20,
+        choices=UNIT_CHOICES,
+        default="",
+        editable=False,
+    )
+
     intake = models.OneToOneField(
         "plans.Intake",
         on_delete=models.CASCADE,
         related_name="cupboard_item_consumption",
         null=True,
     )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Atomically capture and apply a linked cupboard consumption.
+
+        Args:
+            args (list): arguments.
+            kwargs (dict): keyword arguments.
+        """
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
+        )
+        with transaction.atomic(using=using):
+            unit = self.serving.serving_unit
+            if unit in (UNIT_CONTAINER, UNIT_SERVING):
+                unit = self.serving.size_unit
+            self.consumed_amount = self.serving.size * self.num_servings
+            self.consumed_unit = unit
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                    "consumed_amount",
+                    "consumed_unit",
+                }
+            super().save(*args, **kwargs)

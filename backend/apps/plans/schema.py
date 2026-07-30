@@ -26,6 +26,7 @@ def _validated_week_plan_parameters(
     fat_perc: float,
     deficit: int,
     tdee_values: list[Decimal] | None = None,
+    daily_deficits: list[Decimal] | None = None,
 ) -> tuple[Decimal, Decimal, int]:
     """Validate plan inputs and every resulting daily nutrition goal."""
     validated_protein_g_kg = validated_positive_decimal(
@@ -37,13 +38,16 @@ def _validated_week_plan_parameters(
     daily_tdee_values = tdee_values or [
         measurement.bmr for _ in range(WeekPlan.PLAN_LENGTH_DAYS)
     ]
+    daily_deficit_values = daily_deficits or [
+        validated_deficit * Decimal(deficit_perc) / 100
+        for deficit_perc in WeekPlan.DEFICIT_DISTRIBUTION
+    ]
 
-    for tdee, deficit_perc in zip(
-        daily_tdee_values, WeekPlan.DEFICIT_DISTRIBUTION
-    ):
-        energy_kcal_goal = (
-            tdee - validated_deficit * Decimal(deficit_perc) / 100
-        )
+    if len(daily_tdee_values) != len(daily_deficit_values):
+        raise ValueError("Every day must have a TDEE and deficit")
+
+    for tdee, daily_deficit in zip(daily_tdee_values, daily_deficit_values):
+        energy_kcal_goal = tdee - daily_deficit
         if not energy_kcal_goal.is_finite() or energy_kcal_goal <= 0:
             raise ValueError("energyKcalGoal must be greater than 0")
         fat_g_goal = (
