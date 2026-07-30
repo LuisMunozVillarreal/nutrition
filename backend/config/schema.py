@@ -94,6 +94,7 @@ class UserType:
     email: str
     first_name: str
     last_name: str
+    is_staff: bool
 
     @strawberry.field
     def dashboard(self) -> DashboardData:
@@ -173,6 +174,7 @@ class Query(
             email=user.email,
             first_name=user.first_name,
             last_name=user.last_name,
+            is_staff=user.is_staff,
         )
 
 
@@ -221,6 +223,7 @@ class Mutation(
                     email=user.email,
                     first_name=user.first_name,
                     last_name=user.last_name,
+                    is_staff=user.is_staff,
                 ),
             )
         raise ValueError("Invalid credentials")

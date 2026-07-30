@@ -60,6 +60,14 @@ class RecipeIngredient(Nutrients):
         default=1,
     )
 
+    size_snapshot = models.DecimalField(
+        max_digits=20,
+        decimal_places=10,
+        default=0,
+        editable=False,
+        help_text="Total ingredient size captured from its serving when saved.",
+    )
+
     def __str__(self) -> str:
         """Get string representation of the object.
 
@@ -79,7 +87,7 @@ class RecipeIngredient(Nutrients):
         Returns:
             Decimal: the size of the serving.
         """
-        return self.food.size
+        return self.size_snapshot
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Save instance into the db.
@@ -88,6 +96,7 @@ class RecipeIngredient(Nutrients):
             args (list): arguments.
             kwargs (dict): keyword arguments.
         """
+        self.size_snapshot = self.food.size * self.num_servings
         for nutrient in NUTRIENT_LIST:
             value = getattr(self.food, nutrient) or 0
             setattr(self, nutrient, value * self.num_servings)

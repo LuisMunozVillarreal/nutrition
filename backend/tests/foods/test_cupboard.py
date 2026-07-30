@@ -1,14 +1,24 @@
 """Cupboard tests."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 import pytest
+from django.db import close_old_connections, connection
 from django.db.models import Sum
 
+from apps.foods.models import Serving
 from apps.foods.models.cupboard import CupboardItem, CupboardItemConsumption
-from apps.foods.models.units import UNIT_CONTAINER, UNIT_SERVING
+from apps.foods.models.units import (
+    UNIT_CONTAINER,
+    UNIT_MILLILITRE,
+    UNIT_SERVING,
+    UNIT_UNIT,
+)
 from apps.foods.signals.handlers.cupboard import (
     CupboardItemConsumptionTooBigError,
+    recalculate_consumed_perc,
 )
 
 
@@ -90,6 +100,30 @@ def test_add_cooked_recipe_to_cupboard(
     assert cfp2.consumed_perc == 81.25
 
 
+def test_cooked_recipe_consumes_each_ingredient_quantity(
+    cupboard_item_factory,
+    food_product_factory,
+    recipe_factory,
+    recipe_ingredient_factory,
+    user_factory,
+):
+    """Cooking uses the ingredient's fractional or multiple serving count."""
+    owner = user_factory()
+    product = food_product_factory(size=400, num_servings=4)
+    item = cupboard_item_factory(food=product, owner=owner)
+    recipe = recipe_factory()
+    recipe_ingredient_factory(
+        recipe=recipe,
+        food=product.servings.get(serving_size=100, serving_unit="g"),
+        num_servings=Decimal("2.5"),
+    )
+
+    cupboard_item_factory(food=recipe, owner=owner)
+
+    item.refresh_from_db()
+    assert item.consumed_perc == Decimal("62.5")
+
+
 def test_add_cooked_recipe_uses_only_owners_inventory(
     cupboard_item_factory,
     food_product_factory,
@@ -163,6 +197,60 @@ def test_plan_or_consume_cupboard_item(
     assert CupboardItemConsumption.objects.count() == 1
     assert CupboardItemConsumption.objects.first().serving == serving
     assert CupboardItemConsumption.objects.first().intake == intake
+
+
+def test_liquid_cupboard_item_accepts_compatible_volume_serving(
+    cupboard_item_factory,
+    day_factory,
+    food_product_factory,
+    intake_factory,
+    user_factory,
+):
+    """Liquid stock is consumed by converting between volume units."""
+    owner = user_factory()
+    product = food_product_factory(
+        nutritional_info_size=100,
+        nutritional_info_unit=UNIT_MILLILITRE,
+        size=1,
+        size_unit="l",
+        num_servings=4,
+    )
+    item = cupboard_item_factory(food=product, owner=owner)
+    serving = product.servings.get(
+        serving_size=100, serving_unit=UNIT_MILLILITRE
+    )
+
+    intake_factory(day=day_factory(plan__user=owner), food=serving)
+
+    item.refresh_from_db()
+    assert item.consumed_perc == Decimal("10")
+
+
+def test_counted_cupboard_item_accepts_matching_contextual_unit(
+    cupboard_item_factory,
+    day_factory,
+    food_product_factory,
+    intake_factory,
+    user_factory,
+):
+    """Non-physical units are valid when stock and serving contexts match."""
+    owner = user_factory()
+    product = food_product_factory(
+        nutritional_info_size=1,
+        nutritional_info_unit=UNIT_UNIT,
+        size=8,
+        size_unit=UNIT_UNIT,
+        num_servings=8,
+    )
+    item = cupboard_item_factory(food=product, owner=owner)
+    serving = product.servings.get(serving_unit=UNIT_UNIT)
+
+    intake_factory(
+        day=day_factory(plan__user=owner), food=serving, num_servings=2
+    )
+
+    item.refresh_from_db()
+    assert item.consumed_perc == Decimal("25")
 
 
 def test_plan_or_consume_uses_only_day_users_inventory(
@@ -250,6 +338,31 @@ def test_modify_intake(
     # Then the consumed percentage is updated
     cupboard_item.refresh_from_db()
     assert cupboard_item.consumed_perc == 93.75
+
+
+def test_linked_consumption_keeps_serving_snapshot_until_intake_edit(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
+    """Catalog edits do not silently change historical cupboard consumption."""
+    intake = intake_factory(
+        day=owned_cupboard_day, food=serving, num_servings=1
+    )
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+    serving.serving_size = Decimal("200")
+    serving.save()
+    recalculate_consumed_perc(cupboard_item)
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == Decimal("31.25")
+
+    intake.num_servings = Decimal("1.5")
+    intake.save()
+
+    cupboard_item.refresh_from_db()
+    consumption = intake.cupboard_item_consumption
+    assert consumption.num_servings == Decimal("1.5")
+    assert cupboard_item.consumed_perc == Decimal("93.75")
 
 
 def test_manual_consumption_is_preserved_when_intake_is_created(
@@ -351,6 +464,151 @@ def test_try_consume_more_than_left(
     # Then an error is raised
     with pytest.raises(CupboardItemConsumptionTooBigError):
         intake_factory(day=owned_cupboard_day, food=serving)
+
+
+def test_linked_consumption_locks_cupboard_item_before_write(
+    mocker, cupboard_item, serving
+):
+    """Every linked write serializes decisions on the cupboard row."""
+    lock = mocker.spy(CupboardItem.objects, "select_for_update")
+
+    CupboardItemConsumption.objects.create(item=cupboard_item, serving=serving)
+
+    lock.assert_called_once_with()
+
+
+def test_linked_consumption_update_locks_cupboard_item_before_write(
+    mocker, cupboard_item, serving
+):
+    """Updating a linked amount is serialized on the cupboard row."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item, serving=serving
+    )
+    lock = mocker.spy(CupboardItem.objects, "select_for_update")
+
+    consumption.num_servings = Decimal("2")
+    consumption.save()
+
+    lock.assert_called_once_with()
+
+
+def test_linked_consumption_delete_locks_cupboard_item_before_write(
+    mocker, cupboard_item, serving
+):
+    """Deleting a linked amount is serialized on the cupboard row."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item, serving=serving
+    )
+    lock = mocker.spy(CupboardItem.objects, "select_for_update")
+
+    consumption.delete()
+
+    lock.assert_called_once_with()
+
+
+def test_linked_consumption_rolls_back_when_recalculation_fails(
+    mocker, cupboard_item, serving
+):
+    """The link insert and total recalculation are one atomic operation."""
+    mocker.patch(
+        "apps.foods.signals.handlers.cupboard.recalculate_consumed_perc",
+        side_effect=RuntimeError("injected recalculation failure"),
+    )
+
+    with pytest.raises(RuntimeError, match="injected recalculation failure"):
+        CupboardItemConsumption.objects.create(
+            item=cupboard_item, serving=serving
+        )
+
+    assert CupboardItemConsumption.objects.count() == 0
+
+
+def test_linked_consumption_update_rolls_back_when_recalculation_fails(
+    mocker, cupboard_item, serving
+):
+    """A snapshot update and its total recalculation commit together."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item, serving=serving
+    )
+    cupboard_item.refresh_from_db()
+    original_total = cupboard_item.consumed_perc
+    mocker.patch(
+        "apps.foods.signals.handlers.cupboard.recalculate_consumed_perc",
+        side_effect=RuntimeError("injected recalculation failure"),
+    )
+
+    consumption.num_servings = Decimal("2")
+    with pytest.raises(RuntimeError, match="injected recalculation failure"):
+        consumption.save()
+
+    consumption.refresh_from_db()
+    cupboard_item.refresh_from_db()
+    assert consumption.num_servings == Decimal("1")
+    assert consumption.consumed_amount == Decimal("100")
+    assert cupboard_item.consumed_perc == original_total
+
+
+def test_linked_consumption_delete_rolls_back_when_recalculation_fails(
+    mocker, cupboard_item, serving
+):
+    """A link deletion and its total recalculation commit together."""
+    consumption = CupboardItemConsumption.objects.create(
+        item=cupboard_item, serving=serving
+    )
+    cupboard_item.refresh_from_db()
+    original_total = cupboard_item.consumed_perc
+    mocker.patch(
+        "apps.foods.signals.handlers.cupboard.recalculate_consumed_perc",
+        side_effect=RuntimeError("injected recalculation failure"),
+    )
+
+    with pytest.raises(RuntimeError, match="injected recalculation failure"):
+        consumption.delete()
+
+    assert CupboardItemConsumption.objects.filter(pk=consumption.pk).exists()
+    cupboard_item.refresh_from_db()
+    assert cupboard_item.consumed_perc == original_total
+
+
+@pytest.mark.skipif(
+    not connection.features.has_select_for_update,
+    reason="Database backend cannot exercise row-lock concurrency",
+)
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_linked_consumptions_cannot_both_overconsume(
+    cupboard_item_factory, food_product_factory
+):
+    """Concurrent decisions serialize so only one 60% link can persist."""
+    product = food_product_factory(size=Decimal("100"), num_servings=1)
+    item = cupboard_item_factory(food=product)
+    serving = Serving.objects.create(
+        food=product, serving_size=Decimal("60"), serving_unit="g"
+    )
+    ready = threading.Barrier(2)
+
+    def consume() -> str:
+        close_old_connections()
+        try:
+            stale_item = CupboardItem.objects.get(pk=item.pk)
+            thread_serving = Serving.objects.get(pk=serving.pk)
+            ready.wait(timeout=10)
+            try:
+                CupboardItemConsumption.objects.create(
+                    item=stale_item, serving=thread_serving
+                )
+            except CupboardItemConsumptionTooBigError:
+                return "rejected"
+            return "created"
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: consume(), range(2)))
+
+    item.refresh_from_db()
+    assert sorted(results) == ["created", "rejected"]
+    assert item.consumptions.count() == 1
+    assert item.consumed_perc == Decimal("60")
 
 
 def test_plan_or_consume_non_cupboard_item(day, intake_factory):

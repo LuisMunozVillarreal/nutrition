@@ -2,7 +2,10 @@
 
 # pylint: disable=too-few-public-methods
 
+from decimal import Decimal
+
 import strawberry
+from django.db import transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import (
@@ -11,6 +14,8 @@ from apps.libs.graphql import (
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
+from apps.plans.models import Day, WeekPlan
+from apps.plans.schema import _validated_week_plan_parameters
 
 
 @strawberry.type
@@ -132,6 +137,7 @@ class MeasurementMutation:
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_measurement(
         self,
         info: Info,
@@ -163,16 +169,50 @@ class MeasurementMutation:
         )
         validated_weight = validated_positive_decimal(weight, "weight")
         try:
-            obj = Measurement.objects.get(pk=id, user=user)
+            obj = Measurement.objects.select_for_update().get(pk=id, user=user)
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
+
+        plans = list(
+            WeekPlan.objects.select_for_update()
+            .filter(measurement=obj)
+            .order_by("id")
+        )
+        days = list(
+            Day.objects.select_for_update()
+            .filter(plan__in=plans)
+            .select_related("plan")
+            .order_by("plan_id", "day_num")
+        )
+        proposed_measurement = Measurement(
+            user=user,
+            body_fat_perc=validated_body_fat_perc,
+            weight=validated_weight,
+        )
+        for plan in plans:
+            plan_days = [day for day in days if day.plan_id == plan.id]
+            proposed_tdee_values = [
+                (
+                    proposed_measurement.bmr + day.neat + day.tef + day.eat
+                    if day.tracked
+                    else proposed_measurement.bmr * plan.EXERCISE_RATE
+                )
+                for day in plan_days
+            ]
+            _validated_week_plan_parameters(
+                proposed_measurement,
+                float(plan.protein_g_kg),
+                float(plan.fat_perc),
+                plan.deficit,
+                proposed_tdee_values,
+                [Decimal(day.deficit) for day in plan_days],
+            )
 
         obj.body_fat_perc = validated_body_fat_perc
         obj.weight = validated_weight
         obj.save()
-        for plan in obj.week_plans.all():
-            for day in plan.days.all():
-                day.save()
+        for day in days:
+            day.save()
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation

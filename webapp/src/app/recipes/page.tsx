@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
 
@@ -34,6 +35,8 @@ const columns: Column<Recipe>[] = [
 export default function RecipesPage() {
   const [data, setData] = useState<Recipe[]>([])
   const [loading, setLoading] = useState(true)
+  const { data: session } = useSession()
+  const isStaff = session?.user?.isStaff === true
 
   useEffect(() => {
     const fetchData = async () => {
@@ -54,8 +57,8 @@ export default function RecipesPage() {
         columns={columns}
         data={data}
         loading={loading}
-        rowHref={(r) => `/recipes/${r.id}`}
-        addHref="/recipes/new"
+        rowHref={isStaff ? (r) => `/recipes/${r.id}` : undefined}
+        addHref={isStaff ? '/recipes/new' : undefined}
         addLabel="New Recipe"
         emptyMessage="No recipes available yet."
       />

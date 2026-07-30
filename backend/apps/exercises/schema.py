@@ -2,13 +2,87 @@
 
 # pylint: disable=too-few-public-methods
 
+import datetime
+import re
 from decimal import Decimal
 
 import strawberry
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
-from apps.libs.graphql import get_request_user
+from apps.libs.graphql import get_request_user, validated_non_negative_decimal
+
+MAX_DISTANCE = Decimal("99999999.99")
+MAX_DURATION_SECONDS = (2**63 - 1) // 1_000_000
+DURATION_ERROR = (
+    "duration must use HH:MM:SS with total hours and 00-59 minutes/seconds"
+)
+DURATION_PATTERN = re.compile(
+    r"(?P<hours>(?:[0-9]{2}|[1-9][0-9]{2,})):"
+    r"(?P<minutes>[0-5][0-9]):(?P<seconds>[0-5][0-9])"
+)
+
+
+def _parse_duration(value: str | None) -> datetime.timedelta | None:
+    """Parse a canonical total-hours duration or raise a stable input error."""
+    if value is None:
+        return None
+
+    match = DURATION_PATTERN.fullmatch(value)
+    if match is None:
+        raise ValueError(DURATION_ERROR)
+
+    try:
+        hours = int(match.group("hours"))
+        minutes = int(match.group("minutes"))
+        seconds = int(match.group("seconds"))
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+        if total_seconds > MAX_DURATION_SECONDS:
+            raise OverflowError
+        return datetime.timedelta(seconds=total_seconds)
+    except (OverflowError, ValueError):
+        raise ValueError(DURATION_ERROR) from None
+
+
+def _format_duration(value: datetime.timedelta | None) -> str | None:
+    """Serialize a duration as total hours using canonical ``HH:MM:SS``."""
+    if value is None:
+        return None
+    total_seconds = value.days * 86400 + value.seconds
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _validated_non_negative_int(value: int, field_name: str) -> int:
+    """Return a non-negative integer or raise a stable input error."""
+    if value < 0:
+        raise ValueError(f"{field_name} must be greater than or equal to 0")
+    return value
+
+
+def _validated_exercise_values(
+    exercise_type: str, kcals: int, distance: float | None
+) -> tuple[str, int, Decimal | None]:
+    """Validate exercise values shared by create and update mutations."""
+    valid_types = [choice[0] for choice in Exercise.EXERCISE_CHOICES]
+    if exercise_type not in valid_types:
+        raise ValueError(f"type must be one of: {', '.join(valid_types)}")
+    validated_kcals = _validated_non_negative_int(kcals, "kcals")
+
+    validated_distance = None
+    if distance is not None:
+        validated_distance = validated_non_negative_decimal(
+            distance, "distance"
+        )
+        exponent = validated_distance.as_tuple().exponent
+        if isinstance(exponent, int) and exponent < -2:
+            raise ValueError("distance must have at most 2 decimal places")
+        if validated_distance > MAX_DISTANCE:
+            raise ValueError(
+                f"distance must be less than or equal to {MAX_DISTANCE}"
+            )
+    return exercise_type, validated_kcals, validated_distance
 
 
 @strawberry.type
@@ -40,8 +114,10 @@ class ExerciseType:
             time=str(obj.time),
             type=obj.type,
             kcals=obj.kcals,
-            duration=str(obj.duration) if obj.duration else None,
-            distance=(float(obj.distance) if obj.distance else None),
+            duration=_format_duration(obj.duration),
+            distance=(
+                float(obj.distance) if obj.distance is not None else None
+            ),
             created_at=obj.created_at.isoformat(),
         )
 
@@ -203,7 +279,11 @@ class ExerciseMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        import datetime
+        validated_type, validated_kcals, validated_distance = (
+            _validated_exercise_values(type, kcals, distance)
+        )
+        parsed_time = datetime.time.fromisoformat(time)
+        parsed_duration = _parse_duration(duration)
 
         from apps.plans.models import Day
 
@@ -212,22 +292,13 @@ class ExerciseMutation:
         except Day.DoesNotExist as e:
             raise ValueError("Day not found") from e
 
-        parsed_duration = None
-        if duration:
-            parts = duration.split(":")
-            parsed_duration = datetime.timedelta(
-                hours=int(parts[0]),
-                minutes=int(parts[1]),
-                seconds=int(parts[2]) if len(parts) > 2 else 0,
-            )
-
         obj = Exercise.objects.create(
             day=day,
-            time=datetime.time.fromisoformat(time),
-            type=type,
-            kcals=kcals,
+            time=parsed_time,
+            type=validated_type,
+            kcals=validated_kcals,
             duration=parsed_duration,
-            distance=(Decimal(str(distance)) if distance else None),
+            distance=validated_distance,
         )
         return ExerciseType.from_model(obj)
 
@@ -260,32 +331,26 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if exercise not found.
         """
-        import datetime
-
         user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
+
+        validated_type, validated_kcals, validated_distance = (
+            _validated_exercise_values(type, kcals, distance)
+        )
+        parsed_time = datetime.time.fromisoformat(time)
+        parsed_duration = _parse_duration(duration)
 
         try:
             obj = Exercise.objects.get(pk=id, day__plan__user=user)
         except Exercise.DoesNotExist as e:
             raise ValueError("Exercise not found") from e
 
-        obj.time = datetime.time.fromisoformat(time)
-        obj.type = type
-        obj.kcals = kcals
-
-        if duration:
-            parts = duration.split(":")
-            obj.duration = datetime.timedelta(
-                hours=int(parts[0]),
-                minutes=int(parts[1]),
-                seconds=int(parts[2]) if len(parts) > 2 else 0,
-            )
-        else:
-            obj.duration = None
-
-        obj.distance = Decimal(str(distance)) if distance else None
+        obj.time = parsed_time
+        obj.type = validated_type
+        obj.kcals = validated_kcals
+        obj.duration = parsed_duration
+        obj.distance = validated_distance
         obj.save()
         return ExerciseType.from_model(obj)
 
@@ -340,6 +405,7 @@ class ExerciseMutation:
         user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
+        validated_steps = _validated_non_negative_int(steps, "steps")
 
         from apps.plans.models import Day
 
@@ -348,7 +414,7 @@ class ExerciseMutation:
         except Day.DoesNotExist as e:
             raise ValueError("Day not found") from e
 
-        obj = DaySteps.objects.create(day=day, steps=steps)
+        obj = DaySteps.objects.create(day=day, steps=validated_steps)
         return DayStepsType.from_model(obj)
 
     @strawberry.mutation
@@ -375,13 +441,14 @@ class ExerciseMutation:
         user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
+        validated_steps = _validated_non_negative_int(steps, "steps")
 
         try:
             obj = DaySteps.objects.get(pk=id, day__plan__user=user)
         except DaySteps.DoesNotExist as e:
             raise ValueError("Day steps not found") from e
 
-        obj.steps = steps
+        obj.steps = validated_steps
         obj.save()
         return DayStepsType.from_model(obj)
 

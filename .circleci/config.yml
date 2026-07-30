@@ -175,6 +175,23 @@ jobs:
       - validate:
           env: pydocstyle-tests
 
+  webapp-checks:
+    working_directory: ~/project/webapp
+    docker:
+      - image: cimg/node:22.12.0
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Install Frontend Dependencies
+          command: npm ci
+      - run:
+          name: Run Frontend Tests
+          command: npm test
+      - run:
+          name: Run Frontend Type Check
+          command: npx tsc --noEmit --ignoreDeprecations 6.0
+
   backend-docker-build-tag-push:
     working_directory: ~/project/backend
     docker:
@@ -296,59 +313,80 @@ jobs:
           working_directory: ~/project/webapp
           command: npm ci
       - run:
-          name: Create Test User
-          command: |
-             SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
-             NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
-             echo "Creating test user in namespace: $NAMESPACE"
-             # Create user user@example.com / password123
-             kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- python3 manage.py shell -c "from apps.users.models import User; import datetime; User.objects.filter(email='user@example.com').delete(); User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0, is_staff=True)"
-      - run:
-          name: Seed Test Day
-          command: |
-             SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
-             NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
-             echo "Seeding test day data in namespace: $NAMESPACE"
-             kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- python3 -m scripts.seed_test_day
-      - run:
-          name: Run Cypress
+          name: Seed, Run Cypress, and Cleanup E2E Accounts
           working_directory: ~/project/webapp
           command: |
-             SANITIZED_BRANCH=$(python3 ../.circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
-             
-             if [ -z "$BASE_DOMAIN" ]; then
-               echo "BASE_DOMAIN not set, fetching from cluster..."
-               BASE_DOMAIN=$(kubectl get configmap cluster-settings -n flux-system -o jsonpath='{.data.BASE_DOMAIN}')
-             fi
-             
-             if [ -z "$BASE_DOMAIN" ]; then
-               echo "Error: BASE_DOMAIN could not be determined."
-               exit 1
-             fi
-             
-             REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
-             TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
-             
-             export REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
-             export TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
-             
-             echo "Installing Nginx..."
-             sudo apt-get update && sudo apt-get install -y nginx gettext-base
-             
-             echo "Generating SSL certificate for domain masking..."
-             sudo mkdir -p /etc/nginx/ssl
-             sudo openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/key.pem -out /etc/nginx/ssl/cert.pem -days 365 -nodes -subj "/CN=$TESTING_DOMAIN"
-             
-             echo "Configuring Nginx for domain masking..."
-             envsubst '$REAL_DOMAIN $TESTING_DOMAIN' < ../.circleci/nginx-masking-proxy.conf | sudo tee /etc/nginx/sites-available/masking-proxy > /dev/null
-             
-             sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
-             sudo nginx -t && sudo service nginx restart
-             
-             echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts
-             
-             export CYPRESS_BASE_URL="https://$TESTING_DOMAIN"
-             npm run cypress:run
+            set +x
+            set -Eeuo pipefail
+
+            SANITIZED_BRANCH=$(python3 ../.circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
+            NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
+            E2E_RUN_SUFFIX="$(openssl rand -hex 8)"
+            export E2E_REGULAR_EMAIL="e2e-regular-${E2E_RUN_SUFFIX}@example.com"
+            export E2E_STAFF_EMAIL="e2e-staff-${E2E_RUN_SUFFIX}@example.com"
+            export E2E_REGULAR_PASSWORD="$(openssl rand -hex 32)"
+            export E2E_STAFF_PASSWORD="$(openssl rand -hex 32)"
+            export CYPRESS_E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL"
+            export CYPRESS_E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD"
+            export CYPRESS_E2E_STAFF_EMAIL="$E2E_STAFF_EMAIL"
+            export CYPRESS_E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD"
+
+            run_backend() {
+              kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- env \
+                E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL" \
+                E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD" \
+                E2E_STAFF_EMAIL="$E2E_STAFF_EMAIL" \
+                E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD" \
+                "$@"
+            }
+
+            cleanup() {
+              status=$?
+              trap - EXIT
+              set +e
+              run_backend python3 -m scripts.manage_e2e_users cleanup
+              cleanup_status=$?
+              if [ "$cleanup_status" -ne 0 ]; then
+                echo "E2E account cleanup failed." >&2
+              fi
+              if [ "$status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
+                exit "$cleanup_status"
+              fi
+              exit "$status"
+            }
+            trap cleanup EXIT
+
+            run_backend python3 -m scripts.manage_e2e_users seed
+            run_backend python3 -m scripts.seed_test_day
+
+            if [ -z "${BASE_DOMAIN:-}" ]; then
+              BASE_DOMAIN=$(kubectl get configmap cluster-settings -n flux-system -o jsonpath='{.data.BASE_DOMAIN}')
+            fi
+            if [ -z "$BASE_DOMAIN" ]; then
+              echo "Required domain configuration is unavailable." >&2
+              exit 1
+            fi
+
+            export REAL_DOMAIN="staging--${SANITIZED_BRANCH}.${BASE_DOMAIN}"
+            export TESTING_DOMAIN="staging-${SANITIZED_BRANCH}.testing-domain"
+
+            sudo apt-get update
+            sudo apt-get install -y nginx gettext-base
+            sudo mkdir -p /etc/nginx/ssl
+            sudo openssl req -x509 -newkey rsa:4096 \
+              -keyout /etc/nginx/ssl/key.pem \
+              -out /etc/nginx/ssl/cert.pem \
+              -days 365 -nodes -subj "/CN=$TESTING_DOMAIN" >/dev/null 2>&1
+            envsubst '$REAL_DOMAIN $TESTING_DOMAIN' \
+              < ../.circleci/nginx-masking-proxy.conf \
+              | sudo tee /etc/nginx/sites-available/masking-proxy >/dev/null
+            sudo ln -sf /etc/nginx/sites-available/masking-proxy /etc/nginx/sites-enabled/default
+            sudo nginx -t
+            sudo service nginx restart
+            echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts >/dev/null
+
+            export CYPRESS_BASE_URL="https://$TESTING_DOMAIN"
+            npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
       - store_artifacts:
@@ -367,12 +405,17 @@ workflows:
       - pylint-tests
       - pydocstyle
       - pydocstyle-tests
+      - webapp-checks
       - backend-docker-build-tag-push:
           context:
             - Docker
+          requires:
+            - webapp-checks
       - webapp-docker-build-tag-push:
           context:
             - Docker
+          requires:
+            - webapp-checks
       - deploy-preview:
           context:
             - kubeconfig

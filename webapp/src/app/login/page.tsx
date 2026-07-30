@@ -1,27 +1,31 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { useState, useTransition } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState, useTransition } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { safeCallbackPath } from '@/lib/routeAccess'
 
-const LoginPage = () => {
+function LoginForm() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [isPending, startTransition] = useTransition()
     const router = useRouter()
+    const searchParams = useSearchParams()
+    const callbackPath = safeCallbackPath(searchParams.get('callbackUrl'))
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         const result = await signIn('credentials', {
             email,
             password,
+            callbackUrl: callbackPath,
             redirect: false
         })
 
         if (result?.ok) {
             startTransition(() => {
                 router.refresh()
-                router.push('/')
+                router.push(callbackPath)
             })
         } else {
             alert("Login failed")
@@ -54,4 +58,10 @@ const LoginPage = () => {
     )
 }
 
-export default LoginPage;
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<div className="p-12 text-center text-slate-500">Loading login...</div>}>
+            <LoginForm />
+        </Suspense>
+    )
+}

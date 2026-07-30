@@ -1,34 +1,40 @@
+"""Seed day data for the least-privileged E2E account."""
+
+import datetime
 import os
+from decimal import Decimal
+
 import django
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
-from apps.users.models import User
-from apps.measurements.models import Measurement
-from apps.plans.models import WeekPlan, Day
-import datetime
-from decimal import Decimal
+from apps.measurements.models import Measurement  # noqa: E402
+from apps.plans.models import WeekPlan  # noqa: E402
+from apps.users.models import User  # noqa: E402
 
-# Ensure user exists
-try:
-    u = User.objects.get(email='user@example.com')
-except User.DoesNotExist:
-    u = User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)
-if not u.is_staff:
-    u.is_staff = True
-    u.save(update_fields=["is_staff"])
+user = User.objects.get(email=os.environ["E2E_REGULAR_EMAIL"])
+if user.is_staff or user.is_superuser:
+    raise RuntimeError("The regular E2E identity must remain least-privileged")
 
-m = Measurement.objects.filter(user=u).first()
-if not m:
-    m = Measurement.objects.create(user=u, weight=Decimal('80'), body_fat_perc=Decimal('20'))
+measurement = Measurement.objects.filter(user=user).first()
+if not measurement:
+    measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80"),
+        body_fat_perc=Decimal("20"),
+    )
 
-p = WeekPlan.objects.filter(user=u).first()
-if not p:
-    p = WeekPlan.objects.create(user=u, start_date=datetime.date.today(), protein_g_kg=Decimal('2'), fat_perc=Decimal('25'), deficit=0, measurement=m)
+plan = WeekPlan.objects.filter(user=user).first()
+if not plan:
+    plan = WeekPlan.objects.create(
+        user=user,
+        start_date=datetime.date.today(),
+        protein_g_kg=Decimal("2"),
+        fat_perc=Decimal("25"),
+        deficit=0,
+        measurement=measurement,
+    )
 
-d = p.days.order_by('id').first()
-# For some reason in the signals it uses day_set or days?
-# In models it's Day (ForeignKey to plan).
-# Django default related_name is day_set but it is overridden to days.
-print(d.id if d else '1')
+day = plan.days.order_by("id").first()
+print(day.id if day else "1")
