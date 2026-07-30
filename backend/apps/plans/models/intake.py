@@ -117,7 +117,7 @@ class Intake(Nutrients):
         day_manager: models.Manager[Any] = getattr(day_model, "objects")
         locked_days = {
             day.pk: day
-            for day in day_manager.select_for_update()
+            for day in day_manager.select_for_update(of=("self",))
             .using(using)
             .select_related("plan__measurement")
             .filter(pk__in=day_ids)
