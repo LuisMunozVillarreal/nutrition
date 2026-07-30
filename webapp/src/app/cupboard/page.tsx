@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
+import { formatPurchaseDate } from './purchaseDate'
 
 const CUPBOARD_QUERY = gql`
   query {
@@ -24,7 +25,7 @@ interface CupboardItem {
 
 const columns: Column<CupboardItem>[] = [
   { key: 'food', label: 'Item', accessor: (r) => r.foodLabel },
-  { key: 'purchasedAt', label: 'Purchased', accessor: (r) => new Date(r.purchasedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) },
+  { key: 'purchasedAt', label: 'Purchased', accessor: (r) => formatPurchaseDate(r.purchasedAt, 'short') },
   { key: 'status', label: 'Status', accessor: (r) => r.finished ? 'Finished' : `${Math.round(r.consumedPerc)}%` },
   { key: 'remaining', label: 'Remaining', accessor: (r) => `${r.remainingServings.toFixed(1)} servings` },
 ]

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { localDateInputValue, purchaseDateToISOString } from '../purchaseDate'
 
 const DATA_QUERY = gql`
   query {
@@ -22,7 +23,7 @@ export default function NewCupboardItemPage() {
   const [foods, setFoods] = useState<{ value: string, label: string }[]>([])
   const [form, setForm] = useState({
     foodId: '',
-    purchasedAt: new Date().toISOString().split('T')[0],
+    purchasedAt: localDateInputValue(),
     consumedPerc: '0'
   })
   const [saving, setSaving] = useState(false)
@@ -51,7 +52,7 @@ export default function NewCupboardItemPage() {
     try {
       await graphqlRequest(CREATE_MUTATION, {
         foodId: form.foodId,
-        purchasedAt: new Date(form.purchasedAt).toISOString(),
+        purchasedAt: purchaseDateToISOString(form.purchasedAt),
         consumedPerc: parseFloat(form.consumedPerc)
       })
     } finally { setSaving(false) }
