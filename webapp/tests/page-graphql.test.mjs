@@ -145,6 +145,26 @@ test('serving edit query has no unused GraphQL variables', async () => {
   assert.deepEqual(errors.map((error) => error.message), [])
 })
 
+test('positive quantity forms declare native minimum constraints', async () => {
+  const constrainedFields = [
+    ['../src/app/intakes/new/page.tsx', 'numServings'],
+    ['../src/app/intakes/[id]/page.tsx', 'numServings'],
+    ['../src/app/servings/new/page.tsx', 'servingSize'],
+    ['../src/app/servings/[id]/page.tsx', 'servingSize'],
+    ['../src/app/products/new/page.tsx', 'size'],
+    ['../src/app/products/[id]/page.tsx', 'size'],
+  ]
+
+  for (const [pagePath, fieldName] of constrainedFields) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    const field = page.match(
+      new RegExp(`<FormField[^>]*name=["']${fieldName}["'][^>]*/>`),
+    )
+    assert.ok(field, `${fieldName} field was not found in ${pagePath}`)
+    assert.match(field[0], /min=["']0\.1["']/)
+  }
+})
+
 test('EntityForm uses native form submission so invalid fields block saves', async () => {
   const entityForm = await readFile(
     new URL('../src/components/EntityForm.tsx', import.meta.url),

@@ -5,6 +5,7 @@ import math
 from decimal import Decimal
 
 import strawberry
+from django.db import transaction
 from strawberry.types import Info
 
 from apps.foods.models import (
@@ -15,7 +16,7 @@ from apps.foods.models import (
     RecipeIngredient,
     Serving,
 )
-from apps.libs.graphql import get_request_user
+from apps.libs.graphql import get_request_user, validated_positive_decimal
 
 # pylint: disable=too-few-public-methods,too-many-lines
 
@@ -279,7 +280,7 @@ class FoodMutation:
                 nutritional_info_size
             ),
             nutritional_info_unit=nutritional_info_unit,
-            size=Decimal(str(size)),
+            size=validated_positive_decimal(size, "size"),
             size_unit=size_unit,
             num_servings=_validated_product_num_servings(num_servings),
             energy_kcal=Decimal(str(energy_kcal)),
@@ -360,6 +361,7 @@ class FoodMutation:
         validated_nutritional_info_size = (
             _validated_product_nutritional_info_size(nutritional_info_size)
         )
+        validated_size = validated_positive_decimal(size, "size")
 
         try:
             obj = FoodProduct.objects.get(pk=id)
@@ -374,7 +376,7 @@ class FoodMutation:
         obj.notes = notes
         obj.nutritional_info_size = validated_nutritional_info_size
         obj.nutritional_info_unit = nutritional_info_unit
-        obj.size = Decimal(str(size))
+        obj.size = validated_size
         obj.size_unit = size_unit
         obj.num_servings = _validated_product_num_servings(num_servings)
         obj.energy_kcal = Decimal(str(energy_kcal))
@@ -445,7 +447,9 @@ class FoodMutation:
 
         obj = Serving.objects.create(
             food_id=int(food_id),
-            serving_size=Decimal(str(serving_size)),
+            serving_size=validated_positive_decimal(
+                serving_size, "servingSize"
+            ),
             serving_unit=serving_unit,
         )
         return ServingType.from_model(obj)
@@ -474,10 +478,13 @@ class FoodMutation:
             ValueError: if serving not found.
         """
         _require_staff_user(info)
+        validated_serving_size = validated_positive_decimal(
+            serving_size, "servingSize"
+        )
 
         try:
             obj = Serving.objects.get(pk=id)
-            obj.serving_size = Decimal(str(serving_size))
+            obj.serving_size = validated_serving_size
             obj.serving_unit = serving_unit
             obj.save()
             return ServingType.from_model(obj)
@@ -1045,6 +1052,7 @@ class CupboardMutation:
     """Cupboard mutations."""
 
     @strawberry.mutation
+    @transaction.atomic
     def create_cupboard_item(
         self,
         info: Info,

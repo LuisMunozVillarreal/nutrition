@@ -53,7 +53,7 @@ export default function NewIntakePage() {
           <>
             <FormField label="Day ID" name="dayId" type="number" value={form.dayId} onChange={handleChange} required />
             <SelectField label="Meal" name="meal" value={form.meal} onChange={handleChange} options={MEAL_CHOICES} required />
-            <FormField label="Number of Servings" name="numServings" type="number" step="0.1" value={form.numServings} onChange={handleChange} required />
+            <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
             <p className="text-sm text-slate-400 mt-4 mb-2">Custom Macros (per serving)</p>
             <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" value={form.energyKcal} onChange={handleChange} />
             <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" value={form.proteinG} onChange={handleChange} />
