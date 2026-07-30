@@ -18,15 +18,27 @@ export function e2eCredentials(role: E2ERole): { email: string; password: string
 
 export function loginAsE2eUser(role: E2ERole): void {
   const { email, password } = e2eCredentials(role)
-  // A prior feature can leave a valid NextAuth cookie in the shared browser.
-  // Clear client state before visiting /login so AppShell cannot redirect an
-  // already-authenticated session away before the credential form hydrates.
-  cy.clearCookies()
-  cy.clearLocalStorage()
-  cy.visit('/login')
-  cy.get('input[type="email"]', { timeout: 10000 }).type(email, { log: false })
-  cy.get('input[type="password"]').type(password, { log: false })
-  cy.get('button[type="submit"]').click()
-  cy.url({ timeout: 15000 }).should('not.include', '/login')
-  cy.get('body').should('be.visible')
+  cy.session(
+    ['e2e-user', role, email],
+    () => {
+      // Start each cached role session from a clean browser state so AppShell
+      // cannot redirect away from the login form using another role's cookie.
+      cy.clearCookies()
+      cy.clearLocalStorage()
+      cy.visit('/login')
+      cy.get('input[type="email"]', { timeout: 10000 }).type(email, { log: false })
+      cy.get('input[type="password"]').type(password, { log: false })
+      cy.get('button[type="submit"]').click()
+      cy.location('pathname', { timeout: 30000 }).should('not.equal', '/login')
+      cy.get('body').should('be.visible')
+    },
+    {
+      cacheAcrossSpecs: true,
+      validate: () => {
+        cy.request({ url: '/api/auth/session', log: false })
+          .its('body.accessToken')
+          .should('be.a', 'string')
+      },
+    },
+  )
 }
