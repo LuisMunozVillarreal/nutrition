@@ -20,26 +20,37 @@ Given("a day exists for the exercise", () => {
     // query the GraphQL API to get the day ID.
     cy.exec('cd ../backend && .venv/bin/python scripts/seed_test_day.py', { failOnNonZeroExit: false })
       .then((result) => {
-          if ((result.code === 0 || result.exitCode === 0) && result.stdout) {
+          if (result.exitCode === 0 && result.stdout) {
               const lines = result.stdout.trim().split("\n");
               const id = lines[lines.length - 1].trim() || "1";
               cy.wrap(id).as('validDayId');
           } else {
-              // Fallback: query GraphQL API for the first day ID
-              cy.request({
-                  method: 'POST',
-                  url: '/graphql/',
-                  body: {
-                      query: '{ weekPlans { days { id } } }'
-                  },
-                  headers: { 'Content-Type': 'application/json' },
-              }).then((resp) => {
-                  const plans = resp.body?.data?.weekPlans;
-                  if (plans && plans.length > 0 && plans[0].days?.length > 0) {
-                      cy.wrap(String(plans[0].days[0].id)).as('validDayId');
-                  } else {
-                      throw new Error("Could not find any days via Python or GraphQL! Python script result: " + JSON.stringify(result));
-                  }
+              // Fallback: query GraphQL API for the first day ID using the
+              // backend bearer token exposed by the authenticated session.
+              cy.request('/api/auth/session').then((sessionResp) => {
+                  const accessToken = sessionResp.body?.accessToken;
+                  expect(accessToken, 'session access token')
+                      .to.be.a('string')
+                      .and.not.be.empty;
+
+                  cy.request({
+                      method: 'POST',
+                      url: '/graphql/',
+                      body: {
+                          query: '{ weekPlans { days { id } } }'
+                      },
+                      headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${accessToken}`,
+                      },
+                  }).then((resp) => {
+                      const plans = resp.body?.data?.weekPlans;
+                      if (plans && plans.length > 0 && plans[0].days?.length > 0) {
+                          cy.wrap(String(plans[0].days[0].id)).as('validDayId');
+                      } else {
+                          throw new Error("Could not find any days via Python or GraphQL! Python script result: " + JSON.stringify(result));
+                      }
+                  });
               });
           }
       });
