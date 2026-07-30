@@ -15,6 +15,9 @@ try:
     u = User.objects.get(email='user@example.com')
 except User.DoesNotExist:
     u = User.objects.create_user(email='user@example.com', password='password123', first_name='Nutrition', last_name='User', date_of_birth=datetime.date(1990, 1, 1), height=180.0)
+if not u.is_staff:
+    u.is_staff = True
+    u.save(update_fields=["is_staff"])
 
 m = Measurement.objects.filter(user=u).first()
 if not m:
