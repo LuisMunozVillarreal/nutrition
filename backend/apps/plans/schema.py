@@ -6,16 +6,68 @@ import datetime
 from decimal import Decimal
 
 import strawberry
+from django.conf import settings
 from django.db import transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import (
     get_request_user,
     validated_non_negative_decimal,
+    validated_percentage_decimal,
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
+
+
+def _validated_week_plan_parameters(
+    measurement: Measurement,
+    protein_g_kg: float,
+    fat_perc: float,
+    deficit: int,
+    tdee_values: list[Decimal] | None = None,
+) -> tuple[Decimal, Decimal, int]:
+    """Validate plan inputs and every resulting daily nutrition goal."""
+    validated_protein_g_kg = validated_positive_decimal(
+        protein_g_kg, "proteinGKg"
+    )
+    validated_fat_perc = validated_percentage_decimal(fat_perc, "fatPerc")
+    validated_deficit = validated_non_negative_decimal(deficit, "deficit")
+    protein_g_goal = validated_protein_g_kg * measurement.weight
+    daily_tdee_values = tdee_values or [
+        measurement.bmr for _ in range(WeekPlan.PLAN_LENGTH_DAYS)
+    ]
+
+    for tdee, deficit_perc in zip(
+        daily_tdee_values, WeekPlan.DEFICIT_DISTRIBUTION
+    ):
+        energy_kcal_goal = (
+            tdee - validated_deficit * Decimal(deficit_perc) / 100
+        )
+        if not energy_kcal_goal.is_finite() or energy_kcal_goal <= 0:
+            raise ValueError("energyKcalGoal must be greater than 0")
+        fat_g_goal = (
+            energy_kcal_goal
+            * validated_fat_perc
+            / 100
+            / settings.FAT_KCAL_GRAM
+        )
+        carbs_g_goal = (
+            energy_kcal_goal
+            - fat_g_goal * settings.FAT_KCAL_GRAM
+            - protein_g_goal * settings.PROTEIN_KCAL_GRAM
+        ) / settings.CARB_KCAL_GRAM
+        for field_name, goal in (
+            ("proteinGGoal", protein_g_goal),
+            ("fatGGoal", fat_g_goal),
+            ("carbsGGoal", carbs_g_goal),
+        ):
+            if not goal.is_finite() or goal < 0:
+                raise ValueError(
+                    f"{field_name} must be greater than or equal to 0"
+                )
+
+    return validated_protein_g_kg, validated_fat_perc, int(validated_deficit)
 
 
 @strawberry.type
@@ -275,6 +327,7 @@ class PlanMutation:
     """Plan mutations."""
 
     @strawberry.mutation
+    @transaction.atomic
     def create_week_plan(
         self,
         info: Info,
@@ -306,21 +359,28 @@ class PlanMutation:
             raise PermissionError("Authentication required")
 
         try:
-            Measurement.objects.get(pk=measurement_id, user=user)
+            measurement = Measurement.objects.get(pk=measurement_id, user=user)
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
+
+        validated_protein, validated_fat, validated_deficit = (
+            _validated_week_plan_parameters(
+                measurement, protein_g_kg, fat_perc, deficit
+            )
+        )
 
         obj = WeekPlan.objects.create(
             user=user,
             measurement_id=measurement_id,
             start_date=datetime.date.fromisoformat(start_date),
-            protein_g_kg=Decimal(str(protein_g_kg)),
-            fat_perc=Decimal(str(fat_perc)),
-            deficit=deficit,
+            protein_g_kg=validated_protein,
+            fat_perc=validated_fat,
+            deficit=validated_deficit,
         )
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_week_plan(
         self,
         info: Info,
@@ -354,9 +414,18 @@ class PlanMutation:
         except WeekPlan.DoesNotExist as e:
             raise ValueError("WeekPlan not found") from e
 
-        obj.protein_g_kg = Decimal(str(protein_g_kg))
-        obj.fat_perc = Decimal(str(fat_perc))
-        obj.deficit = deficit
+        validated_protein, validated_fat, validated_deficit = (
+            _validated_week_plan_parameters(
+                obj.measurement,
+                protein_g_kg,
+                fat_perc,
+                deficit,
+                [day.tdee for day in obj.days.order_by("day_num")],
+            )
+        )
+        obj.protein_g_kg = validated_protein
+        obj.fat_perc = validated_fat
+        obj.deficit = validated_deficit
         obj.save()
         for day, deficit_perc in zip(
             obj.days.order_by("day_num"), obj.DEFICIT_DISTRIBUTION

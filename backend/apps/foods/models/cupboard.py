@@ -42,6 +42,16 @@ class CupboardItem(models.Model):
         default=0,
     )
 
+    manual_consumed_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text=(
+            "Consumption entered manually, before linked recipe and intake "
+            "consumptions are added."
+        ),
+    )
+
     def __str__(self) -> str:
         """Get string representation of the object.
 
@@ -119,6 +129,21 @@ class CupboardItem(models.Model):
             args (list): arguments.
             kwargs (dict): keyword arguments.
         """
+        if self._state.adding:
+            if not self.manual_consumed_perc and self.consumed_perc:
+                self.manual_consumed_perc = self.consumed_perc
+        else:
+            previous = (
+                type(self)
+                .objects.only("consumed_perc", "manual_consumed_perc")
+                .get(pk=self.pk)
+            )
+            if (
+                self.consumed_perc != previous.consumed_perc
+                and self.manual_consumed_perc == previous.manual_consumed_perc
+            ):
+                self.manual_consumed_perc = self.consumed_perc
+
         self.started = self.consumed_perc > 0
         self.finished = self.consumed_perc == 100
         super().save(*args, **kwargs)
