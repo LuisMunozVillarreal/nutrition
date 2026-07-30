@@ -1,9 +1,13 @@
 """Tests for Measurements GraphQL schema."""
 
+import datetime
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 
 from apps.measurements.models import Measurement
+from apps.plans.models import Day, WeekPlan
 from config.schema import schema
 
 User = get_user_model()
@@ -281,6 +285,75 @@ class TestUpdateMeasurement:
         measurement.refresh_from_db()
         assert float(measurement.body_fat_perc) == 19.0
         assert float(measurement.weight) == 78.5
+
+    def test_update_measurement_recalculates_all_referencing_plan_days(
+        self, mocker
+    ):
+        """Measurement changes persist fresh energy and macro goals for 7 days."""
+        user = User.objects.create_user(
+            email="update-plan-goals@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=user, body_fat_perc=20, weight=80
+        )
+        plan = WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today(),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=500,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateMeasurement($id: ID!) {
+                updateMeasurement(
+                    id: $id, bodyFatPerc: 10, weight: 100
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(measurement.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        days = list(Day.objects.filter(plan=plan).order_by("day_num"))
+        assert len(days) == 7
+        expected_bmr = Decimal("2314")
+        expected_protein = Decimal("180.00")
+        for day in days:
+            expected_energy = (expected_bmr - day.deficit).quantize(
+                Decimal("0.01")
+            )
+            expected_fat = (
+                expected_energy * Decimal("0.25") / Decimal("9")
+            ).quantize(Decimal("0.01"))
+            expected_carbs = (
+                (
+                    expected_energy
+                    - expected_energy * Decimal("0.25")
+                    - expected_protein * Decimal("4")
+                )
+                / Decimal("4")
+            ).quantize(Decimal("0.01"))
+            assert (
+                day.energy_kcal_goal,
+                day.protein_g_goal,
+                day.fat_g_goal,
+                day.carbs_g_goal,
+            ) == (
+                expected_energy,
+                expected_protein,
+                expected_fat,
+                expected_carbs,
+            )
 
     def test_cannot_update_other_users_measurement(self, mocker):
         """Test that a user cannot update another user's measurement."""

@@ -162,6 +162,9 @@ class MeasurementMutation:
         obj.body_fat_perc = Decimal(str(body_fat_perc))
         obj.weight = Decimal(str(weight))
         obj.save()
+        for plan in obj.week_plans.all():
+            for day in plan.days.all():
+                day.save()
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation

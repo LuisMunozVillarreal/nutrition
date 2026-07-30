@@ -6,6 +6,7 @@ import datetime
 from decimal import Decimal
 
 import strawberry
+from django.db import transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import get_request_user
@@ -483,6 +484,7 @@ class PlanMutation:
         return IntakeType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def update_intake(
         self,
         info: Info,
