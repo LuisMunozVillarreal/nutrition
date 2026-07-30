@@ -7,7 +7,7 @@ import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 
 const SERVING_QUERY = gql`
-  query GetServing($id: ID!, $foodId: ID!) {
+  query GetServing($foodId: ID!) {
     foodProduct(id: $foodId) {
       servings {
         id servingSize servingUnit energyKcal proteinG fatG carbsG
@@ -55,7 +55,7 @@ function EditServingForm() {
         return
       }
       try {
-        const res = await graphqlRequest<{ foodProduct: { servings: any[] } }>(SERVING_QUERY, { id, foodId })
+        const res = await graphqlRequest<{ foodProduct: { servings: any[] } }>(SERVING_QUERY, { foodId })
         const serving = res.foodProduct?.servings?.find(s => s.id === id)
         if (serving) {
           setForm({

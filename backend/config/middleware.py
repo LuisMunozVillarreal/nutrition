@@ -49,7 +49,9 @@ class JWTAuthenticationMiddleware:
                 user_id = payload.get("sub")
                 if user_id:
                     try:
-                        request.user = cast(Any, User.objects.get(pk=user_id))
+                        request.user = cast(
+                            Any, User.objects.get(pk=user_id, is_active=True)
+                        )
                     except User.DoesNotExist:
                         request.user = AnonymousUser()
             except jwt.ExpiredSignatureError:

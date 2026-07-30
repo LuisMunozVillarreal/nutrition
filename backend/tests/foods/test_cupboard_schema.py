@@ -147,6 +147,82 @@ class TestCupboardSchema:
         assert result.data["updateCupboardItem"]["started"] is True
         assert result.data["updateCupboardItem"]["finished"] is False
 
+    @pytest.mark.parametrize("consumed_perc", [-0.1, 100.1])
+    def test_create_cupboard_item_rejects_out_of_range_consumption(
+        self, mocker, consumed_perc
+    ):
+        """Creating an item rejects percentages outside zero to one hundred."""
+        user = _create_user(f"cc-invalid-{consumed_perc}@test.com")
+        fp = FoodProduct.objects.create(
+            name="Invalid Eggs", size=6, size_unit="count", num_servings=6
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateItem(
+                $foodId: ID!, $purchasedAt: String!, $consumedPerc: Float!
+            ) {
+                createCupboardItem(
+                    foodId: $foodId, purchasedAt: $purchasedAt,
+                    consumedPerc: $consumedPerc
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "foodId": str(fp.id),
+                "purchasedAt": timezone.now().isoformat(),
+                "consumedPerc": consumed_perc,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "consumedPerc must be between 0 and 100" in str(
+            result.errors[0]
+        )
+        assert not CupboardItem.objects.filter(food=fp).exists()
+
+    @pytest.mark.parametrize("consumed_perc", [-0.1, 100.1])
+    def test_update_cupboard_item_rejects_out_of_range_consumption(
+        self, mocker, consumed_perc
+    ):
+        """Updating an item rejects percentages outside zero to one hundred."""
+        user = _create_user(f"cu-invalid-{consumed_perc}@test.com")
+        fp = FoodProduct.objects.create(
+            name="Invalid Bread", size=500, size_unit="g", num_servings=10
+        )
+        item = CupboardItem.objects.create(
+            food=fp, purchased_at=timezone.now(), consumed_perc=25
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!, $consumedPerc: Float!) {
+                updateCupboardItem(
+                    id: $id, consumedPerc: $consumedPerc
+                ) { consumedPerc }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(item.id),
+                "consumedPerc": consumed_perc,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "consumedPerc must be between 0 and 100" in str(
+            result.errors[0]
+        )
+        item.refresh_from_db()
+        assert item.consumed_perc == 25
+
     def test_delete_cupboard_item(self, mocker):
         """Test deleting a cupboard item."""
         # Given an authenticated user and a cupboard item

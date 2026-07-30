@@ -1,6 +1,7 @@
 """Food Products, Servings, Recipes and Cupboard GraphQL schema module."""
 
 import datetime
+import math
 from decimal import Decimal
 
 import strawberry
@@ -306,7 +307,7 @@ class FoodMutation:
             id (strawberry.ID): product ID.
             name (str): product name.
             brand (str | None): brand name.
-            url (str | None): product URL.
+            url (str | None): product URL; omit to preserve the current value.
             barcode (str | None): barcode.
             notes (str): additional notes.
             nutritional_info_size (float): size for nutritional info.
@@ -341,7 +342,8 @@ class FoodMutation:
 
         obj.name = name
         obj.brand = brand
-        obj.url = url or ""
+        if url is not None:
+            obj.url = url
         obj.barcode = barcode
         obj.notes = notes
         obj.nutritional_info_size = Decimal(str(nutritional_info_size))
@@ -960,6 +962,23 @@ class CupboardItemType:
         )
 
 
+def _validated_consumed_perc(consumed_perc: float) -> Decimal:
+    """Return a valid cupboard consumption percentage.
+
+    Args:
+        consumed_perc (float): consumed percentage.
+
+    Returns:
+        Decimal: validated percentage.
+
+    Raises:
+        ValueError: if the percentage is outside zero to one hundred.
+    """
+    if not math.isfinite(consumed_perc) or not 0 <= consumed_perc <= 100:
+        raise ValueError("consumedPerc must be between 0 and 100")
+    return Decimal(str(consumed_perc))
+
+
 @strawberry.type
 class CupboardQuery:
     """Cupboard queries."""
@@ -1043,7 +1062,7 @@ class CupboardMutation:
         obj = CupboardItem.objects.create(
             food=food,
             purchased_at=datetime.datetime.fromisoformat(purchased_at),
-            consumed_perc=Decimal(str(consumed_perc)),
+            consumed_perc=_validated_consumed_perc(consumed_perc),
         )
         return CupboardItemType.from_model(obj)
 
@@ -1077,7 +1096,7 @@ class CupboardMutation:
         except CupboardItem.DoesNotExist as e:
             raise ValueError("Item not found") from e
 
-        obj.consumed_perc = Decimal(str(consumed_perc))
+        obj.consumed_perc = _validated_consumed_perc(consumed_perc)
         obj.save()
         return CupboardItemType.from_model(obj)
 
