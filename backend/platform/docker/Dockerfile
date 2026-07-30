@@ -115,3 +115,4 @@ COPY static static
 COPY manage.py .
 COPY config config
 COPY apps apps
+COPY scripts scripts
