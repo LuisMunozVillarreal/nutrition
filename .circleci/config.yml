@@ -332,8 +332,8 @@ jobs:
             export CYPRESS_E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD"
 
             run_backend() {
-              kubectl exec -i -n "$NAMESPACE" deployment/nutrition-backend -- "$@" \
-                <<<"$E2E_LIFECYCLE_PAYLOAD"
+              printf '%s\n' "$E2E_LIFECYCLE_PAYLOAD" \
+                | kubectl exec -i -n "$NAMESPACE" deployment/nutrition-backend -- "$@"
             }
 
             cleanup() {

@@ -44,7 +44,12 @@ test('CI transports isolated E2E credentials only through backend stdin and alwa
   assertContains(config, /export CYPRESS_E2E_STAFF_PASSWORD="\$E2E_STAFF_PASSWORD"/, 'staff password is not passed to Cypress')
   assertContains(config, /printf -v E2E_LIFECYCLE_PAYLOAD/, 'structured lifecycle payload is not built with a shell builtin')
   assertContains(config, /kubectl exec -i /, 'backend lifecycle stdin is not connected to kubectl')
-  assertContains(config, /<<<"\$E2E_LIFECYCLE_PAYLOAD"/, 'backend lifecycle payload is not sent through stdin')
+  assertContains(
+    config,
+    /printf '%s\\n' "\$E2E_LIFECYCLE_PAYLOAD"[\s\\]*\| kubectl exec -i /,
+    'backend lifecycle payload is not piped through stdin by a shell builtin',
+  )
+  assert.doesNotMatch(config, /<<<"\$E2E_LIFECYCLE_PAYLOAD"/, 'CircleCI expression parsing is triggered by a here-string')
   assert.doesNotMatch(
     config,
     /kubectl exec[^\n]*-- env[\s\S]*?E2E_(?:REGULAR|STAFF)_(?:EMAIL|PASSWORD)=/,
