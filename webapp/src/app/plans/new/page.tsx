@@ -54,9 +54,9 @@ export default function NewPlanPage() {
           <>
             <FormField label="Start Date" name="startDate" type="date" value={form.startDate} onChange={handleChange} required />
             <FormField label="Measurement ID" name="measurementId" type="number" value={form.measurementId} onChange={handleChange} required />
-            <FormField label="Protein (g/kg)" name="proteinGKg" type="number" step="0.1" value={form.proteinGKg} onChange={handleChange} required />
-            <FormField label="Fat (%)" name="fatPerc" type="number" step="0.1" value={form.fatPerc} onChange={handleChange} required />
-            <FormField label="Deficit (kcals)" name="deficit" type="number" value={form.deficit} onChange={handleChange} required />
+            <FormField label="Protein (g/kg)" name="proteinGKg" type="number" step="0.1" min="0.1" value={form.proteinGKg} onChange={handleChange} required />
+            <FormField label="Fat (%)" name="fatPerc" type="number" step="0.1" min="0.1" max="99.9" value={form.fatPerc} onChange={handleChange} required />
+            <FormField label="Deficit (kcals)" name="deficit" type="number" min="0" value={form.deficit} onChange={handleChange} required />
           </>
         ),
       }]}

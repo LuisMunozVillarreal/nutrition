@@ -158,10 +158,10 @@ export default function EditRecipePage() {
             title: 'Main Nutrients',
             content: (
               <>
-                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" value={form.energyKcal} onChange={handleChange} required />
-                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" value={form.proteinG} onChange={handleChange} required />
-                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" value={form.fatG} onChange={handleChange} required />
-                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" value={form.carbsG} onChange={handleChange} required />
+                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} required />
+                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} required />
+                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} required />
+                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} required />
               </>
             ),
           },
@@ -171,10 +171,10 @@ export default function EditRecipePage() {
             defaultCollapsed: true,
             content: (
               <>
-                <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step="0.1" value={form.saturatedFatG} onChange={handleChange} />
-                <FormField label="Sugars (g)" name="sugarsG" type="number" step="0.1" value={form.sugarsG} onChange={handleChange} />
-                <FormField label="Fibre (g)" name="fibreG" type="number" step="0.1" value={form.fibreG} onChange={handleChange} />
-                <FormField label="Salt (g)" name="saltG" type="number" step="0.1" value={form.saltG} onChange={handleChange} />
+                <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step="0.1" min="0" value={form.saturatedFatG} onChange={handleChange} />
+                <FormField label="Sugars (g)" name="sugarsG" type="number" step="0.1" min="0" value={form.sugarsG} onChange={handleChange} />
+                <FormField label="Fibre (g)" name="fibreG" type="number" step="0.1" min="0" value={form.fibreG} onChange={handleChange} />
+                <FormField label="Salt (g)" name="saltG" type="number" step="0.1" min="0" value={form.saltG} onChange={handleChange} />
               </>
             ),
           },

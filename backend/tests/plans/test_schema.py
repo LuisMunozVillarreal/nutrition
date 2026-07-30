@@ -1,5 +1,8 @@
 """Tests for Plans, Days, and Intakes GraphQL schema."""
 
+# This module keeps the complete plan GraphQL contract in one regression suite.
+# pylint: disable=too-many-lines
+
 import datetime
 from decimal import Decimal
 
@@ -161,6 +164,125 @@ class TestWeekPlanSchema:
                 Decimal("0.01")
             )
         # pylint: enable=protected-access
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize(
+        ("field_name", "value", "error"),
+        [
+            ("proteinGKg", -0.1, "proteinGKg must be greater than 0"),
+            ("proteinGKg", 0.0, "proteinGKg must be greater than 0"),
+            ("proteinGKg", float("nan"), None),
+            ("proteinGKg", float("inf"), None),
+            (
+                "fatPerc",
+                0.0,
+                "fatPerc must be greater than 0 and less than 100",
+            ),
+            (
+                "fatPerc",
+                100.0,
+                "fatPerc must be greater than 0 and less than 100",
+            ),
+            ("fatPerc", float("nan"), None),
+            ("fatPerc", float("inf"), None),
+            ("deficit", -1, "deficit must be greater than or equal to 0"),
+            ("deficit", 2000, "energyKcalGoal must be greater than 0"),
+            (
+                "proteinGKg",
+                10.0,
+                "carbsGGoal must be greater than or equal to 0",
+            ),
+            ("fatPerc", 99.0, "carbsGGoal must be greater than or equal to 0"),
+        ],
+    )
+    # pylint: disable-next=R0913,R0917,R0914
+    def test_week_plan_rejects_invalid_inputs_without_partial_writes(
+        self, mocker, operation, field_name, value, error
+    ):
+        """Invalid plan inputs cannot persist a plan or regenerate its days."""
+        user, plan = _create_user_and_plan(
+            f"plan-invalid-{operation}-{field_name}-{repr(value)}@test.com"
+        )
+        measurement = plan.measurement
+        context = mocker.Mock()
+        context.request.user = user
+        values = {"proteinGKg": 2.0, "fatPerc": 25.0, "deficit": 100}
+        values[field_name] = value
+
+        if operation == "create":
+            plan.delete()
+            mutation = """
+                mutation InvalidPlan(
+                    $proteinGKg: Float!, $fatPerc: Float!, $deficit: Int!,
+                    $measurementId: Int!
+                ) {
+                    createWeekPlan(
+                        startDate: "2026-01-05", proteinGKg: $proteinGKg,
+                        fatPerc: $fatPerc, deficit: $deficit,
+                        measurementId: $measurementId
+                    ) { id }
+                }
+            """
+            variables = {**values, "measurementId": measurement.id}
+            original_plan_count = WeekPlan.objects.count()
+            original_day_count = Day.objects.count()
+        else:
+            mutation = """
+                mutation InvalidPlan(
+                    $id: ID!, $proteinGKg: Float!, $fatPerc: Float!,
+                    $deficit: Int!
+                ) {
+                    updateWeekPlan(
+                        id: $id, proteinGKg: $proteinGKg,
+                        fatPerc: $fatPerc, deficit: $deficit
+                    ) { id }
+                }
+            """
+            variables = {**values, "id": str(plan.id)}
+            original_plan_state = (
+                plan.protein_g_kg,
+                plan.fat_perc,
+                plan.deficit,
+            )
+            original_days = list(
+                plan.days.order_by("day_num").values_list(
+                    "id",
+                    "deficit",
+                    "energy_kcal_goal",
+                    "protein_g_goal",
+                    "fat_g_goal",
+                    "carbs_g_goal",
+                )
+            )
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        if error is not None:
+            assert error in str(result.errors[0])
+        if operation == "create":
+            assert WeekPlan.objects.count() == original_plan_count
+            assert Day.objects.count() == original_day_count
+        else:
+            plan.refresh_from_db()
+            assert (plan.protein_g_kg, plan.fat_perc, plan.deficit) == (
+                original_plan_state
+            )
+            assert (
+                list(
+                    plan.days.order_by("day_num").values_list(
+                        "id",
+                        "deficit",
+                        "energy_kcal_goal",
+                        "protein_g_goal",
+                        "fat_g_goal",
+                        "carbs_g_goal",
+                    )
+                )
+                == original_days
+            )
 
     def test_delete_week_plan(self, mocker):
         """Test deleting a week plan."""

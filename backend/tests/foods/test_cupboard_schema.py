@@ -276,6 +276,44 @@ class TestCupboardSchema:
         assert result.data["updateCupboardItem"]["started"] is True
         assert result.data["updateCupboardItem"]["finished"] is False
 
+    def test_update_cupboard_item_recalculates_from_new_manual_baseline(
+        self, mocker
+    ):
+        """Manual edits remain separate from existing linked consumptions."""
+        user = _create_user("cupboard-manual-baseline@test.com")
+        product = FoodProduct.objects.create(
+            name="Baseline product", size=400, size_unit="g", num_servings=4
+        )
+        item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+            consumed_perc=20,
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        CupboardItemConsumption.objects.create(item=item, serving=serving)
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 10) {
+                    consumedPerc
+                }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateCupboardItem"]["consumedPerc"] == 35
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == 10
+        assert item.consumed_perc == 35
+
     def test_update_cupboard_item_rejects_another_user(self, mocker):
         """A user cannot update another user's cupboard item."""
         user = _create_user("update-private@test.com")
@@ -306,7 +344,10 @@ class TestCupboardSchema:
         item.refresh_from_db()
         assert item.consumed_perc == 25
 
-    @pytest.mark.parametrize("consumed_perc", [-0.1, 100.1])
+    @pytest.mark.parametrize(
+        "consumed_perc",
+        [-0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+    )
     def test_create_cupboard_item_rejects_out_of_range_consumption(
         self, mocker, consumed_perc
     ):
@@ -339,12 +380,16 @@ class TestCupboardSchema:
         )
 
         assert result.errors is not None
-        assert "consumedPerc must be between 0 and 100" in str(
-            result.errors[0]
-        )
+        if consumed_perc in (-0.1, 100.1):
+            assert "consumedPerc must be between 0 and 100" in str(
+                result.errors[0]
+            )
         assert not CupboardItem.objects.filter(food=fp).exists()
 
-    @pytest.mark.parametrize("consumed_perc", [-0.1, 100.1])
+    @pytest.mark.parametrize(
+        "consumed_perc",
+        [-0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+    )
     def test_update_cupboard_item_rejects_out_of_range_consumption(
         self, mocker, consumed_perc
     ):
@@ -379,9 +424,10 @@ class TestCupboardSchema:
         )
 
         assert result.errors is not None
-        assert "consumedPerc must be between 0 and 100" in str(
-            result.errors[0]
-        )
+        if consumed_perc in (-0.1, 100.1):
+            assert "consumedPerc must be between 0 and 100" in str(
+                result.errors[0]
+            )
         item.refresh_from_db()
         assert item.consumed_perc == 25
 

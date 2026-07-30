@@ -1,5 +1,9 @@
 """Tests for FoodProducts and Servings GraphQL schema."""
 
+# The product and serving mutation matrices intentionally exercise every
+# exposed field in both create and update paths.
+# pylint: disable=too-many-lines
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -491,6 +495,184 @@ class TestFoodProductSchema:
         fp.refresh_from_db()
         assert fp.url == "https://example.com/milk"
 
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize(
+        "field_name",
+        [
+            "energyKcal",
+            "proteinG",
+            "fatG",
+            "carbsG",
+            "saturatedFatG",
+            "sugarsG",
+            "fibreG",
+            "saltG",
+        ],
+    )
+    @pytest.mark.parametrize("value", [-0.1, float("nan"), float("inf")])
+    def test_food_product_rejects_invalid_nutrients_without_partial_writes(
+        self, mocker, operation, field_name, value
+    ):
+        """Every exposed product nutrient is finite and non-negative."""
+        user = _create_user(
+            f"product-nutrient-{operation}-{field_name}-{repr(value)}@test.com",
+            is_staff=True,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(
+            name="Original nutrients",
+            energy_kcal=100,
+            protein_g=10,
+            fat_g=5,
+            carbs_g=15,
+            saturated_fat_g=2,
+            sugar_carbs_g=3,
+            fibre_carbs_g=4,
+            salt_g=1,
+        )
+        original_count = FoodProduct.objects.count()
+        original_state = tuple(
+            getattr(product, field)
+            for field in (
+                "name",
+                "energy_kcal",
+                "protein_g",
+                "fat_g",
+                "carbs_g",
+                "saturated_fat_g",
+                "sugar_carbs_g",
+                "fibre_carbs_g",
+                "salt_g",
+            )
+        )
+        original_servings = list(
+            product.servings.order_by("id").values_list(
+                "id", "serving_size", "serving_unit", "energy_kcal"
+            )
+        )
+        if operation == "create":
+            mutation = f"""
+                mutation InvalidNutrient($value: Float!) {{
+                    createFoodProduct(
+                        name: "Invalid product nutrient", {field_name}: $value
+                    ) {{ id }}
+                }}
+            """
+            variables = {"value": value}
+        else:
+            mutation = f"""
+                mutation InvalidNutrient($id: ID!, $value: Float!) {{
+                    updateFoodProduct(
+                        id: $id, name: "Changed", {field_name}: $value
+                    ) {{ id }}
+                }}
+            """
+            variables = {"id": str(product.id), "value": value}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        if value == -0.1:
+            assert f"{field_name} must be greater than or equal to 0" in str(
+                result.errors[0]
+            )
+        assert FoodProduct.objects.count() == original_count
+        product.refresh_from_db()
+        assert (
+            tuple(
+                getattr(product, field)
+                for field in (
+                    "name",
+                    "energy_kcal",
+                    "protein_g",
+                    "fat_g",
+                    "carbs_g",
+                    "saturated_fat_g",
+                    "sugar_carbs_g",
+                    "fibre_carbs_g",
+                    "salt_g",
+                )
+            )
+            == original_state
+        )
+        assert (
+            list(
+                product.servings.order_by("id").values_list(
+                    "id", "serving_size", "serving_unit", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize("field_name", ["nutritionalInfoUnit", "sizeUnit"])
+    def test_food_product_rejects_unsupported_units_before_signals(
+        self, mocker, operation, field_name
+    ):
+        """Product units must be canonical before product signals can run."""
+        user = _create_user(
+            f"product-unit-{operation}-{field_name}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(name="Original unit")
+        original_count = FoodProduct.objects.count()
+        original_state = (
+            product.name,
+            product.nutritional_info_unit,
+            product.size_unit,
+        )
+        original_servings = list(
+            product.servings.order_by("id").values_list(
+                "id", "serving_size", "serving_unit", "energy_kcal"
+            )
+        )
+        if operation == "create":
+            mutation = f"""
+                mutation {{
+                    createFoodProduct(
+                        name: "Invalid product unit", {field_name}: "unsupported"
+                    ) {{ id }}
+                }}
+            """
+            variables = None
+        else:
+            mutation = f"""
+                mutation InvalidUnit($id: ID!) {{
+                    updateFoodProduct(
+                        id: $id, name: "Changed", {field_name}: "unsupported"
+                    ) {{ id }}
+                }}
+            """
+            variables = {"id": str(product.id)}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        assert f"{field_name} must be a supported unit" in str(
+            result.errors[0]
+        )
+        assert FoodProduct.objects.count() == original_count
+        product.refresh_from_db()
+        assert (
+            product.name,
+            product.nutritional_info_unit,
+            product.size_unit,
+        ) == (original_state)
+        assert (
+            list(
+                product.servings.order_by("id").values_list(
+                    "id", "serving_size", "serving_unit", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
+
     def test_delete_food_product(self, mocker):
         """Test deleting a food product."""
         user = _create_user("fpdel@test.com", is_staff=True)
@@ -614,6 +796,61 @@ class TestServingSchema:
         assert result.errors is not None
         assert "Staff access required" in str(result.errors[0])
         assert product.servings.count() == initial_count
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_serving_rejects_unsupported_unit_without_partial_writes(
+        self, mocker, operation
+    ):
+        """Serving units are checked against the canonical model choices."""
+        user = _create_user(
+            f"serving-unit-{operation}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(name=f"Serving unit {operation}")
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        original_ids = set(product.servings.values_list("id", flat=True))
+        original_state = (
+            serving.serving_size,
+            serving.serving_unit,
+            serving.energy_kcal,
+        )
+        if operation == "create":
+            mutation = """
+                mutation InvalidUnit($foodId: ID!) {
+                    createServing(
+                        foodId: $foodId, servingSize: 10,
+                        servingUnit: "unsupported"
+                    ) { id }
+                }
+            """
+            variables = {"foodId": str(product.id)}
+        else:
+            mutation = """
+                mutation InvalidUnit($id: ID!) {
+                    updateServing(
+                        id: $id, servingSize: 10,
+                        servingUnit: "unsupported"
+                    ) { id }
+                }
+            """
+            variables = {"id": str(serving.id)}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        assert "servingUnit must be a supported unit" in str(result.errors[0])
+        assert (
+            set(product.servings.values_list("id", flat=True)) == original_ids
+        )
+        serving.refresh_from_db()
+        assert (
+            serving.serving_size,
+            serving.serving_unit,
+            serving.energy_kcal,
+        ) == original_state
 
     @pytest.mark.parametrize(
         "serving_size",
