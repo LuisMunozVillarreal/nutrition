@@ -73,7 +73,7 @@ def _run_manual_consumption_data_migration() -> None:
         if isinstance(operation, RunPython)
     ]
     assert len(operations) == 1
-    operations[0].code(apps, None)
+    operations[0].code(apps, SimpleNamespace(connection=connection))
 
 
 def _run_data_migration(migration_name: str) -> None:
@@ -183,6 +183,84 @@ def test_manual_consumption_migration_handles_compatible_volume_units():
 
     item.refresh_from_db()
     assert item.manual_consumed_perc == Decimal("25")
+
+
+@pytest.mark.django_db
+def test_manual_consumption_migration_uses_bounded_restartable_batches(
+    monkeypatch,
+):
+    """0032 bounds reads and writes while remaining safe to rerun."""
+    migration = importlib.import_module(
+        "apps.foods.migrations.0032_cupboarditem_manual_consumed_perc"
+    )
+    batch_size = 10
+    item_count = batch_size * 3 + 1
+    expected_batches = 4
+    monkeypatch.setattr(migration, "BATCH_SIZE", batch_size, raising=False)
+    product = FoodProduct.objects.create(name="High-cardinality baseline")
+    CupboardItem.objects.bulk_create(
+        [
+            CupboardItem(
+                food=product,
+                purchased_at=timezone.now(),
+                consumed_perc=Decimal("25"),
+                manual_consumed_perc=Decimal("99"),
+            )
+            for _ in range(item_count)
+        ]
+    )
+    statements = []
+
+    def record_statement(execute, sql, params, many, context):
+        del context
+        statements.append((sql, params))
+        return execute(sql, params, many)
+
+    with connection.execute_wrapper(record_statement):
+        _run_manual_consumption_data_migration()
+
+    item_table = CupboardItem._meta.db_table
+    consumption_table = CupboardItemConsumption._meta.db_table
+    item_selects = [
+        sql
+        for sql, _params in statements
+        if sql.lstrip().upper().startswith("SELECT")
+        and f'FROM "{item_table}"' in sql
+    ]
+    consumption_prefetches = [
+        params
+        for sql, params in statements
+        if sql.lstrip().upper().startswith("SELECT")
+        and f'FROM "{consumption_table}"' in sql
+    ]
+    item_updates = [
+        sql
+        for sql, _params in statements
+        if sql.lstrip().upper().startswith(f'UPDATE "{item_table}"'.upper())
+    ]
+
+    assert migration.Migration.atomic is False
+    assert len(item_selects) == expected_batches + 1
+    assert all(
+        "LIMIT 1" in sql or f"LIMIT {batch_size}" in sql
+        for sql in item_selects
+    )
+    assert len(consumption_prefetches) == expected_batches
+    assert all(
+        params is not None and len(params) <= batch_size
+        for params in consumption_prefetches
+    )
+    assert len(item_updates) == expected_batches
+    assert len(statements) <= 1 + expected_batches * 5
+    assert set(
+        CupboardItem.objects.values_list("manual_consumed_perc", flat=True)
+    ) == {Decimal("25")}
+
+    _run_manual_consumption_data_migration()
+
+    assert set(
+        CupboardItem.objects.values_list("manual_consumed_perc", flat=True)
+    ) == {Decimal("25")}
 
 
 @pytest.mark.django_db

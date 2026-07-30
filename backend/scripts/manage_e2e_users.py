@@ -1,4 +1,4 @@
-"""Create and remove isolated end-to-end test accounts from environment input."""
+"""Create and remove isolated end-to-end test accounts from stdin input."""
 
 import datetime
 import os
@@ -10,14 +10,8 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from apps.users.models import User  # noqa: E402
-
-
-def required_environment(name: str) -> str:
-    """Return a required non-empty environment value."""
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
+from scripts.e2e_lifecycle import LifecyclePayload  # noqa: E402
+from scripts.e2e_lifecycle import read_lifecycle_payload  # noqa: E402
 
 
 def create_e2e_user(email: str, password: str, *, is_staff: bool) -> None:
@@ -34,30 +28,25 @@ def create_e2e_user(email: str, password: str, *, is_staff: bool) -> None:
     )
 
 
-def seed_accounts() -> None:
+def seed_accounts(payload: LifecyclePayload) -> None:
     """Create distinct regular and staff identities for one E2E run."""
-    regular_email = required_environment("E2E_REGULAR_EMAIL")
-    staff_email = required_environment("E2E_STAFF_EMAIL")
-    if regular_email == staff_email:
-        raise RuntimeError("E2E regular and staff accounts must be distinct")
-
     create_e2e_user(
-        regular_email,
-        required_environment("E2E_REGULAR_PASSWORD"),
+        payload.regular_email,
+        payload.regular_password,
         is_staff=False,
     )
     create_e2e_user(
-        staff_email, required_environment("E2E_STAFF_PASSWORD"), is_staff=True
+        payload.staff_email,
+        payload.staff_password,
+        is_staff=True,
     )
 
 
-def cleanup_accounts() -> None:
+def cleanup_accounts(payload: LifecyclePayload) -> None:
     """Remove both identities, including the privileged account."""
-    emails = [
-        required_environment("E2E_REGULAR_EMAIL"),
-        required_environment("E2E_STAFF_EMAIL"),
-    ]
-    User.objects.filter(email__in=emails).delete()
+    User.objects.filter(
+        email__in=[payload.regular_email, payload.staff_email]
+    ).delete()
 
 
 def main() -> None:
@@ -66,10 +55,11 @@ def main() -> None:
         raise SystemExit(
             "Usage: python -m scripts.manage_e2e_users {seed|cleanup}"
         )
+    payload = read_lifecycle_payload(sys.stdin)
     if sys.argv[1] == "seed":
-        seed_accounts()
+        seed_accounts(payload)
     else:
-        cleanup_accounts()
+        cleanup_accounts(payload)
 
 
 if __name__ == "__main__":
