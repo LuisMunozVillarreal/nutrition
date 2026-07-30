@@ -24,6 +24,7 @@ from apps.goals.schema import GoalMutation, GoalQuery
 from apps.libs.graphql import get_request_user
 from apps.measurements.schema import MeasurementMutation, MeasurementQuery
 from apps.plans.schema import PlanMutation, PlanQuery
+from config.middleware import authenticated_request_user
 
 User = get_user_model()
 
@@ -53,28 +54,7 @@ def authenticated_user(context: Any) -> Any:
         return None
 
     request = getattr(context, "request", context)
-    headers = getattr(request, "headers", None)
-    authorization = headers.get("Authorization", "") if headers else ""
-    if authorization:
-        parts = authorization.split()
-        if len(parts) != 2 or parts[0].lower() != "bearer":
-            return None
-
-        try:
-            payload = jwt.decode(
-                parts[1], settings.SECRET_KEY, algorithms=["HS256"]
-            )
-            return User.objects.get(pk=payload["sub"], is_active=True)
-        except (
-            jwt.InvalidTokenError,
-            KeyError,
-            TypeError,
-            ValueError,
-            User.DoesNotExist,
-        ):
-            return None
-
-    return authenticated_session_user(context)
+    return authenticated_request_user(request)
 
 
 @strawberry.type

@@ -11,6 +11,43 @@ from django.http import HttpRequest, HttpResponse
 User = get_user_model()
 
 
+def authenticated_request_user(request: Any) -> Any:
+    """Return the request principal, prioritising any Authorization header.
+
+    Args:
+        request: The request-like object containing authentication state.
+
+    Returns:
+        The authenticated user, or ``None`` when authentication fails.
+    """
+    auth_header = getattr(request, "META", {}).get("HTTP_AUTHORIZATION", "")
+    if not auth_header:
+        user = getattr(request, "user", None)
+        return user if user is not None and user.is_authenticated else None
+
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+
+    try:
+        payload = jwt.decode(
+            parts[1],
+            settings.SECRET_KEY,
+            algorithms=["HS256"],
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        return User.objects.get(pk=user_id, is_active=True)
+    except (
+        jwt.InvalidTokenError,
+        TypeError,
+        ValueError,
+        User.DoesNotExist,
+    ):
+        return None
+
+
 class JWTAuthenticationMiddleware:
     """Decode JWT Bearer tokens and set request.user.
 
@@ -37,26 +74,9 @@ class JWTAuthenticationMiddleware:
         Returns:
             HttpResponse: the response from the next middleware.
         """
-        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            try:
-                payload = jwt.decode(
-                    token,
-                    settings.SECRET_KEY,
-                    algorithms=["HS256"],
-                )
-                user_id = payload.get("sub")
-                if user_id:
-                    try:
-                        request.user = cast(
-                            Any, User.objects.get(pk=user_id, is_active=True)
-                        )
-                    except User.DoesNotExist:
-                        request.user = AnonymousUser()
-            except jwt.ExpiredSignatureError:
-                request.user = AnonymousUser()
-            except jwt.InvalidTokenError:
-                request.user = AnonymousUser()
+        if request.META.get("HTTP_AUTHORIZATION", ""):
+            request.user = cast(
+                Any, authenticated_request_user(request) or AnonymousUser()
+            )
 
         return self.get_response(request)

@@ -1,5 +1,7 @@
 """Tests for Cupboard GraphQL schema."""
 
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -14,6 +16,7 @@ from apps.foods.models import (
 )
 from apps.foods.signals.handlers.cupboard import (
     CupboardItemConsumptionTooBigError,
+    get_linked_consumed_perc,
 )
 from config.schema import schema
 
@@ -275,6 +278,83 @@ class TestCupboardSchema:
         assert result.data["updateCupboardItem"]["consumedPerc"] == 50.0
         assert result.data["updateCupboardItem"]["started"] is True
         assert result.data["updateCupboardItem"]["finished"] is False
+
+    def test_update_cupboard_item_locks_authoritative_row(self, mocker):
+        """Manual totals lock the cupboard row before deriving their baseline."""
+        user = _create_user("cupboard-manual-lock@test.com")
+        product = FoodProduct.objects.create(
+            name="Locked product", size=400, size_unit="g", num_servings=4
+        )
+        item = CupboardItem.objects.create(
+            owner=user, food=product, purchased_at=timezone.now()
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        lock = mocker.spy(CupboardItem.objects, "select_for_update")
+
+        def read_links_after_lock(authoritative_item):
+            assert lock.call_count == 1
+            return get_linked_consumed_perc(authoritative_item)
+
+        mocker.patch(
+            "apps.foods.schema.get_linked_consumed_perc",
+            side_effect=read_links_after_lock,
+        )
+
+        result = schema.execute_sync(
+            """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 40) {
+                    consumedPerc
+                }
+            }
+            """,
+            variable_values={"id": str(item.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateCupboardItem"]["consumedPerc"] == 40
+        lock.assert_called_once_with()
+
+    def test_update_cupboard_item_rolls_back_manual_write_on_failure(
+        self, mocker
+    ):
+        """Manual baseline and total commit as one atomic update."""
+        user = _create_user("cupboard-manual-rollback@test.com")
+        product = FoodProduct.objects.create(
+            name="Rollback product", size=400, size_unit="g", num_servings=4
+        )
+        item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+            consumed_perc=Decimal("20"),
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        mocker.patch(
+            "apps.foods.schema.recalculate_consumed_perc",
+            side_effect=RuntimeError("injected recalculation failure"),
+        )
+
+        result = schema.execute_sync(
+            """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 40) {
+                    consumedPerc
+                }
+            }
+            """,
+            variable_values={"id": str(item.id)},
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert "injected recalculation failure" in str(result.errors[0])
+        item.refresh_from_db()
+        assert item.manual_consumed_perc == Decimal("20")
+        assert item.consumed_perc == Decimal("20")
 
     def test_update_cupboard_item_keeps_linked_only_total_unchanged(
         self, mocker

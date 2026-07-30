@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { e2eFixtureName } from "../e2eFixtures";
 import { replaceInputValue, waitForFormReady } from "../form";
 
 When("I navigate to the cupboard page", () => {
@@ -17,10 +18,11 @@ When("I navigate to the add to cupboard page", () => {
 });
 
 Given("a food product exists named {string}", (name: string) => {
+    const markedName = e2eFixtureName(name);
     // Navigate to products and create it via UI to ensure auth/context is correct
     cy.visit("/products/new");
     waitForFormReady();
-    replaceInputValue('[data-testid="field-name"]', name, {force: true});
+    replaceInputValue('[data-testid="field-name"]', markedName, {force: true});
     replaceInputValue('[data-testid="field-size"]', '1000', {force: true});
     replaceInputValue('[data-testid="field-numServings"]', '4', {force: true});
     replaceInputValue('[data-testid="field-energyKcal"]', '500', {force: true});
@@ -35,9 +37,10 @@ Given("a food product exists named {string}", (name: string) => {
 });
 
 When("I select {string} as the food item", (label: string) => {
+    const markedLabel = e2eFixtureName(label);
     cy.get('[data-testid="field-foodId"] option', { timeout: 10000 })
-        .should('contain.text', label)
-        .contains(label)
+        .should('contain.text', markedLabel)
+        .contains(markedLabel)
         .invoke('val')
         .then((val) => {
             cy.get('[data-testid="field-foodId"]').select(val as string);
@@ -45,7 +48,7 @@ When("I select {string} as the food item", (label: string) => {
 });
 
 Then("I should see {string} in the list", (text: string) => {
-    cy.get('table').should('contain', text);
+    cy.get('table').should('contain', e2eFixtureName(text));
 });
 
 Then("I should be redirected to the cupboard list", () => {
