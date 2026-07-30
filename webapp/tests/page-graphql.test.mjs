@@ -67,3 +67,36 @@ test('serving edit query has no unused GraphQL variables', async () => {
 
   assert.deepEqual(errors.map((error) => error.message), [])
 })
+
+test('Cypress waits for hydrated forms before replacing controlled values', async () => {
+  const readSource = async (path) => {
+    try {
+      return await readFile(new URL(path, import.meta.url), 'utf8')
+    } catch {
+      return ''
+    }
+  }
+
+  const entityForm = await readSource('../src/components/EntityForm.tsx')
+  assert.match(entityForm, /const \[hydrated, setHydrated\] = useState\(false\)/)
+  assert.match(entityForm, /useEffect\(\(\) => setHydrated\(true\), \[\]\)/)
+  assert.match(entityForm, /data-testid="form-hydrating"/)
+  assert.match(entityForm, /data-testid="form-ready"/)
+
+  const formSupport = await readSource('../cypress/support/form.ts')
+  assert.match(formSupport, /export function waitForFormReady/)
+  assert.match(formSupport, /data-testid="form-ready"/)
+  assert.match(formSupport, /export function replaceInputValue/)
+
+  for (const path of [
+    '../cypress/support/step_definitions/cupboard.ts',
+    '../cypress/support/step_definitions/exercises.ts',
+    '../cypress/support/step_definitions/measurements.ts',
+  ]) {
+    const source = await readSource(path)
+    const readyIndex = source.indexOf('waitForFormReady()')
+    const inputIndex = source.indexOf('replaceInputValue(')
+    assert.ok(readyIndex >= 0, `${path} does not wait for hydration`)
+    assert.ok(inputIndex > readyIndex, `${path} edits inputs before hydration`)
+  }
+})
