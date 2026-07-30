@@ -386,7 +386,7 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
   }
 
   const exerciseSteps = await readSource('../cypress/support/step_definitions/exercises.ts')
-  assert.match(exerciseSteps, /cy\.get\('body', \{ timeout: 20000 \}\)\.should/)
+  assert.match(exerciseSteps, /cy\.location\('pathname', \{ timeout: 20000 \}\)/)
   assert.match(exerciseSteps, /data-testid="form-error"/)
-  assert.match(exerciseSteps, /window\.location\.pathname\)\.to\.equal\('\/exercises'\)/)
+  assert.match(exerciseSteps, /should\('equal', '\/exercises'\)/)
 })
