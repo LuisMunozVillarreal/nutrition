@@ -309,7 +309,7 @@ jobs:
              SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
              NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
              echo "Seeding test day data in namespace: $NAMESPACE"
-             kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- python3 scripts/seed_test_day.py
+             kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- python3 -m scripts.seed_test_day
       - run:
           name: Run Cypress
           working_directory: ~/project/webapp
