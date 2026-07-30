@@ -39,7 +39,7 @@ def _backfill_ingredient_snapshots(ingredient_model, database):
     while True:
         with transaction.atomic(using=database):
             batch = list(
-                ingredients.select_for_update()
+                ingredients.select_for_update(of=("self",))
                 .filter(pending)
                 .select_related("food__food")
                 .order_by("pk")[:BATCH_SIZE]
@@ -120,7 +120,7 @@ def _backfill_consumption_snapshots(consumption_model, database):
     while True:
         with transaction.atomic(using=database):
             batch = list(
-                consumptions.select_for_update()
+                consumptions.select_for_update(of=("self",))
                 .filter(pending)
                 .select_related("serving__food", "intake")
                 .order_by("pk")[:BATCH_SIZE]
