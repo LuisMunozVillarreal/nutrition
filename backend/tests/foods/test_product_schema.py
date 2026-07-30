@@ -8,6 +8,7 @@ from apps.foods.schema import (
     _validated_product_num_servings,
     _validated_product_nutritional_info_size,
 )
+from apps.libs.graphql import validated_positive_decimal
 from config.schema import schema
 
 User = get_user_model()
@@ -34,6 +35,15 @@ def test_product_nutritional_info_size_must_be_finite_and_positive(
         ValueError, match="nutritionalInfoSize must be greater than 0"
     ):
         _validated_product_nutritional_info_size(nutritional_info_size)
+
+
+@pytest.mark.parametrize(
+    "value", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+)
+def test_positive_decimal_validation_rejects_every_invalid_float(value):
+    """Shared server validation rejects non-positive and non-finite inputs."""
+    with pytest.raises(ValueError, match="fieldName must be greater than 0"):
+        validated_positive_decimal(value, "fieldName")
 
 
 def _create_user(email: str, *, is_staff: bool = False):
@@ -280,6 +290,121 @@ class TestFoodProductSchema:
         assert product.num_servings == 4
 
     @pytest.mark.parametrize(
+        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_food_product_rejects_invalid_size_without_partial_writes(
+        self, mocker, operation, size
+    ):
+        """Product writes require a finite positive package size."""
+        user = _create_user(
+            f"product-size-{operation}-{repr(size)}@test.com", is_staff=True
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        product = None
+        original_product_state = None
+        original_servings = None
+        if operation == "update":
+            product = FoodProduct.objects.create(
+                name="Valid product size",
+                nutritional_info_size=100,
+                nutritional_info_unit="g",
+                size=500,
+                size_unit="g",
+                num_servings=5,
+                energy_kcal=200,
+                protein_g=20,
+            )
+            original_product_state = (
+                product.name,
+                product.size,
+                product.size_unit,
+                product.num_servings,
+                product.energy_kcal,
+                product.protein_g,
+                product.fat_g,
+                product.carbs_g,
+            )
+            original_servings = list(
+                product.servings.order_by("id").values_list(
+                    "id",
+                    "serving_size",
+                    "serving_unit",
+                    "energy_kcal",
+                    "protein_g",
+                    "fat_g",
+                    "carbs_g",
+                )
+            )
+            mutation = """
+                mutation UpdateProduct($id: ID!, $size: Float!) {
+                    updateFoodProduct(
+                        id: $id,
+                        name: "Partially changed",
+                        size: $size,
+                        sizeUnit: "oz",
+                        numServings: 2,
+                        energyKcal: 999,
+                        proteinG: 99
+                    ) { id }
+                }
+            """
+            variable_values = {"id": str(product.id), "size": size}
+        else:
+            mutation = """
+                mutation CreateProduct($size: Float!) {
+                    createFoodProduct(
+                        name: "Invalid product size",
+                        size: $size,
+                        sizeUnit: "oz"
+                    ) { id }
+                }
+            """
+            variable_values = {"size": size}
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variable_values,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        if size in (0.0, -1.0):
+            assert "size must be greater than 0" in str(result.errors[0])
+        if operation == "create":
+            assert not FoodProduct.objects.filter(
+                name="Invalid product size"
+            ).exists()
+        else:
+            assert product is not None
+            product.refresh_from_db()
+            assert (
+                product.name,
+                product.size,
+                product.size_unit,
+                product.num_servings,
+                product.energy_kcal,
+                product.protein_g,
+                product.fat_g,
+                product.carbs_g,
+            ) == original_product_state
+            assert (
+                list(
+                    product.servings.order_by("id").values_list(
+                        "id",
+                        "serving_size",
+                        "serving_unit",
+                        "energy_kcal",
+                        "protein_g",
+                        "fat_g",
+                        "carbs_g",
+                    )
+                )
+                == original_servings
+            )
+
+    @pytest.mark.parametrize(
         "nutritional_info_size",
         [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
     )
@@ -489,6 +614,94 @@ class TestServingSchema:
         assert result.errors is not None
         assert "Staff access required" in str(result.errors[0])
         assert product.servings.count() == initial_count
+
+    @pytest.mark.parametrize(
+        "serving_size",
+        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+    )
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_serving_rejects_invalid_size_without_partial_writes(
+        self, mocker, operation, serving_size
+    ):
+        """Serving writes require a finite positive size before persistence."""
+        user = _create_user(
+            f"serving-invalid-{operation}-{repr(serving_size)}@test.com",
+            is_staff=True,
+        )
+        product = FoodProduct.objects.create(
+            name=f"Serving validation {operation} {repr(serving_size)}",
+            size=500,
+            size_unit="g",
+            num_servings=5,
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+            energy_kcal=200,
+            protein_g=20,
+        )
+        existing_ids = set(product.servings.values_list("id", flat=True))
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        original_state = (
+            serving.serving_size,
+            serving.serving_unit,
+            serving.energy_kcal,
+            serving.protein_g,
+            serving.fat_g,
+            serving.carbs_g,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        if operation == "create":
+            mutation = """
+                mutation CreateServing($foodId: ID!, $servingSize: Float!) {
+                    createServing(
+                        foodId: $foodId,
+                        servingSize: $servingSize,
+                        servingUnit: "oz"
+                    ) { id }
+                }
+            """
+            variable_values = {
+                "foodId": str(product.id),
+                "servingSize": serving_size,
+            }
+        else:
+            mutation = """
+                mutation UpdateServing($id: ID!, $servingSize: Float!) {
+                    updateServing(
+                        id: $id,
+                        servingSize: $servingSize,
+                        servingUnit: "oz"
+                    ) { id }
+                }
+            """
+            variable_values = {
+                "id": str(serving.id),
+                "servingSize": serving_size,
+            }
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values=variable_values,
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        if serving_size in (0.0, -1.0):
+            assert "servingSize must be greater than 0" in str(
+                result.errors[0]
+            )
+        assert (
+            set(product.servings.values_list("id", flat=True)) == existing_ids
+        )
+        serving.refresh_from_db()
+        assert (
+            serving.serving_size,
+            serving.serving_unit,
+            serving.energy_kcal,
+            serving.protein_g,
+            serving.fat_g,
+            serving.carbs_g,
+        ) == original_state
 
     def test_update_serving(self, mocker):
         """Test updating a serving."""
