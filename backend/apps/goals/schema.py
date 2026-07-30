@@ -8,6 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from apps.goals.models import FatPercGoal
+from apps.libs.graphql import get_request_user
 
 
 @strawberry.type
@@ -49,8 +50,7 @@ class GoalQuery:
         Returns:
             list[FatPercGoalType]: list of goals.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -74,8 +74,7 @@ class GoalQuery:
         Returns:
             FatPercGoalType | None: the goal or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -109,8 +108,7 @@ class GoalMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -141,8 +139,7 @@ class GoalMutation:
             PermissionError: if user is not authenticated.
             ValueError: if goal not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -170,8 +167,7 @@ class GoalMutation:
             PermissionError: if user is not authenticated.
             ValueError: if goal not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 

@@ -7,6 +7,7 @@ from decimal import Decimal
 import strawberry
 from strawberry.types import Info
 
+from apps.libs.graphql import get_request_user
 from apps.measurements.models import Measurement
 
 
@@ -55,8 +56,7 @@ class MeasurementQuery:
         Returns:
             list[MeasurementType]: list of measurements.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -80,8 +80,7 @@ class MeasurementQuery:
         Returns:
             MeasurementType | None: the measurement or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -117,8 +116,7 @@ class MeasurementMutation:
         Raises:
             PermissionError: if user is not authenticated.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -152,8 +150,7 @@ class MeasurementMutation:
             PermissionError: if user is not authenticated.
             ValueError: if measurement not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -182,8 +179,7 @@ class MeasurementMutation:
             PermissionError: if user is not authenticated.
             ValueError: if measurement not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
