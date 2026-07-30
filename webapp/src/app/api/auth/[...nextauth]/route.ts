@@ -1,13 +1,29 @@
 import NextAuth, { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { gql, GraphQLClient } from 'graphql-request'
+import { GraphQLClient } from 'graphql-request'
+import {
+    authorizeCredentials,
+    fetchCurrentStaffCapability,
+    type CredentialRequest,
+    type StaffCapabilityRequest,
+} from '@/lib/auth'
 import {
     applyTokenCapabilitiesToSession,
-    applyUserCapabilitiesToToken,
+    createJwtCapabilityCallback,
 } from '@/lib/sessionCapabilities'
 
 const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:8000/graphql/';
 const client = new GraphQLClient(endpoint);
+const credentialRequest: CredentialRequest = (document, variables) =>
+    client.request(document, variables)
+const staffCapabilityRequest: StaffCapabilityRequest = (
+    document,
+    variables,
+    requestHeaders,
+) => client.request(document, variables, requestHeaders)
+const jwtCapabilityCallback = createJwtCapabilityCallback((accessToken) =>
+    fetchCurrentStaffCapability(accessToken, staffCapabilityRequest)
+)
 
 export const authOptions: NextAuthOptions = {
     session: {
@@ -24,46 +40,13 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
-                const mutation = gql`
-          mutation Login($email: String!, $password: String!) {
-            login(email: $email, password: $password) {
-              token
-              user {
-                id
-                email
-                firstName
-                lastName
-                isStaff
-              }
-            }
-          }
-        `
-                try {
-                    const data: any = await client.request(mutation, {
-                        email: credentials?.email,
-                        password: credentials?.password
-                    })
-
-                    if (data.login) {
-                        return {
-                            id: data.login.user.id,
-                            email: data.login.user.email,
-                            name: `${data.login.user.firstName} ${data.login.user.lastName}`,
-                            accessToken: data.login.token,
-                            isStaff: data.login.user.isStaff
-                        }
-                    }
-                    return null
-                } catch (e) {
-                    console.error("Login failed", e)
-                    return null
-                }
+                return authorizeCredentials(credentials, credentialRequest)
             }
         })
     ],
     callbacks: {
         async jwt({ token, user }: any) {
-            return applyUserCapabilitiesToToken(token, user)
+            return jwtCapabilityCallback({ token, user })
         },
         async session({ session, token }: any) {
             return applyTokenCapabilitiesToSession(session, token)

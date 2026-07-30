@@ -332,12 +332,8 @@ jobs:
             export CYPRESS_E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD"
 
             run_backend() {
-              kubectl exec -n "$NAMESPACE" deployment/nutrition-backend -- env \
-                E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL" \
-                E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD" \
-                E2E_STAFF_EMAIL="$E2E_STAFF_EMAIL" \
-                E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD" \
-                "$@"
+              kubectl exec -i -n "$NAMESPACE" deployment/nutrition-backend -- "$@" \
+                <<<"$E2E_LIFECYCLE_PAYLOAD"
             }
 
             cleanup() {
@@ -347,6 +343,15 @@ jobs:
               run_backend python3 -m scripts.manage_e2e_users cleanup
               cleanup_status=$?
               if [ "$cleanup_status" -ne 0 ]; then
+                run_backend python3 -m scripts.manage_e2e_users cleanup
+                cleanup_status=$?
+              fi
+              unset E2E_LIFECYCLE_PAYLOAD \
+                E2E_REGULAR_EMAIL E2E_REGULAR_PASSWORD \
+                E2E_STAFF_EMAIL E2E_STAFF_PASSWORD \
+                CYPRESS_E2E_REGULAR_EMAIL CYPRESS_E2E_REGULAR_PASSWORD \
+                CYPRESS_E2E_STAFF_EMAIL CYPRESS_E2E_STAFF_PASSWORD
+              if [ "$cleanup_status" -ne 0 ]; then
                 echo "E2E account cleanup failed." >&2
               fi
               if [ "$status" -eq 0 ] && [ "$cleanup_status" -ne 0 ]; then
@@ -355,6 +360,11 @@ jobs:
               exit "$status"
             }
             trap cleanup EXIT
+
+            printf -v E2E_LIFECYCLE_PAYLOAD \
+              '{"regular_email":"%s","regular_password":"%s","staff_email":"%s","staff_password":"%s"}' \
+              "$E2E_REGULAR_EMAIL" "$E2E_REGULAR_PASSWORD" \
+              "$E2E_STAFF_EMAIL" "$E2E_STAFF_PASSWORD"
 
             run_backend python3 -m scripts.manage_e2e_users seed
             run_backend python3 -m scripts.seed_test_day
