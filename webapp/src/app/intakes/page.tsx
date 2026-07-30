@@ -6,7 +6,7 @@ import DataTable, { Column } from '@/components/DataTable'
 
 // For the global intakes list, you'd ideally have a direct query in the backend.
 // Since we only query via Day/WeekPlan currently, we fetch recent week plans' days' intakes
-// or just omit the global list and make it a pure child view. 
+// or just omit the global list and make it a pure child view.
 // Adding a stub component here for completeness of navigation.
 export default function IntakesPage() {
   return (

@@ -84,7 +84,7 @@ export default function NewProductPage() {
               <FormField label="Name" name="name" value={form.name} onChange={handleChange} required />
               <FormField label="Barcode" name="barcode" value={form.barcode} onChange={handleChange} />
               <TextareaField label="Notes" name="notes" value={form.notes} onChange={handleChange} />
-              
+
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <FormField label="Size" name="size" type="number" step="0.1" value={form.size} onChange={handleChange} required />
                 <SelectField label="Size Unit" name="sizeUnit" value={form.sizeUnit} onChange={handleChange} options={UNIT_CHOICES} required />

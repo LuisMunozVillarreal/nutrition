@@ -42,7 +42,7 @@ function EditServingForm() {
   const id = params.id as string
   const searchParams = useSearchParams()
   const foodId = searchParams.get('foodId')
-  
+
   const [form, setForm] = useState({ servingSize: '', servingUnit: '' })
   const [readOnly, setReadOnly] = useState<any>({})
   const [saving, setSaving] = useState(false)

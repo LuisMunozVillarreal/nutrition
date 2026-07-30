@@ -9,7 +9,7 @@ Given("I am logged in", () => {
 
     // Check that we're on the dashboard or home page
     cy.url({ timeout: 15000 }).should("not.include", "/login");
-    
+
     // Ensure the session is loaded in the browser state
     cy.get('body').should('be.visible');
 });

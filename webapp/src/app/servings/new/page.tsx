@@ -24,7 +24,7 @@ const UNIT_CHOICES = [
 function NewServingForm() {
   const searchParams = useSearchParams()
   const foodId = searchParams.get('foodId')
-  
+
   const [form, setForm] = useState({
     servingSize: '1.0', servingUnit: 'serving'
   })
