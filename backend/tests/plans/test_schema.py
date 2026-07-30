@@ -234,6 +234,14 @@ class TestIntakeSchema:
         assert result.data["createIntake"]["meal"] == "lunch"
         assert result.data["createIntake"]["energyKcal"] == 400.0
 
+        intake = Intake.objects.get(day=day)
+        assert intake.processed is True
+
+        day.refresh_from_db()
+        assert day.energy_kcal == Decimal("400.00")
+        assert day.protein_g == Decimal("30.00")
+        assert plan.energy_kcal == Decimal("400.00")
+
     def test_update_intake(self, mocker):
         """Test updating an intake."""
         user, plan = _create_user_and_plan("intupd@test.com")

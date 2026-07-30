@@ -90,7 +90,24 @@ class Intake(Nutrients):
             kwargs (dict): keyword arguments.
         """
         self.meal_order = self.MEAL_ORDER[self.meal]
-        self.processed = self.food is not None
+
+        if self.pk and self.food is None:
+            previous = Intake.objects.get(pk=self.pk)
+            removed_food_without_macro_edits = (
+                previous.food_id is not None
+                and all(
+                    (getattr(self, nutrient) or 0)
+                    == (getattr(previous, nutrient) or 0)
+                    for nutrient in NUTRIENT_LIST
+                )
+            )
+            if removed_food_without_macro_edits:
+                for nutrient in NUTRIENT_LIST:
+                    setattr(self, nutrient, 0)
+
+        self.processed = self.food is not None or any(
+            (getattr(self, nutrient) or 0) != 0 for nutrient in NUTRIENT_LIST
+        )
 
         if self.food:
             for nutrient in NUTRIENT_LIST:
