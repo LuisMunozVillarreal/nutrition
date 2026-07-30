@@ -8,6 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
+from apps.libs.graphql import get_request_user
 
 
 @strawberry.type
@@ -88,8 +89,7 @@ class ExerciseQuery:
         Returns:
             list[ExerciseType]: list of exercises.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -111,8 +111,7 @@ class ExerciseQuery:
         Returns:
             ExerciseType | None: the exercise or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -133,8 +132,7 @@ class ExerciseQuery:
         Returns:
             list[DayStepsType]: list of day steps.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
 
@@ -156,8 +154,7 @@ class ExerciseQuery:
         Returns:
             DayStepsType | None: the day steps or None.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return None
 
@@ -202,8 +199,7 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -266,8 +262,7 @@ class ExerciseMutation:
         """
         import datetime
 
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -309,8 +304,7 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if exercise not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -343,8 +337,7 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -379,8 +372,7 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day steps not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
@@ -408,8 +400,7 @@ class ExerciseMutation:
             PermissionError: if user is not authenticated.
             ValueError: if day steps not found.
         """
-        request = getattr(info.context, "request", None)
-        user = getattr(request, "user", None)
+        user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 

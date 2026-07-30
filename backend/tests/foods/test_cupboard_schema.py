@@ -4,7 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from apps.foods.models import CupboardItem, FoodProduct
+from apps.foods.models import CupboardItem, FoodProduct, Recipe
 from config.schema import schema
 
 User = get_user_model()
@@ -81,6 +81,36 @@ class TestCupboardSchema:
         assert result.errors is None
         assert "Eggs" in result.data["createCupboardItem"]["foodLabel"]
         assert CupboardItem.objects.filter(food=fp).exists()
+
+    def test_create_cupboard_item_from_recipe(self, mocker):
+        """Test creating a cupboard item from a recipe base food ID."""
+        user = _create_user("recipe-cupboard@test.com")
+        recipe = Recipe.objects.create(
+            name="Soup", size=4, size_unit="count", num_servings=4
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        mutation = """
+            mutation CreateItem($foodId: ID!, $purchasedAt: String!) {
+                createCupboardItem(
+                    foodId: $foodId, purchasedAt: $purchasedAt,
+                    consumedPerc: 0
+                ) { id foodLabel }
+            }
+        """
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "foodId": str(recipe.food_ptr_id),
+                "purchasedAt": timezone.now().isoformat(),
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert "Soup" in result.data["createCupboardItem"]["foodLabel"]
+        assert CupboardItem.objects.filter(food_id=recipe.food_ptr_id).exists()
 
     def test_update_cupboard_item(self, mocker):
         """Test updating a cupboard item's consumption."""

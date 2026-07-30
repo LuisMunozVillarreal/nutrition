@@ -134,6 +134,26 @@ class TestWeekPlanSchema:
         assert result.errors is None
         assert result.data["updateWeekPlan"]["proteinGKg"] == 2.2
 
+        days = list(Day.objects.filter(plan=plan).order_by("day_num"))
+        assert [day.deficit for day in days] == [
+            90,
+            80,
+            90,
+            110,
+            110,
+            110,
+            110,
+        ]
+        for day in days:
+            assert day.protein_g_goal == Decimal("176.00")
+            assert day.energy_kcal_goal == day._energy_kcal_goal.quantize(
+                Decimal("0.01")
+            )
+            assert day.fat_g_goal == day._fat_g_goal.quantize(Decimal("0.01"))
+            assert day.carbs_g_goal == day._carbs_g_goal.quantize(
+                Decimal("0.01")
+            )
+
     def test_delete_week_plan(self, mocker):
         """Test deleting a week plan."""
         user, plan = _create_user_and_plan("wpdel@test.com")
