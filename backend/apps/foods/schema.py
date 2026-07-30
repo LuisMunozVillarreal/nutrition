@@ -644,6 +644,13 @@ class RecipeQuery:
             return None
 
 
+def _validated_recipe_num_servings(num_servings: float) -> Decimal:
+    """Return a valid positive recipe serving count."""
+    if not math.isfinite(num_servings) or num_servings <= 0:
+        raise ValueError("numServings must be greater than 0")
+    return Decimal(str(num_servings))
+
+
 @strawberry.type
 class RecipeMutation:
     """Recipe mutations."""
@@ -702,7 +709,7 @@ class RecipeMutation:
             description=description,
             size=Decimal(str(size)),
             size_unit=size_unit,
-            num_servings=Decimal(str(num_servings)),
+            num_servings=_validated_recipe_num_servings(num_servings),
             energy_kcal=Decimal(str(energy_kcal)),
             protein_g=Decimal(str(protein_g)),
             fat_g=Decimal(str(fat_g)),
@@ -783,7 +790,7 @@ class RecipeMutation:
         obj.description = description
         obj.size = Decimal(str(size))
         obj.size_unit = size_unit
-        obj.num_servings = Decimal(str(num_servings))
+        obj.num_servings = _validated_recipe_num_servings(num_servings)
         obj.energy_kcal = Decimal(str(energy_kcal))
         obj.protein_g = Decimal(str(protein_g))
         obj.fat_g = Decimal(str(fat_g))

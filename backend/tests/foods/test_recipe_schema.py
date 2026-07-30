@@ -139,6 +139,68 @@ class TestRecipeMutation:
         assert result.errors is None
         assert result.data["updateRecipe"]["name"] == "New Name"
 
+    @pytest.mark.parametrize("num_servings", [0.0, -1.0])
+    def test_create_recipe_rejects_non_positive_serving_count(
+        self, mocker, num_servings
+    ):
+        """Creating a recipe requires a positive serving count."""
+        user = _create_user(f"rc-invalid-{num_servings}@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateRecipe($numServings: Float!) {
+                createRecipe(
+                    name: "Invalid", numServings: $numServings,
+                    energyKcal: 100.0
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"numServings": num_servings},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "numServings must be greater than 0" in str(result.errors[0])
+        assert not Recipe.objects.filter(name="Invalid").exists()
+
+    @pytest.mark.parametrize("num_servings", [0.0, -1.0])
+    def test_update_recipe_rejects_non_positive_serving_count(
+        self, mocker, num_servings
+    ):
+        """Updating a recipe requires a positive serving count."""
+        user = _create_user(f"ru-invalid-{num_servings}@test.com")
+        recipe = Recipe.objects.create(
+            name="Valid", size=100, size_unit="g", num_servings=1
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateRecipe($id: ID!, $numServings: Float!) {
+                updateRecipe(
+                    id: $id, name: "Invalid",
+                    numServings: $numServings, energyKcal: 100.0
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(recipe.id),
+                "numServings": num_servings,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "numServings must be greater than 0" in str(result.errors[0])
+        recipe.refresh_from_db()
+        assert recipe.name == "Valid"
+        assert recipe.num_servings == 1
+
     def test_delete_recipe(self, mocker):
         """Test deleting a recipe."""
         # Given an authenticated user and a recipe
