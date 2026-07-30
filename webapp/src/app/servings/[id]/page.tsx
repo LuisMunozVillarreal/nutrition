@@ -31,7 +31,7 @@ const DELETE_MUTATION = gql`
 const UNIT_CHOICES = [
   { value: 'g', label: 'g' },
   { value: 'ml', label: 'ml' },
-  { value: 'fl oz', label: 'fl oz' },
+  { value: 'floz', label: 'fl oz' },
   { value: 'oz', label: 'oz' },
   { value: 'container', label: 'container' },
   { value: 'serving', label: 'serving' },
