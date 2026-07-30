@@ -122,6 +122,42 @@ class TestCreateGoal:
         assert result.data["createFatPercGoal"]["bodyFatPerc"] == 14.0
         assert FatPercGoal.objects.filter(user=user).count() == 1
 
+    @pytest.mark.parametrize(
+        "body_fat_perc",
+        [0, 100, -0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_create_goal_rejects_invalid_percentage_without_partial_write(
+        self, mocker, body_fat_perc
+    ):
+        """A body-fat goal must be strictly greater than zero."""
+        user = User.objects.create_user(
+            email="goalcreate-invalid@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation CreateGoal($bodyFatPerc: Float!) {
+                createFatPercGoal(bodyFatPerc: $bodyFatPerc) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"bodyFatPerc": body_fat_perc},
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        if body_fat_perc in (0, 100, -0.1, 100.1):
+            assert (
+                "bodyFatPerc must be greater than 0 and less than 100"
+                in str(result.errors[0])
+            )
+        assert not FatPercGoal.objects.filter(user=user).exists()
+
 
 @pytest.mark.django_db
 class TestUpdateGoal:
@@ -160,6 +196,47 @@ class TestUpdateGoal:
         # Then the goal is updated
         assert result.errors is None
         assert result.data["updateFatPercGoal"]["bodyFatPerc"] == 12.0
+
+    @pytest.mark.parametrize(
+        "body_fat_perc",
+        [0, 100, -0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_update_goal_rejects_invalid_percentage_without_partial_write(
+        self, mocker, body_fat_perc
+    ):
+        """An invalid body-fat update leaves the stored goal unchanged."""
+        user = User.objects.create_user(
+            email="goalupdate-invalid@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        goal = FatPercGoal.objects.create(user=user, body_fat_perc=15.0)
+        context = mocker.Mock()
+        context.request.user = user
+        mutation = """
+            mutation UpdateGoal($id: ID!, $bodyFatPerc: Float!) {
+                updateFatPercGoal(id: $id, bodyFatPerc: $bodyFatPerc) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(goal.id),
+                "bodyFatPerc": body_fat_perc,
+            },
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        if body_fat_perc in (0, 100, -0.1, 100.1):
+            assert (
+                "bodyFatPerc must be greater than 0 and less than 100"
+                in str(result.errors[0])
+            )
+        goal.refresh_from_db()
+        assert goal.body_fat_perc == 15
 
     def test_cannot_update_other_users_goal(self, mocker):
         """Test that a user cannot update another user's goal."""

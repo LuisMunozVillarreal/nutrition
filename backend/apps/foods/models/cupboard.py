@@ -128,6 +128,9 @@ class CupboardItem(models.Model):
         Args:
             args (list): arguments.
             kwargs (dict): keyword arguments.
+
+        Raises:
+            ValueError: if the requested total is below linked consumption.
         """
         if self._state.adding:
             if not self.manual_consumed_perc and self.consumed_perc:
@@ -142,7 +145,20 @@ class CupboardItem(models.Model):
                 self.consumed_perc != previous.consumed_perc
                 and self.manual_consumed_perc == previous.manual_consumed_perc
             ):
-                self.manual_consumed_perc = self.consumed_perc
+                linked_consumed_perc = (
+                    previous.consumed_perc - previous.manual_consumed_perc
+                )
+                if self.consumed_perc < linked_consumed_perc:
+                    raise ValueError(
+                        "consumed_perc cannot be less than linked consumption"
+                    )
+                self.manual_consumed_perc = (
+                    self.consumed_perc - linked_consumed_perc
+                )
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                        "manual_consumed_perc"
+                    }
 
         self.started = self.consumed_perc > 0
         self.finished = self.consumed_perc == 100

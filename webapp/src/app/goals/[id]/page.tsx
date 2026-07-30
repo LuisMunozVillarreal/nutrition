@@ -97,6 +97,8 @@ export default function EditGoalPage() {
                 name="bodyFatPerc"
                 type="number"
                 step="0.1"
+                min="0.1"
+                max="99.9"
                 value={form.bodyFatPerc}
                 onChange={handleChange}
                 required

@@ -62,14 +62,14 @@ def _get_consumed_perc(food: Food, consumed_g: Decimal) -> Decimal:
     return consumed_g * 100 / item_g
 
 
-def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
-    """Recalculate total consumption from manual and linked portions.
+def get_linked_consumed_perc(cupboard_item: CupboardItem) -> Decimal:
+    """Return the percentage consumed by linked recipes and intakes.
 
     Args:
-        cupboard_item (CupboardItem): cupboard item to recalculate.
+        cupboard_item (CupboardItem): cupboard item whose links are totalled.
 
-    Raises:
-        CupboardItemConsumptionTooBigError: if total consumption exceeds 100%.
+    Returns:
+        Decimal: percentage represented by linked consumptions.
     """
     consumed_g = Decimal("0")
     for consumption in cupboard_item.consumptions.all():
@@ -79,11 +79,21 @@ def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
 
         consumed_g += _get_consumed_g(consumption.serving, num_servings)
 
-    linked_consumed_perc = Decimal("0")
-    if consumed_g:
-        linked_consumed_perc = _get_consumed_perc(
-            cupboard_item.food, consumed_g
-        )
+    if not consumed_g:
+        return Decimal("0")
+    return _get_consumed_perc(cupboard_item.food, consumed_g)
+
+
+def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
+    """Recalculate total consumption from manual and linked portions.
+
+    Args:
+        cupboard_item (CupboardItem): cupboard item to recalculate.
+
+    Raises:
+        CupboardItemConsumptionTooBigError: if total consumption exceeds 100%.
+    """
+    linked_consumed_perc = get_linked_consumed_perc(cupboard_item)
     total_consumed_perc = (
         cupboard_item.manual_consumed_perc + linked_consumed_perc
     )

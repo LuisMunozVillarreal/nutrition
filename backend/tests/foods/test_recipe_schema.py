@@ -83,7 +83,7 @@ class TestRecipeQuery:
 
 
 @pytest.mark.django_db
-class TestRecipeMutation:
+class TestRecipeMutation:  # pylint: disable=too-many-public-methods
     """Tests for recipe mutations."""
 
     def test_create_recipe(self, mocker):
@@ -605,6 +605,74 @@ class TestRecipeMutation:
         assert result.data["addRecipeIngredient"]["numServings"] == 2
         assert recipe.ingredients.count() == 1
 
+    @pytest.mark.parametrize(
+        "num_servings",
+        [0, -0.1, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_add_recipe_ingredient_rejects_invalid_count_without_partial_writes(
+        self, mocker, num_servings
+    ):
+        """An invalid serving count cannot alter ingredient-derived recipe state."""
+        user = _create_user("ingredient-zero-staff@test.com", is_staff=True)
+        recipe = Recipe.objects.create(
+            name="Derived recipe",
+            size=10,
+            energy_kcal=20,
+            nutrients_from_ingredients=True,
+        )
+        product = FoodProduct.objects.create(
+            name="Invalid ingredient",
+            size=100,
+            energy_kcal=200,
+            num_servings=1,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_servings = list(
+            recipe.servings.order_by("id").values_list(
+                "id", "serving_size", "energy_kcal"
+            )
+        )
+        mutation = """
+            mutation AddIngredient(
+                $recipeId: ID!, $foodId: ID!, $numServings: Float!
+            ) {
+                addRecipeIngredient(
+                    recipeId: $recipeId,
+                    foodId: $foodId,
+                    numServings: $numServings
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "recipeId": str(recipe.id),
+                "foodId": str(product.servings.first().id),
+                "numServings": num_servings,
+            },
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        if num_servings in (0, -0.1):
+            assert "numServings must be greater than 0" in str(
+                result.errors[0]
+            )
+        assert recipe.ingredients.count() == 0
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert (
+            list(
+                recipe.servings.order_by("id").values_list(
+                    "id", "serving_size", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
+
     def test_update_recipe_ingredient_rejects_non_staff_user(self, mocker):
         """A regular user cannot update a shared recipe ingredient."""
         user = _create_user("ingredient-upd-regular@test.com")
@@ -668,6 +736,93 @@ class TestRecipeMutation:
         assert result.data["updateRecipeIngredient"]["numServings"] == 2
         ingredient.refresh_from_db()
         assert ingredient.num_servings == 2
+
+    @pytest.mark.parametrize(
+        "num_servings",
+        [0, -0.1, float("nan"), float("inf"), -float("inf")],
+    )
+    def test_update_recipe_ingredient_rejects_invalid_count_without_partial_writes(
+        self, mocker, num_servings
+    ):
+        """An invalid update leaves ingredient and derived recipe state unchanged."""
+        user = _create_user("ingredient-update-zero@test.com", is_staff=True)
+        recipe = Recipe.objects.create(
+            name="Derived update recipe", nutrients_from_ingredients=True
+        )
+        original_product = FoodProduct.objects.create(
+            name="Original ingredient",
+            size=100,
+            energy_kcal=200,
+            num_servings=1,
+        )
+        replacement_product = FoodProduct.objects.create(
+            name="Replacement ingredient",
+            size=50,
+            energy_kcal=50,
+            num_servings=1,
+        )
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe,
+            food=original_product.servings.first(),
+            num_servings=1,
+        )
+        recipe.refresh_from_db()
+        context = mocker.Mock()
+        context.request.user = user
+        original_ingredient = (
+            ingredient.food_id,
+            ingredient.num_servings,
+            ingredient.energy_kcal,
+        )
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_servings = list(
+            recipe.servings.order_by("id").values_list(
+                "id", "serving_size", "energy_kcal"
+            )
+        )
+        mutation = """
+            mutation UpdateIngredient(
+                $id: ID!, $foodId: ID!, $numServings: Float!
+            ) {
+                updateRecipeIngredient(
+                    id: $id,
+                    foodId: $foodId,
+                    numServings: $numServings
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "id": str(ingredient.id),
+                "foodId": str(replacement_product.servings.first().id),
+                "numServings": num_servings,
+            },
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        if num_servings in (0, -0.1):
+            assert "numServings must be greater than 0" in str(
+                result.errors[0]
+            )
+        ingredient.refresh_from_db()
+        assert (
+            ingredient.food_id,
+            ingredient.num_servings,
+            ingredient.energy_kcal,
+        ) == original_ingredient
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert (
+            list(
+                recipe.servings.order_by("id").values_list(
+                    "id", "serving_size", "energy_kcal"
+                )
+            )
+            == original_servings
+        )
 
     def test_staff_can_delete_recipe_ingredient(self, mocker):
         """Staff can delete a shared recipe ingredient."""

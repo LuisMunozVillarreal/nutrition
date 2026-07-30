@@ -155,6 +155,8 @@ test('positive quantity forms declare native minimum constraints', async () => {
     ['../src/app/products/[id]/page.tsx', 'size'],
     ['../src/app/recipes/new/page.tsx', 'size'],
     ['../src/app/recipes/[id]/page.tsx', 'size'],
+    ['../src/app/recipes/new/page.tsx', 'numServings'],
+    ['../src/app/recipes/[id]/page.tsx', 'numServings'],
   ]
 
   for (const [pagePath, fieldName] of constrainedFields) {
@@ -186,6 +188,22 @@ test('measurement forms constrain weight and body fat to valid ranges', async ()
     const weight = formFieldTag(page, 'weight', pagePath)
     const bodyFat = formFieldTag(page, 'bodyFatPerc', pagePath)
     assert.match(weight, /min="0\.1"/)
+    assert.match(bodyFat, /min="0\.1"/)
+    assert.match(bodyFat, /max="99\.9"/)
+  }
+})
+
+test('goal forms constrain body fat to the server range', async () => {
+  for (const pagePath of [
+    '../src/app/goals/new/page.tsx',
+    '../src/app/goals/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    const markerIndex = page.indexOf('name="bodyFatPerc"')
+    assert.ok(markerIndex >= 0, `bodyFatPerc field was not found in ${pagePath}`)
+    const startIndex = page.lastIndexOf('<FormField', markerIndex)
+    const endIndex = page.indexOf('/>', markerIndex)
+    const bodyFat = page.slice(startIndex, endIndex + 2)
     assert.match(bodyFat, /min="0\.1"/)
     assert.match(bodyFat, /max="99\.9"/)
   }
