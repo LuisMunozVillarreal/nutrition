@@ -12,6 +12,14 @@ from .recipe import Recipe
 class CupboardItem(models.Model):
     """CupboardItem model class."""
 
+    owner = models.ForeignKey(
+        "users.User",
+        on_delete=models.CASCADE,
+        related_name="cupboard_items",
+        null=True,
+        blank=True,
+    )
+
     food = models.ForeignKey(
         "foods.Food",
         on_delete=models.CASCADE,

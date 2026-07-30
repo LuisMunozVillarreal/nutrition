@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { formatPurchaseDate } from '../purchaseDate'
 
 const ITEM_QUERY = gql`
   query GetCupboardItem($id: ID!) {
@@ -78,7 +79,7 @@ export default function EditCupboardItemPage() {
           content: (
             <>
               <div className="mb-4 text-sm text-slate-500">
-                Purchased on: {new Date(item.purchasedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                Purchased on: {formatPurchaseDate(item.purchasedAt, 'long')}
               </div>
               <FormField label="Consumed Percentage (%)" name="consumedPerc" type="number" step="1" min="0" max="100" value={form.consumedPerc} onChange={handleChange} required />
               <div className="mt-4 h-2 w-full bg-slate-100 rounded-full overflow-hidden">

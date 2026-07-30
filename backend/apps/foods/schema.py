@@ -20,6 +20,15 @@ from apps.libs.graphql import get_request_user
 # pylint: disable=too-few-public-methods,too-many-lines
 
 
+def _require_staff_user(info: Info) -> None:
+    """Require an authenticated staff user for shared catalog deletion."""
+    user = get_request_user(info.context)
+    if user is None or not user.is_authenticated:
+        raise PermissionError("Authentication required")
+    if not user.is_staff:
+        raise PermissionError("Staff access required")
+
+
 @strawberry.type
 class ServingType:
     """GraphQL Serving Type."""
@@ -186,6 +195,13 @@ class FoodQuery:
             return None
 
 
+def _validated_product_num_servings(num_servings: float) -> Decimal:
+    """Return a finite positive product serving count."""
+    if not math.isfinite(num_servings) or num_servings <= 0:
+        raise ValueError("numServings must be greater than 0")
+    return Decimal(str(num_servings))
+
+
 @strawberry.type
 class FoodMutation:
     """Food mutations."""
@@ -256,7 +272,7 @@ class FoodMutation:
             nutritional_info_unit=nutritional_info_unit,
             size=Decimal(str(size)),
             size_unit=size_unit,
-            num_servings=Decimal(str(num_servings)),
+            num_servings=_validated_product_num_servings(num_servings),
             energy_kcal=Decimal(str(energy_kcal)),
             protein_g=Decimal(str(protein_g)),
             fat_g=Decimal(str(fat_g)),
@@ -350,7 +366,7 @@ class FoodMutation:
         obj.nutritional_info_unit = nutritional_info_unit
         obj.size = Decimal(str(size))
         obj.size_unit = size_unit
-        obj.num_servings = Decimal(str(num_servings))
+        obj.num_servings = _validated_product_num_servings(num_servings)
         obj.energy_kcal = Decimal(str(energy_kcal))
         obj.protein_g = Decimal(str(protein_g))
         obj.fat_g = Decimal(str(fat_g))
@@ -385,9 +401,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if product not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             FoodProduct.objects.get(pk=id).delete()
@@ -479,9 +493,7 @@ class FoodMutation:
             PermissionError: if user is not authenticated.
             ValueError: if serving not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             Serving.objects.get(pk=id).delete()
@@ -825,9 +837,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if recipe not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             Recipe.objects.get(pk=id).delete()
@@ -921,9 +931,7 @@ class RecipeMutation:
             PermissionError: if user is not authenticated.
             ValueError: if ingredient not found.
         """
-        user = get_request_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
+        _require_staff_user(info)
 
         try:
             RecipeIngredient.objects.get(pk=id).delete()
@@ -1005,7 +1013,9 @@ class CupboardQuery:
             return []
         return [
             CupboardItemType.from_model(ci)
-            for ci in CupboardItem.objects.all().order_by("-purchased_at")
+            for ci in CupboardItem.objects.filter(owner=user).order_by(
+                "-purchased_at"
+            )
         ]
 
     @strawberry.field
@@ -1025,7 +1035,9 @@ class CupboardQuery:
         if user is None or not user.is_authenticated:
             return None
         try:
-            return CupboardItemType.from_model(CupboardItem.objects.get(pk=id))
+            return CupboardItemType.from_model(
+                CupboardItem.objects.get(pk=id, owner=user)
+            )
         except CupboardItem.DoesNotExist:
             return None
 
@@ -1067,6 +1079,7 @@ class CupboardMutation:
             raise ValueError("Food not found") from e
 
         obj = CupboardItem.objects.create(
+            owner=user,
             food=food,
             purchased_at=datetime.datetime.fromisoformat(purchased_at),
             consumed_perc=_validated_consumed_perc(consumed_perc),
@@ -1099,7 +1112,7 @@ class CupboardMutation:
             raise PermissionError("Authentication required")
 
         try:
-            obj = CupboardItem.objects.get(pk=id)
+            obj = CupboardItem.objects.get(pk=id, owner=user)
         except CupboardItem.DoesNotExist as e:
             raise ValueError("Item not found") from e
 
@@ -1127,7 +1140,7 @@ class CupboardMutation:
             raise PermissionError("Authentication required")
 
         try:
-            obj = CupboardItem.objects.get(pk=id)
+            obj = CupboardItem.objects.get(pk=id, owner=user)
             obj.delete()
             return True
         except CupboardItem.DoesNotExist as e:

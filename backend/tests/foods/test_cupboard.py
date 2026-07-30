@@ -12,6 +12,14 @@ from apps.foods.signals.handlers.cupboard import (
 )
 
 
+@pytest.fixture
+def owned_cupboard_day(cupboard_item, day):
+    """Match a legacy cupboard fixture to the consuming day's owner."""
+    cupboard_item.owner = day.plan.user
+    cupboard_item.save(update_fields=["owner"])
+    return day
+
+
 def test_add_food_to_cupboard(cupboard_item_factory):
     """Food is added to the cupboard correctly."""
     # When a food product is added to the cupboard
@@ -28,6 +36,18 @@ def test_add_food_to_cupboard(cupboard_item_factory):
 
     # And it's not finished
     assert item.finished is False
+
+
+def test_cupboard_item_has_nullable_owner_for_legacy_rows():
+    """Cupboard items support ownership without invalidating legacy rows."""
+    owner_fields = [
+        field
+        for field in CupboardItem._meta.get_fields()
+        if field.name == "owner"
+    ]
+
+    assert len(owner_fields) == 1
+    assert owner_fields[0].null is True
 
 
 def test_add_cooked_recipe_to_cupboard(
@@ -70,6 +90,31 @@ def test_add_cooked_recipe_to_cupboard(
     assert cfp2.consumed_perc == 81.25
 
 
+def test_add_cooked_recipe_uses_only_owners_inventory(
+    cupboard_item_factory,
+    food_product_factory,
+    recipe_factory,
+    recipe_ingredient_factory,
+    user_factory,
+):
+    """Cooking a recipe cannot consume another user's cupboard item."""
+    owner = user_factory()
+    other_user = user_factory()
+    product = food_product_factory()
+    recipe = recipe_factory()
+    recipe_ingredient_factory(recipe=recipe, food=product.servings.first())
+    other_item = cupboard_item_factory(food=product, owner=other_user)
+    owner_item = cupboard_item_factory(food=product, owner=owner)
+
+    cupboard_item_factory(food=recipe, owner=owner)
+
+    other_item.refresh_from_db()
+    owner_item.refresh_from_db()
+    assert other_item.consumed_perc == 0
+    assert owner_item.consumed_perc == Decimal("31.25")
+    assert CupboardItemConsumption.objects.get().item == owner_item
+
+
 def test_add_cooked_recipe_to_an_empty_cupboard(
     food_product_factory,
     recipe_factory,
@@ -95,11 +140,15 @@ def test_add_cooked_recipe_to_an_empty_cupboard(
     assert CupboardItem.objects.first() == cupboard_item
 
 
-def test_plan_or_consume_cupboard_item(cupboard_item, serving, intake_factory):
+def test_plan_or_consume_cupboard_item(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
     """Cupboard item can be planned or consumed."""
     # When a cupboard item is consumed partially
     intake = intake_factory(
-        food=cupboard_item.food.servings.first(), num_servings=2
+        day=owned_cupboard_day,
+        food=cupboard_item.food.servings.first(),
+        num_servings=2,
     )
 
     # Then the item serving portion appears as consumed in the cupboard
@@ -116,10 +165,39 @@ def test_plan_or_consume_cupboard_item(cupboard_item, serving, intake_factory):
     assert CupboardItemConsumption.objects.first().intake == intake
 
 
-def test_remove_intake(cupboard_item, serving, intake_factory):
+def test_plan_or_consume_uses_only_day_users_inventory(
+    cupboard_item_factory,
+    day_factory,
+    food_product_factory,
+    intake_factory,
+    user_factory,
+):
+    """An intake cannot consume another user's cupboard item."""
+    owner = user_factory()
+    other_user = user_factory()
+    product = food_product_factory()
+    serving = product.servings.first()
+    other_item = cupboard_item_factory(food=product, owner=other_user)
+    owner_item = cupboard_item_factory(food=product, owner=owner)
+    day = day_factory(plan__user=owner)
+
+    intake = intake_factory(day=day, food=serving)
+
+    other_item.refresh_from_db()
+    owner_item.refresh_from_db()
+    assert other_item.consumed_perc == 0
+    assert owner_item.consumed_perc == Decimal("31.25")
+    assert intake.cupboard_item_consumption.item == owner_item
+
+
+def test_remove_intake(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
     """Remove intake recalculates cupboard item consumption."""
     # Given an intake that has consumed a cupboard item
-    intake = intake_factory(food=cupboard_item.food.servings.first())
+    intake = intake_factory(
+        day=owned_cupboard_day, food=cupboard_item.food.servings.first()
+    )
     cupboard_item.refresh_from_db()
     assert cupboard_item.consumed_perc == 31.25
     assert cupboard_item.started is True
@@ -133,25 +211,35 @@ def test_remove_intake(cupboard_item, serving, intake_factory):
     assert cupboard_item.started is False
 
 
-def test_add_another_consumption(cupboard_item, serving, intake_factory):
+def test_add_another_consumption(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
     """Add another consumption reflects in the consumption percentage."""
     # Given a cupboard item that has been partially consumed
-    intake_factory(food=cupboard_item.food.servings.first())
+    intake_factory(
+        day=owned_cupboard_day, food=cupboard_item.food.servings.first()
+    )
     cupboard_item.refresh_from_db()
     assert cupboard_item.consumed_perc == 31.25
 
     # When another consumption is added
-    intake_factory(food=cupboard_item.food.servings.first())
+    intake_factory(
+        day=owned_cupboard_day, food=cupboard_item.food.servings.first()
+    )
 
     # Then the consumed percentage is updated
     cupboard_item.refresh_from_db()
     assert cupboard_item.consumed_perc == 62.5
 
 
-def test_modify_intake(cupboard_item, serving, intake_factory):
+def test_modify_intake(
+    cupboard_item, serving, intake_factory, owned_cupboard_day
+):
     """Modify an intake reflects on the cupboard item consumption."""
     # Given a cupboard item that has been partially consumed
-    intake = intake_factory(food=cupboard_item.food.servings.first())
+    intake = intake_factory(
+        day=owned_cupboard_day, food=cupboard_item.food.servings.first()
+    )
     cupboard_item.refresh_from_db()
     assert cupboard_item.consumed_perc == 31.25
 
@@ -165,7 +253,7 @@ def test_modify_intake(cupboard_item, serving, intake_factory):
 
 
 def test_finish_cupboard_item(
-    intake_factory, cupboard_item_factory, food_product_factory
+    day, intake_factory, cupboard_item_factory, food_product_factory
 ):
     """Cupboard item gets finished."""
     # Given a product with 3 servings
@@ -175,29 +263,33 @@ def test_finish_cupboard_item(
     serving = product.servings.last()
 
     # And a cupboard item from that product
-    cupboard_item = cupboard_item_factory(food=product)
+    cupboard_item = cupboard_item_factory(food=product, owner=day.plan.user)
 
     # And a cupboard item that is two thirds consumed
-    intake_factory(food=serving, num_servings=2)
+    intake_factory(day=day, food=serving, num_servings=2)
 
     # When the last thrid is consumed
-    intake_factory(food=serving, num_servings=1)
+    intake_factory(day=day, food=serving, num_servings=1)
 
     # Then the item appears as finished
     cupboard_item.refresh_from_db()
     assert cupboard_item.finished is True
 
 
-def test_try_consume_more_than_left(intake_factory, cupboard_item, serving):
+def test_try_consume_more_than_left(
+    intake_factory, cupboard_item, serving, owned_cupboard_day
+):
     """Consuming more than available isn't possible."""
     # Given a cupboard item that is almost consumed
-    intake_factory(food=serving, num_servings=Decimal("3"))
+    intake_factory(
+        day=owned_cupboard_day, food=serving, num_servings=Decimal("3")
+    )
 
     # When a serving that is bigger than the remaining cupboard product
     # is tried to be consumed
     # Then an error is raised
     with pytest.raises(CupboardItemConsumptionTooBigError):
-        intake_factory(food=serving)
+        intake_factory(day=owned_cupboard_day, food=serving)
 
 
 def test_plan_or_consume_non_cupboard_item(day, intake_factory):
@@ -268,11 +360,11 @@ def test_existing_cupboard_item_does_not_consume_other_items_twice(
 
 
 def test_existing_cupboard_item_consump_does_not_consume_cupboard_item_twice(
-    cupboard_item, serving, intake_factory
+    cupboard_item, serving, intake_factory, owned_cupboard_day
 ):
     """Existing cupboard item serving can't be consumed twice."""
     # And the serving is part of an intake
-    intake_factory(food=serving)
+    intake_factory(day=owned_cupboard_day, food=serving)
 
     # And a cupboard item consumption
     cupboard_item.refresh_from_db()
@@ -311,7 +403,7 @@ def test_cupboard_str_based_on_recipe(cupboard_item_factory, recipe):
 
 
 def test_unprocessed_intake_that_becomes_processed(
-    intake_factory, serving, cupboard_item
+    intake_factory, serving, cupboard_item, owned_cupboard_day
 ):
     """Unprocessed intake that becomes processed consumes the cupboard.
 
@@ -323,7 +415,7 @@ def test_unprocessed_intake_that_becomes_processed(
     in the cupboard as well.
     """
     # Given an unprocessed intake
-    intake = intake_factory(food=None)
+    intake = intake_factory(day=owned_cupboard_day, food=None)
 
     # And the cupboard item is not consumed
     cupboard_item.refresh_from_db()
@@ -339,11 +431,11 @@ def test_unprocessed_intake_that_becomes_processed(
 
 
 def test_processed_intake_that_becomes_unprocessed(
-    intake_factory, serving, cupboard_item
+    intake_factory, serving, cupboard_item, owned_cupboard_day
 ):
     """Processed intake that becomes unprocessed unconsumes the cupboard."""
     # Given an unprocessed intake
-    intake = intake_factory(food=serving)
+    intake = intake_factory(day=owned_cupboard_day, food=serving)
 
     # And the cupboard item is not consumed
     cupboard_item.refresh_from_db()

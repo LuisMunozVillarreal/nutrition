@@ -57,6 +57,83 @@ test('custom intake macros are converted from per-serving values to totals', asy
   })
 })
 
+test('custom intake edit converts totals to per-serving values and recalculates totals', async () => {
+  const { buildCustomIntakeEditForm, buildCustomIntakeUpdateVariables } = await import(
+    '../src/app/intakes/[id]/intakeVariables.ts'
+  )
+  const form = buildCustomIntakeEditForm({
+    meal: 'dinner',
+    numServings: 2,
+    energyKcal: 300,
+    proteinG: 25,
+    fatG: 10,
+    carbsG: 40,
+  })
+
+  assert.deepEqual(form, {
+    meal: 'dinner',
+    numServings: '2',
+    energyKcal: '150',
+    proteinG: '12.5',
+    fatG: '5',
+    carbsG: '20',
+  })
+
+  form.numServings = '3'
+  assert.deepEqual(buildCustomIntakeUpdateVariables('9', form), {
+    id: '9',
+    meal: 'dinner',
+    numServings: 3,
+    energyKcal: 450,
+    proteinG: 37.5,
+    fatG: 15,
+    carbsG: 60,
+  })
+
+  const editPage = await readFile(
+    new URL('../src/app/intakes/[id]/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(editPage, /buildCustomIntakeEditForm\(res\.intake\)/)
+  assert.match(editPage, /buildCustomIntakeUpdateVariables\(id, form\)/)
+})
+
+test('cupboard purchase dates remain stable across timezones and pages', async () => {
+  const {
+    formatPurchaseDate,
+    localDateInputValue,
+    purchaseDateToISOString,
+  } = await import('../src/app/cupboard/purchaseDate.ts')
+
+  assert.equal(
+    localDateInputValue(new Date('2025-01-01T01:00:00.000Z'), 480),
+    '2024-12-31',
+  )
+  assert.equal(
+    purchaseDateToISOString('2025-01-15'),
+    '2025-01-15T00:00:00.000Z',
+  )
+  assert.equal(
+    formatPurchaseDate('2025-01-15T00:00:00.000Z', 'short'),
+    'Jan 15, 2025',
+  )
+
+  const newPage = await readFile(
+    new URL('../src/app/cupboard/new/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(newPage, /localDateInputValue\(\)/)
+  assert.match(newPage, /purchaseDateToISOString\(form\.purchasedAt\)/)
+
+  for (const pagePath of [
+    '../src/app/cupboard/page.tsx',
+    '../src/app/cupboard/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    assert.match(page, /formatPurchaseDate\(/)
+  }
+})
+
 test('serving edit query has no unused GraphQL variables', async () => {
   const operation = await readGraphqlOperation(
     '../src/app/servings/[id]/page.tsx',

@@ -13,3 +13,11 @@ This rule is mandatory and has no exceptions.
 - If a real deployment identifier is discovered, do not repeat it in discussion. Notify the repository owner privately and replace it with a safe placeholder.
 
 All contributors, automation, coding agents, and reviewers must enforce this rule.
+
+## Codex Review Trigger
+
+When requesting a Codex review for this repository, post this exact comment:
+
+```text
+@codex review for correctness, security, authorization, data integrity, nutrition calculations and unit conversions, Django/GraphQL/Next.js contract regressions, database migrations, and deployment or preview-environment regressions. Follow all applicable AGENTS.md instructions. If you detect a sensitive deployment identifier, do not quote or reproduce it.
+```

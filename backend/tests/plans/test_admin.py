@@ -109,7 +109,11 @@ def test_add_new_intake_bigger_serving_than_available(
     logged_in_admin_client, cupboard_item, serving, day
 ):
     """Add intake with bigger serving than available is managed."""
-    # Given a request to add an intake with a bigger serving than available
+    # Given a cupboard item owned by the intake day's user
+    cupboard_item.owner = day.plan.user
+    cupboard_item.save(update_fields=["owner"])
+
+    # And a request to add an intake with a bigger serving than available
     response = logged_in_admin_client.post(
         "/admin/plans/intake/add/",
         data={

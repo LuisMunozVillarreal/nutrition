@@ -4,18 +4,29 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from apps.foods.models import FoodProduct, Serving
+from apps.foods.schema import _validated_product_num_servings
 from config.schema import schema
 
 User = get_user_model()
 
 
-def _create_user(email: str):
+@pytest.mark.parametrize(
+    "num_servings", [float("nan"), float("inf"), -float("inf")]
+)
+def test_product_num_servings_must_be_finite(num_servings):
+    """Non-finite product serving counts are rejected."""
+    with pytest.raises(ValueError, match="numServings must be greater than 0"):
+        _validated_product_num_servings(num_servings)
+
+
+def _create_user(email: str, *, is_staff: bool = False):
     """Create a user."""
     return User.objects.create_user(
         email=email,
         password="password123",
         date_of_birth="2000-01-01",
         height=170.0,
+        is_staff=is_staff,
     )
 
 
@@ -88,6 +99,23 @@ class TestFoodProductSchema:
         assert result.data["createFoodProduct"]["name"] == "Oats"
         assert result.data["createFoodProduct"]["brand"] == "Quaker"
 
+    def test_create_food_product_rejects_zero_num_servings(self, mocker):
+        """A product must contain at least one positive serving fraction."""
+        user = _create_user("fp-zero-servings@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation {
+                createFoodProduct(name: "Invalid", numServings: 0) { id }
+            }
+        """
+
+        result = schema.execute_sync(mutation, context_value=mock_context)
+
+        assert result.errors is not None
+        assert "numServings must be greater than 0" in str(result.errors[0])
+        assert not FoodProduct.objects.filter(name="Invalid").exists()
+
     def test_update_food_product(self, mocker):
         """Test updating a food product."""
         user = _create_user("fpupd@test.com")
@@ -123,6 +151,38 @@ class TestFoodProductSchema:
 
         assert result.errors is None
         assert result.data["updateFoodProduct"]["name"] == "Milko Lite"
+
+    def test_update_food_product_rejects_negative_num_servings(self, mocker):
+        """Updating a product cannot persist a negative serving count."""
+        user = _create_user("fp-negative-servings@test.com")
+        product = FoodProduct.objects.create(
+            name="Valid",
+            size=100,
+            size_unit="g",
+            num_servings=4,
+            url="",
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateProduct($id: ID!) {
+                updateFoodProduct(
+                    id: $id, name: "Invalid", numServings: -1
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(product.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "numServings must be greater than 0" in str(result.errors[0])
+        product.refresh_from_db()
+        assert product.name == "Valid"
+        assert product.num_servings == 4
 
     def test_update_food_product_preserves_omitted_url(self, mocker):
         """Updating unrelated fields preserves the existing product URL."""
@@ -165,7 +225,7 @@ class TestFoodProductSchema:
 
     def test_delete_food_product(self, mocker):
         """Test deleting a food product."""
-        user = _create_user("fpdel@test.com")
+        user = _create_user("fpdel@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Bread", size=500, size_unit="g", num_servings=10, url=""
         )
@@ -185,6 +245,32 @@ class TestFoodProductSchema:
         assert result.errors is None
         assert result.data["deleteFoodProduct"] is True
         assert not FoodProduct.objects.filter(pk=fp.id).exists()
+
+    def test_delete_food_product_rejects_non_staff_user(self, mocker):
+        """A regular user cannot delete a shared food product."""
+        user = _create_user("fpdel-regular@test.com")
+        fp = FoodProduct.objects.create(
+            name="Shared Bread",
+            size=500,
+            size_unit="g",
+            num_servings=10,
+            url="",
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = (
+            "mutation DeleteProduct($id: ID!) { deleteFoodProduct(id: $id) }"
+        )
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(fp.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert FoodProduct.objects.filter(pk=fp.id).exists()
 
 
 @pytest.mark.django_db
@@ -285,7 +371,7 @@ class TestServingSchema:
 
     def test_delete_serving(self, mocker):
         """Test deleting a serving."""
-        user = _create_user("srvdel@test.com")
+        user = _create_user("srvdel@test.com", is_staff=True)
         fp = FoodProduct.objects.create(
             name="Bread", size=500, size_unit="g", num_servings=10, url=""
         )
@@ -308,3 +394,30 @@ class TestServingSchema:
         assert result.errors is None
         assert result.data["deleteServing"] is True
         assert not Serving.objects.filter(pk=srv.id).exists()
+
+    def test_delete_serving_rejects_non_staff_user(self, mocker):
+        """A regular user cannot delete from the shared serving catalog."""
+        user = _create_user("srvdel-regular@test.com")
+        fp = FoodProduct.objects.create(
+            name="Shared Bread",
+            size=500,
+            size_unit="g",
+            num_servings=10,
+            url="",
+        )
+        srv = fp.servings.first()
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = (
+            "mutation DeleteServing($id: ID!) { deleteServing(id: $id) }"
+        )
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(srv.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert Serving.objects.filter(pk=srv.id).exists()
