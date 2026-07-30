@@ -178,6 +178,31 @@ class TestRecipeMutation:
         recipe.refresh_from_db()
         assert recipe.name == "Shared"
 
+    @pytest.mark.parametrize(
+        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    def test_create_recipe_rejects_invalid_size_without_persisting(
+        self, mocker, size
+    ):
+        """Creating a recipe requires a finite positive size."""
+        user = _create_user(f"rc-size-{repr(size)}@example.com", is_staff=True)
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation CreateRecipe($size: Float!) {
+                createRecipe(name: "Invalid size", size: $size) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"size": size},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert not Recipe.objects.filter(name="Invalid size").exists()
+
     @pytest.mark.parametrize("num_servings", [0.0, -1.0])
     def test_create_recipe_rejects_non_positive_serving_count(
         self, mocker, num_servings
@@ -206,6 +231,61 @@ class TestRecipeMutation:
         assert result.errors is not None
         assert "numServings must be greater than 0" in str(result.errors[0])
         assert not Recipe.objects.filter(name="Invalid").exists()
+
+    @pytest.mark.parametrize(
+        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+    )
+    def test_update_recipe_rejects_invalid_size_without_partial_writes(
+        self, mocker, size
+    ):
+        """Invalid recipe sizes leave every persisted field unchanged."""
+        user = _create_user(f"ru-size-{repr(size)}@example.com", is_staff=True)
+        recipe = Recipe.objects.create(
+            name="Valid",
+            brand="Original",
+            description="Unchanged",
+            size=100,
+            size_unit="g",
+            num_servings=1,
+            energy_kcal=200,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateRecipe($id: ID!, $size: Float!) {
+                updateRecipe(
+                    id: $id, name: "Invalid", brand: "Changed",
+                    description: "Changed", size: $size, sizeUnit: "ml",
+                    numServings: 2, energyKcal: 999
+                ) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(recipe.id), "size": size},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        recipe.refresh_from_db()
+        assert (
+            recipe.name,
+            recipe.brand,
+            recipe.description,
+            recipe.size,
+            recipe.size_unit,
+            recipe.num_servings,
+            recipe.energy_kcal,
+        ) == (
+            "Valid",
+            "Original",
+            "Unchanged",
+            100,
+            "g",
+            1,
+            200,
+        )
 
     @pytest.mark.parametrize("num_servings", [0.0, -1.0])
     def test_update_recipe_rejects_non_positive_serving_count(

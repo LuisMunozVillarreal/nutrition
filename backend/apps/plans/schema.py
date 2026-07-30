@@ -9,7 +9,11 @@ import strawberry
 from django.db import transaction
 from strawberry.types import Info
 
-from apps.libs.graphql import get_request_user, validated_positive_decimal
+from apps.libs.graphql import (
+    get_request_user,
+    validated_non_negative_decimal,
+    validated_positive_decimal,
+)
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
 
@@ -479,10 +483,18 @@ class PlanMutation:
         if food_id:
             kwargs["food_id"] = int(food_id)
         else:
-            kwargs["energy_kcal"] = Decimal(str(energy_kcal or 0))
-            kwargs["protein_g"] = Decimal(str(protein_g or 0))
-            kwargs["fat_g"] = Decimal(str(fat_g or 0))
-            kwargs["carbs_g"] = Decimal(str(carbs_g or 0))
+            kwargs["energy_kcal"] = validated_non_negative_decimal(
+                energy_kcal if energy_kcal is not None else 0, "energyKcal"
+            )
+            kwargs["protein_g"] = validated_non_negative_decimal(
+                protein_g if protein_g is not None else 0, "proteinG"
+            )
+            kwargs["fat_g"] = validated_non_negative_decimal(
+                fat_g if fat_g is not None else 0, "fatG"
+            )
+            kwargs["carbs_g"] = validated_non_negative_decimal(
+                carbs_g if carbs_g is not None else 0, "carbsG"
+            )
 
         obj = Intake.objects.create(**kwargs)
         return IntakeType.from_model(obj)
@@ -531,20 +543,25 @@ class PlanMutation:
         validated_num_servings = validated_positive_decimal(
             num_servings, "numServings"
         )
+        validated_nutrients = {}
+        if not obj.food_id:
+            for model_field, field_name, value in (
+                ("energy_kcal", "energyKcal", energy_kcal),
+                ("protein_g", "proteinG", protein_g),
+                ("fat_g", "fatG", fat_g),
+                ("carbs_g", "carbsG", carbs_g),
+            ):
+                if value is not None:
+                    validated_nutrients[model_field] = (
+                        validated_non_negative_decimal(value, field_name)
+                    )
+
         obj.meal = meal
         obj.num_servings = validated_num_servings
 
-        # Update nutrients directly ONLY if there's no food assigned or if
-        # modifying custom intakes.
-        if not obj.food_id:
-            if energy_kcal is not None:
-                obj.energy_kcal = Decimal(str(energy_kcal))
-            if protein_g is not None:
-                obj.protein_g = Decimal(str(protein_g))
-            if fat_g is not None:
-                obj.fat_g = Decimal(str(fat_g))
-            if carbs_g is not None:
-                obj.carbs_g = Decimal(str(carbs_g))
+        # Food-backed nutrients are derived and cannot be directly modified.
+        for model_field, validated_value in validated_nutrients.items():
+            setattr(obj, model_field, validated_value)
 
         obj.save()
         return IntakeType.from_model(obj)

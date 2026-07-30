@@ -117,10 +117,10 @@ export default function EditIntakePage() {
 
             {isCustom ? (
               <>
-                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" value={form.energyKcal} onChange={handleChange} />
-                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" value={form.proteinG} onChange={handleChange} />
-                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" value={form.fatG} onChange={handleChange} />
-                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" value={form.carbsG} onChange={handleChange} />
+                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} />
+                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} />
+                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} />
+                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} />
               </>
             ) : (
               <>

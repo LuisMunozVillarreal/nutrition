@@ -2,12 +2,14 @@
 
 # pylint: disable=too-few-public-methods
 
-from decimal import Decimal
-
 import strawberry
 from strawberry.types import Info
 
-from apps.libs.graphql import get_request_user
+from apps.libs.graphql import (
+    get_request_user,
+    validated_percentage_decimal,
+    validated_positive_decimal,
+)
 from apps.measurements.models import Measurement
 
 
@@ -122,8 +124,10 @@ class MeasurementMutation:
 
         obj = Measurement.objects.create(
             user=user,
-            body_fat_perc=Decimal(str(body_fat_perc)),
-            weight=Decimal(str(weight)),
+            body_fat_perc=validated_percentage_decimal(
+                body_fat_perc, "bodyFatPerc"
+            ),
+            weight=validated_positive_decimal(weight, "weight"),
         )
         return MeasurementType.from_model(obj)
 
@@ -154,13 +158,17 @@ class MeasurementMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
+        validated_body_fat_perc = validated_percentage_decimal(
+            body_fat_perc, "bodyFatPerc"
+        )
+        validated_weight = validated_positive_decimal(weight, "weight")
         try:
             obj = Measurement.objects.get(pk=id, user=user)
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
 
-        obj.body_fat_perc = Decimal(str(body_fat_perc))
-        obj.weight = Decimal(str(weight))
+        obj.body_fat_perc = validated_body_fat_perc
+        obj.weight = validated_weight
         obj.save()
         for plan in obj.week_plans.all():
             for day in plan.days.all():

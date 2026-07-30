@@ -730,7 +730,7 @@ class RecipeMutation:
             name=name,
             brand=brand,
             description=description,
-            size=Decimal(str(size)),
+            size=validated_positive_decimal(size, "size"),
             size_unit=size_unit,
             num_servings=_validated_recipe_num_servings(num_servings),
             energy_kcal=Decimal(str(energy_kcal)),
@@ -800,6 +800,7 @@ class RecipeMutation:
             ValueError: if recipe not found.
         """
         _require_staff_user(info)
+        validated_size = validated_positive_decimal(size, "size")
 
         try:
             obj = Recipe.objects.get(pk=id)
@@ -809,7 +810,7 @@ class RecipeMutation:
         obj.name = name
         obj.brand = brand
         obj.description = description
-        obj.size = Decimal(str(size))
+        obj.size = validated_size
         obj.size_unit = size_unit
         obj.num_servings = _validated_recipe_num_servings(num_servings)
         obj.energy_kcal = Decimal(str(energy_kcal))
