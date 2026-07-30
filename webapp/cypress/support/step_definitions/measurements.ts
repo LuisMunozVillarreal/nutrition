@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { replaceInputValue, waitForFormReady } from "../form";
 
 Given("I am logged in", () => {
     // Use the known test user credentials
@@ -26,16 +27,15 @@ Then("I should see the measurements page title", () => {
 
 When("I navigate to the new measurement page", () => {
     cy.visit("/measurements/new");
+    waitForFormReady();
 });
 
 When("I fill in the body fat percentage with {string}", (value: string) => {
-    cy.get('[data-testid="field-bodyFatPerc"]')
-        .clear().type(value).should('have.value', value);
+    replaceInputValue('[data-testid="field-bodyFatPerc"]', value);
 });
 
 When("I fill in the weight with {string}", (value: string) => {
-    cy.get('[data-testid="field-weight"]')
-        .clear().type(value).should('have.value', value);
+    replaceInputValue('[data-testid="field-weight"]', value);
     cy.wait(100); // Give React concurrent mode time to update state
 });
 
