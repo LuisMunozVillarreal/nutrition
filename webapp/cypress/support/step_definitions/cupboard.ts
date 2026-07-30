@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { replaceInputValue, waitForFormReady } from "../form";
 
 When("I navigate to the cupboard page", () => {
     cy.visit("/cupboard");
@@ -12,26 +13,21 @@ Then("I should see the cupboard page title", () => {
 
 When("I navigate to the add to cupboard page", () => {
     cy.visit("/cupboard/new");
+    waitForFormReady();
 });
 
 Given("a food product exists named {string}", (name: string) => {
     // Navigate to products and create it via UI to ensure auth/context is correct
     cy.visit("/products/new");
-    cy.get('[data-testid="field-name"]').should('be.visible')
-        .clear({force: true}).type(name, {force: true}).should('have.value', name);
-    cy.get('[data-testid="field-size"]')
-        .clear({force: true}).type("1000", {force: true}).should('have.value', '1000');
-    cy.get('[data-testid="field-numServings"]')
-        .clear({force: true}).type("4", {force: true}).should('have.value', '4');
-    cy.get('[data-testid="field-energyKcal"]')
-        .clear({force: true}).type("500", {force: true}).should('have.value', '500');
-    cy.get('[data-testid="field-proteinG"]')
-        .clear({force: true}).type("30", {force: true}).should('have.value', '30');
-    cy.get('[data-testid="field-fatG"]')
-        .clear({force: true}).type("15", {force: true}).should('have.value', '15');
-    cy.get('[data-testid="field-carbsG"]')
-        .clear({force: true}).type("50", {force: true})
-        .should('have.value', '50').blur();
+    waitForFormReady();
+    replaceInputValue('[data-testid="field-name"]', name, {force: true});
+    replaceInputValue('[data-testid="field-size"]', '1000', {force: true});
+    replaceInputValue('[data-testid="field-numServings"]', '4', {force: true});
+    replaceInputValue('[data-testid="field-energyKcal"]', '500', {force: true});
+    replaceInputValue('[data-testid="field-proteinG"]', '30', {force: true});
+    replaceInputValue('[data-testid="field-fatG"]', '15', {force: true});
+    replaceInputValue('[data-testid="field-carbsG"]', '50', {force: true});
+    cy.get('[data-testid="field-carbsG"]').blur();
     cy.wait(100);
     cy.get('[data-testid="save-btn"]').click();
     cy.url().should("match", /\/products$/);

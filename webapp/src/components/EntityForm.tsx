@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, ReactNode } from 'react'
+import { useEffect, useState, ReactNode } from 'react'
 import { Save, ArrowLeft, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface FieldsetConfig {
@@ -31,8 +31,11 @@ export default function EntityForm({
   children,
 }: EntityFormProps) {
   const router = useRouter()
+  const [hydrated, setHydrated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  useEffect(() => setHydrated(true), [])
 
   const handleSave = async () => {
     setError(null)
@@ -69,8 +72,16 @@ export default function EntityForm({
     }
   }
 
+  if (!hydrated) {
+    return (
+      <div className="p-12 text-center text-slate-500" data-testid="form-hydrating">
+        Loading form...
+      </div>
+    )
+  }
+
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto" data-testid="form-ready">
       {/* Header */}
       <div className="page-header">
         <div className="flex items-center gap-4">

@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { replaceInputValue, waitForFormReady } from "../form";
 
 When("I navigate to the exercises page", () => {
     cy.visit("/exercises");
@@ -12,6 +13,7 @@ Then("I should see the exercises page title", () => {
 
 When("I navigate to the new exercise page", () => {
     cy.visit("/exercises/new");
+    waitForFormReady();
 });
 
 Given("a day exists for the exercise", () => {
@@ -59,9 +61,9 @@ Given("a day exists for the exercise", () => {
 When("I fill in the exercise day id with the valid day ID", () => {
     cy.get('@validDayId').then((dayId) => {
         cy.log("RESOLVED DAY ID: " + dayId);
-        cy.get('[data-testid="field-dayId"]').should('be.visible')
-            .clear({force: true}).type(String(dayId), {force: true})
-            .should('have.value', String(dayId));
+        replaceInputValue(
+            '[data-testid="field-dayId"]', String(dayId), {force: true}
+        );
     });
 });
 
@@ -70,9 +72,7 @@ When("I select the exercise type {string}", (value: string) => {
 });
 
 When("I fill in the exercise kcals with {string}", (value: string) => {
-    cy.get('[data-testid="field-kcals"]').should('be.visible')
-        .clear({force: true}).type(value, {force: true})
-        .should('have.value', value);
+    replaceInputValue('[data-testid="field-kcals"]', value, {force: true});
     cy.wait(100);
 });
 
