@@ -29,13 +29,13 @@ When("I navigate to the new measurement page", () => {
 });
 
 When("I fill in the body fat percentage with {string}", (value: string) => {
-    cy.get('[data-testid="field-bodyFatPerc"]').clear();
-    cy.get('[data-testid="field-bodyFatPerc"]').type(value);
+    cy.get('[data-testid="field-bodyFatPerc"]')
+        .clear().type(value).should('have.value', value);
 });
 
 When("I fill in the weight with {string}", (value: string) => {
-    cy.get('[data-testid="field-weight"]').clear();
-    cy.get('[data-testid="field-weight"]').type(value);
+    cy.get('[data-testid="field-weight"]')
+        .clear().type(value).should('have.value', value);
     cy.wait(100); // Give React concurrent mode time to update state
 });
 
