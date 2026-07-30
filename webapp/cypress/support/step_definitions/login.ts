@@ -22,17 +22,13 @@ When("I click the sign in button", () => {
 });
 
 Then("I should be redirected to the home page", () => {
-    // Wait for potential redirect or refresh
-    cy.wait(5000);
-
-    // Check that we don't see a login failure
+    // Check that we don't see a login failure while waiting for the redirect.
     cy.on('window:alert', (str) => {
         expect(str).to.not.equal('Login failed');
     });
 
-    // Check we're on the base URL
-    cy.url().then((url) => {
-        const expectedUrl = Cypress.config().baseUrl?.replace(/\/$/, '') + '/';
+    const expectedUrl = Cypress.config().baseUrl?.replace(/\/$/, '') + '/';
+    cy.url({ timeout: 20000 }).should((url) => {
         expect(url.replace(/\/$/, '') + '/').to.equal(expectedUrl);
     });
 });
