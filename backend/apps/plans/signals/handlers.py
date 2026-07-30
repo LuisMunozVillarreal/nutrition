@@ -67,10 +67,10 @@ def change_day_nutrients(
 
     for nutrient in NUTRIENT_LIST:
         old_intake_value = 0
-        if old_intake and old_intake.food:
+        if old_intake and old_intake.processed:
             old_intake_value = getattr(old_intake, nutrient) or 0
         new_intake_value = 0
-        if new_intake.food:
+        if new_intake.processed:
             new_intake_value = getattr(new_intake, nutrient) or 0
 
         diff = new_intake_value - old_intake_value
@@ -96,7 +96,7 @@ def decrease_day_nutrients(
     intake = instance
     day = instance.day
 
-    if instance.food is None:
+    if not instance.processed:
         return
 
     for nutrient in NUTRIENT_LIST:

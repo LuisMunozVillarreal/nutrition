@@ -1,5 +1,7 @@
 """Intake tests."""
 
+from decimal import Decimal
+
 
 def test_no_food_intake(day, intake_factory):
     """No food intake doesn't add nutrients to the day."""
@@ -14,6 +16,45 @@ def test_no_food_intake(day, intake_factory):
 
     # And the day doesn't get its nutrients increased
     assert day.energy_kcal == 0
+
+
+def test_custom_intake_updates_day_nutrients(day, intake_factory):
+    """A foodless intake with direct nutrients updates day rollups."""
+    intake = intake_factory(
+        food=None,
+        day=day,
+        energy_kcal=Decimal("400"),
+        protein_g=Decimal("30"),
+    )
+
+    day.refresh_from_db()
+    assert intake.processed is True
+    assert day.energy_kcal == Decimal("400.00")
+    assert day.protein_g == Decimal("30.00")
+
+    intake.energy_kcal = Decimal("250")
+    intake.protein_g = Decimal("20")
+    intake.save()
+
+    day.refresh_from_db()
+    assert day.energy_kcal == Decimal("250.00")
+    assert day.protein_g == Decimal("20.00")
+
+
+def test_delete_custom_intake_decreases_day_nutrients(day, intake_factory):
+    """Deleting a foodless custom intake removes its day rollup values."""
+    intake = intake_factory(
+        food=None,
+        day=day,
+        energy_kcal=Decimal("400"),
+        protein_g=Decimal("30"),
+    )
+
+    intake.delete()
+
+    day.refresh_from_db()
+    assert day.energy_kcal == Decimal("0.00")
+    assert day.protein_g == Decimal("0.00")
 
 
 def test_add_food_to_existing_intake(intake_factory, serving):

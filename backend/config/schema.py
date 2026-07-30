@@ -12,6 +12,19 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from strawberry.types import Info
 
+from apps.exercises.schema import ExerciseMutation, ExerciseQuery
+from apps.foods.schema import (
+    CupboardMutation,
+    CupboardQuery,
+    FoodMutation,
+    FoodQuery,
+    RecipeMutation,
+    RecipeQuery,
+)
+from apps.goals.schema import GoalMutation, GoalQuery
+from apps.measurements.schema import MeasurementMutation, MeasurementQuery
+from apps.plans.schema import PlanMutation, PlanQuery
+
 User = get_user_model()
 
 
@@ -130,7 +143,15 @@ class AuthPayload:
 
 
 @strawberry.type
-class Query:
+class Query(
+    MeasurementQuery,
+    GoalQuery,
+    ExerciseQuery,
+    PlanQuery,
+    FoodQuery,
+    RecipeQuery,
+    CupboardQuery,
+):
     """Root Query."""
 
     @strawberry.field
@@ -165,7 +186,15 @@ class Query:
 
 
 @strawberry.type
-class Mutation:
+class Mutation(
+    MeasurementMutation,
+    GoalMutation,
+    ExerciseMutation,
+    PlanMutation,
+    FoodMutation,
+    RecipeMutation,
+    CupboardMutation,
+):
     """Root Mutation."""
 
     @strawberry.mutation
