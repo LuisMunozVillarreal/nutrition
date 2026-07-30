@@ -68,6 +68,54 @@ test('serving edit query has no unused GraphQL variables', async () => {
   assert.deepEqual(errors.map((error) => error.message), [])
 })
 
+test('EntityForm uses native form submission so invalid fields block saves', async () => {
+  const entityForm = await readFile(
+    new URL('../src/components/EntityForm.tsx', import.meta.url),
+    'utf8',
+  )
+  const buttonTag = (testId) => {
+    const marker = `data-testid="${testId}"`
+    const markerIndex = entityForm.indexOf(marker)
+    assert.ok(markerIndex >= 0, `${testId} button was not found`)
+    const startIndex = entityForm.lastIndexOf('<button', markerIndex)
+    const endIndex = entityForm.indexOf('>', markerIndex)
+    assert.ok(startIndex >= 0 && endIndex >= 0, `${testId} opening tag was not found`)
+    return entityForm.slice(startIndex, endIndex + 1)
+  }
+
+  assert.match(entityForm, /<form\b[^>]*onSubmit=\{handleSubmit\}[^>]*>/)
+  assert.match(entityForm, /const handleSubmit[\s\S]*?event\.preventDefault\(\)/)
+  assert.match(buttonTag('save-btn'), /type="submit"/)
+  assert.doesNotMatch(buttonTag('save-btn'), /onClick=/)
+  assert.match(buttonTag('back-btn'), /type="button"/)
+  assert.match(buttonTag('delete-btn'), /type="button"/)
+})
+
+test('all product, recipe, and serving forms use the canonical fluid-ounce value', async () => {
+  const formPaths = [
+    '../src/app/products/new/page.tsx',
+    '../src/app/products/[id]/page.tsx',
+    '../src/app/recipes/new/page.tsx',
+    '../src/app/recipes/[id]/page.tsx',
+    '../src/app/servings/new/page.tsx',
+    '../src/app/servings/[id]/page.tsx',
+  ]
+
+  for (const path of formPaths) {
+    const source = await readFile(new URL(path, import.meta.url), 'utf8')
+    assert.match(
+      source,
+      /\{\s*value:\s*'floz',\s*label:\s*'fl oz'\s*\}/,
+      `${path} does not submit the canonical fluid-ounce value`,
+    )
+    assert.doesNotMatch(
+      source,
+      /value:\s*'fl oz'/,
+      `${path} still submits the display label as the fluid-ounce value`,
+    )
+  }
+})
+
 test('Cypress waits for hydrated forms before replacing controlled values', async () => {
   const readSource = async (path) => {
     try {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, ReactNode } from 'react'
+import { useEffect, useState, ReactNode, FormEvent } from 'react'
 import { Save, ArrowLeft, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface FieldsetConfig {
@@ -37,7 +37,8 @@ export default function EntityForm({
 
   useEffect(() => setHydrated(true), [])
 
-  const handleSave = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setError(null)
     try {
       try {
@@ -81,11 +82,12 @@ export default function EntityForm({
   }
 
   return (
-    <div className="max-w-3xl mx-auto" data-testid="form-ready">
+    <form className="max-w-3xl mx-auto" data-testid="form-ready" onSubmit={handleSubmit}>
       {/* Header */}
       <div className="page-header">
         <div className="flex items-center gap-4">
           <button
+            type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => router.push(backHref)}
             data-testid="back-btn"
@@ -97,6 +99,7 @@ export default function EntityForm({
         <div className="flex items-center gap-2">
           {onDelete && (
             <button
+              type="button"
               className="btn btn-danger"
               onClick={handleDelete}
               data-testid="delete-btn"
@@ -106,8 +109,8 @@ export default function EntityForm({
             </button>
           )}
           <button
+            type="submit"
             className="btn btn-primary"
-            onClick={handleSave}
             disabled={saving}
             data-testid="save-btn"
           >
@@ -136,7 +139,7 @@ export default function EntityForm({
       ))}
 
       {children}
-    </div>
+    </form>
   )
 }
 
