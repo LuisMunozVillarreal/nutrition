@@ -33,6 +33,10 @@ interface StaffCapabilityResponse {
   me: { isStaff: boolean } | null
 }
 
+export type StaffCapabilityResult =
+  | { authentication: 'authenticated'; isStaff: boolean }
+  | { authentication: 'unauthenticated' }
+
 export type StaffCapabilityRequest = (
   document: string,
   variables: Record<string, never>,
@@ -65,11 +69,12 @@ const CURRENT_STAFF_CAPABILITY_QUERY = `
 export async function fetchCurrentStaffCapability(
   accessToken: string,
   request: StaffCapabilityRequest,
-): Promise<boolean> {
+): Promise<StaffCapabilityResult> {
   const data = await request(CURRENT_STAFF_CAPABILITY_QUERY, {}, {
     Authorization: `Bearer ${accessToken}`,
   })
-  return data.me?.isStaff === true
+  if (!data.me) return { authentication: 'unauthenticated' }
+  return { authentication: 'authenticated', isStaff: data.me.isStaff === true }
 }
 
 export async function authorizeCredentials(

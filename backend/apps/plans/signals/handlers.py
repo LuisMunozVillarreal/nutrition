@@ -1,13 +1,15 @@
 """plans app signal handlers module."""
 
 import datetime
+from decimal import Decimal
 from typing import Any
 
+from django.db import transaction
+from django.db.models import Sum
 from django.db.models.signals import (
     post_delete,
     post_save,
     pre_delete,
-    pre_save,
 )
 from django.dispatch import receiver
 
@@ -45,67 +47,73 @@ def create_week_days(
         )
 
 
-@receiver(pre_save, sender=Intake)
-def change_day_nutrients(
-    sender: Intake,  # pylint: disable=unused-argument
-    instance: Intake,
-    **kwargs: Any,
-) -> None:
-    """Change day nutrients on save.
+def _recalculate_intake_days(instance: Intake, using: str) -> None:
+    """Recompute locked day state from transaction-visible intake rows.
+
+    Intake model writes lock all affected days before any model signal runs.
+    Bulk/cascaded deletion obtains the same locks in ``pre_delete`` below. This
+    function deliberately derives totals from persisted rows instead of cached
+    model arithmetic.
 
     Args:
-        sender (Intake): signal sender.
-        instance (Intake): instance to be saved.
-        kwargs (Any): keyword arguments.
+        instance (Intake): intake whose affected days are recomputed.
+        using (str): database alias used by the write.
     """
-    created = instance.id is None
-    day = instance.day
-    new_intake = instance
-    old_intake = None
-    if not created:
-        old_intake = Intake.objects.get(id=instance.id)
-
-    for nutrient in NUTRIENT_LIST:
-        old_intake_value = 0
-        if old_intake and old_intake.processed:
-            old_intake_value = getattr(old_intake, nutrient) or 0
-        new_intake_value = 0
-        if new_intake.processed:
-            new_intake_value = getattr(new_intake, nutrient) or 0
-
-        diff = new_intake_value - old_intake_value
-        day_value = getattr(day, nutrient) or 0
-        setattr(day, nutrient, day_value + diff)
-
-    day.save()
+    day_ids = getattr(instance, "_nutrition_day_ids", (instance.day_id,))
+    days = list(
+        Day.objects.select_for_update()
+        .using(using)
+        .select_related("plan__measurement")
+        .filter(pk__in=day_ids)
+        .order_by("pk")
+    )
+    aggregate_fields = {
+        nutrient: Sum(nutrient, default=Decimal("0"))
+        for nutrient in NUTRIENT_LIST
+    }
+    for day in days:
+        totals = (
+            Intake.objects.using(using)
+            .filter(day_id=day.pk, processed=True)
+            .aggregate(**aggregate_fields)
+        )
+        for nutrient, total in totals.items():
+            setattr(day, nutrient, total)
+        day.save(using=using)
+        if day.pk == instance.day_id:
+            caller_day = getattr(instance, "_caller_day", None)
+            if caller_day is not None and caller_day.pk == day.pk:
+                for field in Day._meta.concrete_fields:
+                    setattr(
+                        caller_day, field.attname, getattr(day, field.attname)
+                    )
+            instance.day = day
 
 
 @receiver(pre_delete, sender=Intake)
-def decrease_day_nutrients(
+def lock_day_and_intake_before_delete(
     sender: Intake,  # pylint: disable=unused-argument
     instance: Intake,
     **kwargs: Any,
 ) -> None:
-    """Decrease day nutrients.
+    """Lock Day then Intake before bulk/cascaded deletion signals run.
 
     Args:
         sender (Intake): signal sender.
         instance (Intake): instance to be deleted.
         kwargs (Any): keyword arguments.
     """
-    intake = instance
-    day = instance.day
-
-    if not instance.processed:
-        return
-
-    for nutrient in NUTRIENT_LIST:
-        day_value = getattr(day, nutrient)
-        intake_value = getattr(intake, nutrient)
-        if intake_value:
-            setattr(day, nutrient, day_value - intake_value)
-
-    day.save()
+    using = kwargs["using"]
+    with transaction.atomic(using=using):
+        day = (
+            Day.objects.select_for_update()
+            .using(using)
+            .select_related("plan__measurement")
+            .get(pk=instance.day_id)
+        )
+        Intake.objects.select_for_update().using(using).get(pk=instance.pk)
+        instance.day = day
+        setattr(instance, "_nutrition_day_ids", (day.pk,))
 
 
 @receiver(post_save, sender=Intake)
@@ -114,14 +122,14 @@ def recalculate_flags_on_save(
     instance: Intake,
     **kwargs: Any,
 ) -> None:
-    """Recalculate day flags on save.
+    """Recalculate nutrition, goals, flags, and plan state on save.
 
     Args:
         sender (Intake): signal sender.
         instance (Intake): instance to be saved.
         kwargs (Any): keyword arguments.
     """
-    instance.day.save()
+    _recalculate_intake_days(instance, kwargs["using"])
 
 
 @receiver(post_delete, sender=Intake)
@@ -130,14 +138,14 @@ def recalculate_flags_on_delete(
     instance: Intake,
     **kwargs: Any,
 ) -> None:
-    """Recalculate day flags on delete.
+    """Recalculate nutrition, goals, flags, and plan state on delete.
 
     Args:
         sender (Intake): signal sender.
         instance (Intake): instance to be deleted.
         kwargs (Any): keyword arguments.
     """
-    instance.day.save()
+    _recalculate_intake_days(instance, kwargs["using"])
 
 
 @receiver(post_save, sender=Exercise)

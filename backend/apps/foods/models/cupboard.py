@@ -1,5 +1,7 @@
 """CupboardItem model module."""
 
+# pylint: disable=cyclic-import
+
 from decimal import Decimal
 from typing import Any
 
@@ -46,7 +48,7 @@ class CupboardItem(models.Model):
     manual_consumed_perc = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=0,
+        null=True,
         help_text=(
             "Consumption entered manually, before linked recipe and intake "
             "consumptions are added."
@@ -132,38 +134,62 @@ class CupboardItem(models.Model):
 
         Raises:
             ValueError: if the requested total is below linked consumption.
+            RuntimeError: if nullable baseline reconciliation does not persist.
         """
-        if self._state.adding:
-            if not self.manual_consumed_perc and self.consumed_perc:
-                self.manual_consumed_perc = self.consumed_perc
-        else:
-            previous = (
-                type(self)
-                .objects.only("consumed_perc", "manual_consumed_perc")
-                .get(pk=self.pk)
-            )
-            if (
-                self.consumed_perc != previous.consumed_perc
-                and self.manual_consumed_perc == previous.manual_consumed_perc
-            ):
-                linked_consumed_perc = (
-                    previous.consumed_perc - previous.manual_consumed_perc
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
+        )
+        with transaction.atomic(using=using):
+            if self._state.adding:
+                if self.manual_consumed_perc is None or (
+                    not self.manual_consumed_perc and self.consumed_perc
+                ):
+                    self.manual_consumed_perc = self.consumed_perc
+            else:
+                previous = (
+                    type(self)
+                    .objects.select_for_update()
+                    .using(using)
+                    .select_related("food")
+                    .get(pk=self.pk)
                 )
-                if self.consumed_perc < linked_consumed_perc:
-                    raise ValueError(
-                        "consumed_perc cannot be less than linked consumption"
+                if previous.manual_consumed_perc is None:
+                    from apps.foods.signals.handlers.cupboard import (
+                        _reconcile_manual_consumed_perc,
                     )
-                self.manual_consumed_perc = (
-                    self.consumed_perc - linked_consumed_perc
-                )
-                if kwargs.get("update_fields") is not None:
-                    kwargs["update_fields"] = set(kwargs["update_fields"]) | {
-                        "manual_consumed_perc"
-                    }
 
-        self.started = self.consumed_perc > 0
-        self.finished = self.consumed_perc == 100
-        super().save(*args, **kwargs)
+                    _reconcile_manual_consumed_perc(previous)
+                if previous.manual_consumed_perc is None:  # pragma: no cover
+                    raise RuntimeError("manual baseline reconciliation failed")
+                if self.manual_consumed_perc is None:
+                    self.manual_consumed_perc = previous.manual_consumed_perc
+                    if kwargs.get("update_fields") is not None:
+                        kwargs["update_fields"] = set(
+                            kwargs["update_fields"]
+                        ) | {"manual_consumed_perc"}
+                if (
+                    self.consumed_perc != previous.consumed_perc
+                    and self.manual_consumed_perc
+                    == previous.manual_consumed_perc
+                ):
+                    linked_consumed_perc = (
+                        previous.consumed_perc - previous.manual_consumed_perc
+                    )
+                    if self.consumed_perc < linked_consumed_perc:
+                        raise ValueError(
+                            "consumed_perc cannot be less than linked consumption"
+                        )
+                    self.manual_consumed_perc = (
+                        self.consumed_perc - linked_consumed_perc
+                    )
+                    if kwargs.get("update_fields") is not None:
+                        kwargs["update_fields"] = set(
+                            kwargs["update_fields"]
+                        ) | {"manual_consumed_perc"}
+
+            self.started = self.consumed_perc > 0
+            self.finished = self.consumed_perc == 100
+            super().save(*args, **kwargs)
 
 
 class CupboardItemConsumption(models.Model):
@@ -191,21 +217,21 @@ class CupboardItemConsumption(models.Model):
     num_servings = models.DecimalField(
         max_digits=10,
         decimal_places=1,
-        default=1,
+        null=True,
         help_text="Serving quantity captured when this consumption was linked.",
     )
 
     consumed_amount = models.DecimalField(
         max_digits=20,
         decimal_places=10,
-        default=0,
+        null=True,
         editable=False,
     )
 
     consumed_unit = models.CharField(
         max_length=20,
         choices=UNIT_CHOICES,
-        default="",
+        null=True,
         editable=False,
     )
 
@@ -215,6 +241,34 @@ class CupboardItemConsumption(models.Model):
         related_name="cupboard_item_consumption",
         null=True,
     )
+
+    @property
+    def resolved_num_servings(self) -> Decimal:
+        """Return a quantity for nullable rows written during expansion.
+
+        Returns:
+            Decimal: persisted or lazily derived serving quantity.
+        """
+        if self.num_servings is not None:
+            return self.num_servings
+        if self.intake_id is not None and self.intake is not None:
+            return self.intake.num_servings
+        return Decimal("1")
+
+    @property
+    def resolved_consumed_snapshot(self) -> tuple[Decimal, str]:
+        """Return persisted snapshots or lazily derive their legacy equivalent.
+
+        Returns:
+            tuple[Decimal, str]: concrete consumed amount and unit.
+        """
+        if self.consumed_amount is not None and self.consumed_unit:
+            return self.consumed_amount, self.consumed_unit
+
+        unit = self.serving.serving_unit
+        if unit in (UNIT_CONTAINER, UNIT_SERVING):
+            unit = self.serving.size_unit
+        return self.serving.size * self.resolved_num_servings, unit
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Atomically capture and apply a linked cupboard consumption.
@@ -227,13 +281,16 @@ class CupboardItemConsumption(models.Model):
             type(self), instance=self
         )
         with transaction.atomic(using=using):
-            unit = self.serving.serving_unit
-            if unit in (UNIT_CONTAINER, UNIT_SERVING):
-                unit = self.serving.size_unit
-            self.consumed_amount = self.serving.size * self.num_servings
-            self.consumed_unit = unit
+            if self.num_servings is None:
+                self.num_servings = self.resolved_num_servings
+            amount, unit = self.resolved_consumed_snapshot
+            if self._state.adding or self.consumed_amount is None:
+                self.consumed_amount = amount
+            if self._state.adding or not self.consumed_unit:
+                self.consumed_unit = unit
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                    "num_servings",
                     "consumed_amount",
                     "consumed_unit",
                 }

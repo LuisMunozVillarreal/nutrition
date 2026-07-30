@@ -3,6 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
+from django.db import router, transaction
 from django.db.models.signals import (
     post_delete,
     post_save,
@@ -91,37 +92,82 @@ def get_linked_consumed_perc(cupboard_item: CupboardItem) -> Decimal:
     for consumption in cupboard_item.consumptions.all():
         linked_consumed_perc += _get_consumed_perc(
             cupboard_item.food,
-            consumption.consumed_amount,
-            consumption.consumed_unit,
+            *consumption.resolved_consumed_snapshot,
         )
 
     return linked_consumed_perc
 
 
-def recalculate_consumed_perc(cupboard_item: CupboardItem) -> None:
+def _reconcile_manual_consumed_perc(
+    cupboard_item: CupboardItem,
+) -> tuple[Decimal, bool]:
+    """Persist a nullable legacy baseline from an authoritative locked row."""
+    linked_consumed_perc = get_linked_consumed_perc(cupboard_item)
+    if cupboard_item.manual_consumed_perc is not None:
+        return linked_consumed_perc, False
+
+    manual_consumed_perc = max(
+        cupboard_item.consumed_perc - linked_consumed_perc,
+        Decimal("0"),
+    )
+    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
+        manual_consumed_perc=manual_consumed_perc
+    )
+    cupboard_item.manual_consumed_perc = manual_consumed_perc
+    return linked_consumed_perc, True
+
+
+def recalculate_consumed_perc(
+    cupboard_item: CupboardItem, *, already_locked: bool = False
+) -> None:
     """Recalculate total consumption from manual and linked portions.
 
     Args:
         cupboard_item (CupboardItem): cupboard item to recalculate.
+        already_locked (bool): whether the caller holds this cupboard row lock.
 
     Raises:
         CupboardItemConsumptionTooBigError: if total consumption exceeds 100%.
+        RuntimeError: if nullable baseline reconciliation does not persist.
     """
-    linked_consumed_perc = get_linked_consumed_perc(cupboard_item)
-    total_consumed_perc = (
-        cupboard_item.manual_consumed_perc + linked_consumed_perc
-    )
-    if total_consumed_perc > 100:
-        raise CupboardItemConsumptionTooBigError()
+    using = router.db_for_write(CupboardItem, instance=cupboard_item)
+    with transaction.atomic(using=using):
+        authoritative_item = cupboard_item
+        if not already_locked:
+            authoritative_item = (
+                CupboardItem.objects.select_for_update()
+                .using(using)
+                .select_related("food")
+                .get(pk=cupboard_item.pk)
+            )
+        linked_consumed_perc, reconciled = _reconcile_manual_consumed_perc(
+            authoritative_item
+        )
+        if reconciled:
+            # The old writer's stored total is authoritative for this first
+            # split. Re-adding its existing links here would double-count them.
+            total_consumed_perc = authoritative_item.consumed_perc
+        else:
+            manual_consumed_perc = authoritative_item.manual_consumed_perc
+            if manual_consumed_perc is None:  # pragma: no cover - invariant
+                raise RuntimeError("manual baseline reconciliation failed")
+            total_consumed_perc = manual_consumed_perc + linked_consumed_perc
+        if total_consumed_perc > 100:
+            raise CupboardItemConsumptionTooBigError()
 
-    CupboardItem.objects.filter(pk=cupboard_item.pk).update(
-        consumed_perc=total_consumed_perc,
-        started=total_consumed_perc > 0,
-        finished=total_consumed_perc == 100,
-    )
-    cupboard_item.consumed_perc = total_consumed_perc
-    cupboard_item.started = total_consumed_perc > 0
-    cupboard_item.finished = total_consumed_perc == 100
+        CupboardItem.objects.using(using).filter(
+            pk=authoritative_item.pk
+        ).update(
+            consumed_perc=total_consumed_perc,
+            started=total_consumed_perc > 0,
+            finished=total_consumed_perc == 100,
+        )
+        cupboard_item.manual_consumed_perc = (
+            authoritative_item.manual_consumed_perc
+        )
+        cupboard_item.consumed_perc = total_consumed_perc
+        cupboard_item.started = total_consumed_perc > 0
+        cupboard_item.finished = total_consumed_perc == 100
 
 
 @receiver(post_save, sender=CupboardItem)
@@ -248,7 +294,7 @@ def recalculate_consumption_after_creation(
         created (bool): whether the instance is created or not.
         kwargs (Any): keyword arguments.
     """
-    recalculate_consumed_perc(instance.item)
+    recalculate_consumed_perc(instance.item, already_locked=True)
 
 
 @receiver(post_delete, sender=CupboardItemConsumption)
@@ -264,7 +310,7 @@ def recalculate_consumption_after_deletion(
         instance (CupboardItemConsumption): instance that will be deleted.
         kwargs (Any): keyword arguments.
     """
-    recalculate_consumed_perc(instance.item)
+    recalculate_consumed_perc(instance.item, already_locked=True)
 
 
 class CupboardItemConsumptionTooBigError(Exception):
@@ -300,7 +346,8 @@ def lock_cupboard_item_before_deletion(
         using (str): database alias used by the deletion.
         kwargs (Any): keyword arguments.
     """
-    _lock_cupboard_item(instance, using)
+    cupboard_item = _lock_cupboard_item(instance, using)
+    _reconcile_manual_consumed_perc(cupboard_item)
 
 
 @receiver(pre_save, sender=CupboardItemConsumption)
@@ -323,13 +370,13 @@ def control_finished_items(
             big to be consumed.
     """
     cupboard_item = _lock_cupboard_item(instance, using)
+    _reconcile_manual_consumed_perc(cupboard_item)
     if instance.id is not None:
         return
 
     consumed_perc = _get_consumed_perc(
         cupboard_item.food,
-        instance.consumed_amount,
-        instance.consumed_unit,
+        *instance.resolved_consumed_snapshot,
     )
 
     if (

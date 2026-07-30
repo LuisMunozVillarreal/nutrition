@@ -36,7 +36,7 @@ test('staff capability refresh queries me with the bearer access token', async (
   const { fetchCurrentStaffCapability } = await loadAuthHelpers()
   let receivedRequest
 
-  const isStaff = await fetchCurrentStaffCapability(
+  const capability = await fetchCurrentStaffCapability(
     'opaque-token',
     async (document, variables, requestHeaders) => {
       receivedRequest = { document, variables, requestHeaders }
@@ -44,12 +44,31 @@ test('staff capability refresh queries me with the bearer access token', async (
     },
   )
 
-  assert.equal(isStaff, true)
+  assert.deepEqual(capability, { authentication: 'authenticated', isStaff: true })
   assert.match(receivedRequest.document, /me\s*\{\s*isStaff\s*\}/)
   assert.deepEqual(receivedRequest.variables, {})
   assert.deepEqual(receivedRequest.requestHeaders, {
     Authorization: 'Bearer opaque-token',
   })
+})
+
+test('staff capability distinguishes a genuine regular user from an unauthenticated token', async () => {
+  const { fetchCurrentStaffCapability } = await loadAuthHelpers()
+
+  const regular = await fetchCurrentStaffCapability(
+    'regular-token',
+    async () => ({ me: { isStaff: false } }),
+  )
+  const unauthenticated = await fetchCurrentStaffCapability(
+    'expired-token',
+    async () => ({ me: null }),
+  )
+
+  assert.deepEqual(regular, {
+    authentication: 'authenticated',
+    isStaff: false,
+  })
+  assert.deepEqual(unauthenticated, { authentication: 'unauthenticated' })
 })
 
 test('failed credential authorization returns null without exposing request secrets in logs', async () => {

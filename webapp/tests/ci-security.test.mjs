@@ -33,15 +33,63 @@ async function writeExecutable(path, content) {
   await chmod(path, 0o755)
 }
 
+function workflowDependencyGraph(config, workflowName) {
+  const workflowJobs = config.workflows?.[workflowName]?.jobs
+  assert.ok(Array.isArray(workflowJobs), 'validation workflow jobs are unavailable')
+
+  const graph = new Map()
+  for (const entry of workflowJobs) {
+    if (typeof entry === 'string') {
+      graph.set(entry, [])
+      continue
+    }
+    assert.ok(entry && typeof entry === 'object' && !Array.isArray(entry), 'invalid workflow job entry')
+    const names = Object.keys(entry)
+    assert.equal(names.length, 1, 'workflow job entry must have one job name')
+    const jobName = names[0]
+    const requires = entry[jobName]?.requires ?? []
+    assert.ok(Array.isArray(requires), `${jobName} has invalid requirements`)
+    graph.set(jobName, requires)
+  }
+  return graph
+}
+
+function transitiveRequirements(graph, jobName) {
+  assert.ok(graph.has(jobName), `${jobName} is missing from the validation workflow`)
+  const requirements = new Set()
+  const visit = (current) => {
+    for (const dependency of graph.get(current) ?? []) {
+      assert.ok(graph.has(dependency), `${current} requires an unknown workflow job`)
+      if (!requirements.has(dependency)) {
+        requirements.add(dependency)
+        visit(dependency)
+      }
+    }
+  }
+  visit(jobName)
+  return requirements
+}
+
+function assertTransitivelyRequires(graph, jobName, requiredJobs) {
+  const requirements = transitiveRequirements(graph, jobName)
+  for (const requiredJob of requiredJobs) {
+    assert.ok(requirements.has(requiredJob), `${jobName} is not gated by ${requiredJob}`)
+  }
+}
+
 test('CI transports isolated E2E credentials only through backend stdin and always clears them', async () => {
   const config = await readRepoFile('.circleci/config.yml')
 
+  assertContains(config, /E2E_RUN_TOKEN="\$\(openssl rand -hex 16\)"/, 'run token is not generated per run')
+  assertContains(config, /E2E_RUN_MARKER="__e2e_run_\$\{E2E_RUN_TOKEN\}__"/, 'reserved run marker is not constructed')
   assertContains(config, /E2E_REGULAR_PASSWORD="\$\(openssl rand -hex 32\)"/, 'regular password is not generated per run')
   assertContains(config, /E2E_STAFF_PASSWORD="\$\(openssl rand -hex 32\)"/, 'staff password is not generated per run')
-  assertContains(config, /export CYPRESS_E2E_REGULAR_EMAIL="\$E2E_REGULAR_EMAIL"/, 'regular email is not passed to Cypress')
-  assertContains(config, /export CYPRESS_E2E_REGULAR_PASSWORD="\$E2E_REGULAR_PASSWORD"/, 'regular password is not passed to Cypress')
-  assertContains(config, /export CYPRESS_E2E_STAFF_EMAIL="\$E2E_STAFF_EMAIL"/, 'staff email is not passed to Cypress')
-  assertContains(config, /export CYPRESS_E2E_STAFF_PASSWORD="\$E2E_STAFF_PASSWORD"/, 'staff password is not passed to Cypress')
+  assert.doesNotMatch(config, /export (?:E2E|CYPRESS_E2E)_/, 'E2E lifecycle values are exported globally')
+  assertContains(
+    config,
+    /CYPRESS_E2E_REGULAR_EMAIL="\$E2E_REGULAR_EMAIL"[\s\S]*?CYPRESS_E2E_RUN_MARKER="\$E2E_RUN_MARKER"[\s\\]*\n\s*npm run cypress:run/,
+    'Cypress aliases are not scoped to its single command',
+  )
   assertContains(config, /printf -v E2E_LIFECYCLE_PAYLOAD/, 'structured lifecycle payload is not built with a shell builtin')
   assertContains(config, /kubectl exec -i /, 'backend lifecycle stdin is not connected to kubectl')
   assertContains(
@@ -87,6 +135,7 @@ test('embedded E2E lifecycle keeps sentinels off argv and output across failures
   await mkdir(fakeBin)
 
   const argvLog = join(temporaryRoot, 'argv.log')
+  const environmentLog = join(temporaryRoot, 'environment.log')
   const kubectlCount = join(temporaryRoot, 'kubectl-count')
   const opensslCount = join(temporaryRoot, 'openssl-count')
   const recordArgv = `
@@ -95,12 +144,29 @@ for argument in "$@"; do
 done
 printf '%s\\n' -- >>"$ARGV_LOG"
 `
+  const recordEnvironment = `
+command_name=\${0##*/}
+for key in E2E_LIFECYCLE_PAYLOAD E2E_RUN_TOKEN E2E_RUN_MARKER E2E_REGULAR_EMAIL E2E_REGULAR_PASSWORD E2E_STAFF_EMAIL E2E_STAFF_PASSWORD CYPRESS_E2E_RUN_MARKER CYPRESS_E2E_REGULAR_EMAIL CYPRESS_E2E_REGULAR_PASSWORD CYPRESS_E2E_STAFF_EMAIL CYPRESS_E2E_STAFF_PASSWORD; do
+  if [ -n "\${!key+x}" ]; then presence=present; else presence=absent; fi
+  printf '%s|%s|%s=%s\\n' "$TEST_SCENARIO" "$command_name" "$key" "$presence" >>"$ENVIRONMENT_LOG"
+done
+`
 
+  await writeExecutable(
+    join(fakeBin, 'python3'),
+    `#!/usr/bin/env bash
+set -eu
+${recordArgv}
+${recordEnvironment}
+printf '%s\\n' 'security-test-branch'
+`,
+  )
   await writeExecutable(
     join(fakeBin, 'openssl'),
     `#!/usr/bin/env bash
 set -eu
 ${recordArgv}
+${recordEnvironment}
 count=0
 if [ -r "$OPENSSL_COUNT" ]; then IFS= read -r count <"$OPENSSL_COUNT"; fi
 count=$((count + 1))
@@ -118,6 +184,7 @@ esac
     `#!/usr/bin/env bash
 set -eu
 ${recordArgv}
+${recordEnvironment}
 count=0
 if [ -r "$KUBECTL_COUNT" ]; then IFS= read -r count <"$KUBECTL_COUNT"; fi
 count=$((count + 1))
@@ -142,10 +209,12 @@ esac
     `#!/usr/bin/env bash
 set -eu
 ${recordArgv}
+${recordEnvironment}
 [ "$CYPRESS_E2E_REGULAR_EMAIL" = 'e2e-regular-run-sentinel@example.com' ] || exit 91
 [ "$CYPRESS_E2E_REGULAR_PASSWORD" = 'regular-sentinel' ] || exit 92
 [ "$CYPRESS_E2E_STAFF_EMAIL" = 'e2e-staff-run-sentinel@example.com' ] || exit 93
 [ "$CYPRESS_E2E_STAFF_PASSWORD" = 'staff-sentinel' ] || exit 94
+[ "$CYPRESS_E2E_RUN_MARKER" = '__e2e_run_run-sentinel__' ] || exit 95
 [ "$TEST_SCENARIO" != 'cypress-cleanup-fail' ] || exit 31
 `,
   )
@@ -154,6 +223,7 @@ ${recordArgv}
     `#!/usr/bin/env bash
 set -eu
 ${recordArgv}
+${recordEnvironment}
 if [ "\${1:-}" = 'tee' ]; then
   while IFS= read -r _line; do :; done || true
 fi
@@ -164,6 +234,7 @@ fi
     `#!/usr/bin/env bash
 set -eu
 ${recordArgv}
+${recordEnvironment}
 while IFS= read -r _line; do :; done || true
 `,
   )
@@ -174,6 +245,22 @@ while IFS= read -r _line; do :; done || true
     'staff-sentinel',
     'e2e-regular-run-sentinel@example.com',
     'e2e-staff-run-sentinel@example.com',
+  ]
+  const rawLifecycleKeys = [
+    'E2E_LIFECYCLE_PAYLOAD',
+    'E2E_RUN_TOKEN',
+    'E2E_RUN_MARKER',
+    'E2E_REGULAR_EMAIL',
+    'E2E_REGULAR_PASSWORD',
+    'E2E_STAFF_EMAIL',
+    'E2E_STAFF_PASSWORD',
+  ]
+  const cypressAliasKeys = [
+    'CYPRESS_E2E_RUN_MARKER',
+    'CYPRESS_E2E_REGULAR_EMAIL',
+    'CYPRESS_E2E_REGULAR_PASSWORD',
+    'CYPRESS_E2E_STAFF_EMAIL',
+    'CYPRESS_E2E_STAFF_PASSWORD',
   ]
   const scenarios = [
     ['success', 0, 3],
@@ -188,6 +275,7 @@ while IFS= read -r _line; do :; done || true
       const observationDir = join(temporaryRoot, scenario)
       await mkdir(observationDir)
       await writeFile(argvLog, '')
+      await writeFile(environmentLog, '')
       await rm(kubectlCount, { force: true })
       await rm(opensslCount, { force: true })
 
@@ -197,6 +285,7 @@ while IFS= read -r _line; do :; done || true
           ...process.env,
           PATH: `${fakeBin}:${process.env.PATH}`,
           ARGV_LOG: argvLog,
+          ENVIRONMENT_LOG: environmentLog,
           KUBECTL_COUNT: kubectlCount,
           OPENSSL_COUNT: opensslCount,
           OBSERVATION_DIR: observationDir,
@@ -215,6 +304,51 @@ while IFS= read -r _line; do :; done || true
         assert.doesNotMatch(result.stderr, new RegExp(sentinel), `${scenario} leaked through stderr`)
       }
 
+      const environmentPresence = (await readFile(environmentLog, 'utf8'))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => {
+          const [observedScenario, commandName, assignment] = line.split('|')
+          const [key, presence] = assignment.split('=')
+          return { observedScenario, commandName, key, presence }
+        })
+      assert.ok(environmentPresence.length > 0, `${scenario} recorded no process environments`)
+      for (const observation of environmentPresence) {
+        assert.equal(observation.observedScenario, scenario)
+        if (observation.commandName === 'npm') {
+          assert.equal(
+            observation.presence,
+            cypressAliasKeys.includes(observation.key) ? 'present' : 'absent',
+            `${scenario} gave npm the wrong E2E environment key set`,
+          )
+        } else {
+          assert.equal(
+            observation.presence,
+            'absent',
+            `${scenario} exposed an E2E environment key to ${observation.commandName}`,
+          )
+        }
+      }
+      if (scenario.startsWith('cypress') || scenario === 'success' || scenario === 'cleanup-retry' || scenario === 'cleanup-fail') {
+        for (const key of [...rawLifecycleKeys, ...cypressAliasKeys]) {
+          assert.ok(
+            environmentPresence.some(
+              (observation) =>
+                observation.commandName === 'npm' &&
+                observation.key === key &&
+                observation.presence === (cypressAliasKeys.includes(key) ? 'present' : 'absent'),
+            ),
+            `${scenario} did not observe npm's expected least-privilege environment`,
+          )
+        }
+      } else {
+        assert.ok(
+          environmentPresence.every((observation) => observation.commandName !== 'npm'),
+          `${scenario} unexpectedly reached Cypress`,
+        )
+      }
+
       for (let call = 1; call <= expectedBackendCalls; call += 1) {
         const payload = JSON.parse(
           await readFile(join(observationDir, `stdin-${call}.json`), 'utf8'),
@@ -224,6 +358,7 @@ while IFS= read -r _line; do :; done || true
           regular_password: 'regular-sentinel',
           staff_email: 'e2e-staff-run-sentinel@example.com',
           staff_password: 'staff-sentinel',
+          run_marker: '__e2e_run_run-sentinel__',
         })
       }
     }
@@ -263,6 +398,25 @@ test('E2E account management keeps the default identity least-privileged', async
   assert.doesNotMatch(`${loginSteps}\n${credentials}`, /\.type\(['"][^'"]+['"]\)/)
 })
 
+test('Cypress marks every shared catalog fixture and current-run selector', async () => {
+  const fixtureHelper = await readRepoFile('webapp/cypress/support/e2eFixtures.ts')
+  assert.match(fixtureHelper, /Cypress\.env\(['"]E2E_RUN_MARKER['"]\)/)
+  assert.match(fixtureHelper, /\^__e2e_run_\[0-9a-f\]\{32\}__\$/)
+
+  for (const [path, calls] of [
+    ['webapp/cypress/support/step_definitions/products.ts', 1],
+    ['webapp/cypress/support/step_definitions/recipes.ts', 1],
+    ['webapp/cypress/support/step_definitions/cupboard.ts', 3],
+  ]) {
+    const source = await readRepoFile(path)
+    assert.equal(
+      source.match(/e2eFixtureName\(/g)?.length,
+      calls,
+      `${path} does not mark every fixture name and selector`,
+    )
+  }
+})
+
 test('shared-catalog write scenarios explicitly use the staff E2E identity', async () => {
   for (const path of [
     'webapp/cypress/e2e/products.feature',
@@ -274,20 +428,44 @@ test('shared-catalog write scenarios explicitly use the staff E2E identity', asy
   }
 })
 
-test('frontend tests and accepted typecheck gate every image publication job', async () => {
-  const config = await readRepoFile('.circleci/config.yml')
-  const checksJob = config.match(/\n  webapp-checks:\n([\s\S]*?)\n  [a-z][\w-]+:\n/)?.[1] ?? ''
+test('workflow publication and deployment paths are transitively gated by complete validation', async () => {
+  const config = parse(await readRepoFile('.circleci/config.yml'))
+  const webappChecks = config.jobs?.['webapp-checks']
+  assert.equal(webappChecks?.working_directory, '~/project/webapp')
+  const webappCommands = webappChecks.steps
+    .map((step) => step?.run?.command)
+    .filter((command) => typeof command === 'string')
+  assert.ok(webappCommands.includes('npm ci'), 'frontend dependency installation is missing')
+  assert.ok(webappCommands.includes('npm test'), 'frontend tests are missing')
+  assert.ok(
+    webappCommands.includes('npx tsc --noEmit --ignoreDeprecations 6.0'),
+    'accepted frontend typecheck is missing',
+  )
+  assert.ok(webappCommands.every((command) => !/eslint/i.test(command)), 'unsupported frontend lint is enabled')
 
-  assert.match(checksJob, /working_directory: ~\/project\/webapp/)
-  assert.match(checksJob, /command: npm ci/)
-  assert.match(checksJob, /command: npm test/)
-  assert.match(checksJob, /command: npx tsc --noEmit --ignoreDeprecations 6\.0/)
-  assert.doesNotMatch(checksJob, /eslint/i)
+  const backendValidation = [
+    'pytest',
+    'bandit',
+    'flake8',
+    'black',
+    'mypy',
+    'pylint',
+    'pylint-tests',
+    'pydocstyle',
+    'pydocstyle-tests',
+  ]
+  const frontendValidation = ['webapp-checks']
+  const completeValidation = [...backendValidation, ...frontendValidation]
+  const graph = workflowDependencyGraph(config, 'ValidationWorkflow')
 
-  for (const job of ['backend-docker-build-tag-push', 'webapp-docker-build-tag-push']) {
-    const workflowJob = new RegExp(
-      `- ${job}:\\n(?: {10}[^\\n]*\\n)*? {10}requires:\\n {12}- webapp-checks`,
-    )
-    assertContains(config, workflowJob, `${job} is not gated by webapp-checks`)
+  assertTransitivelyRequires(graph, 'backend-docker-build-tag-push', backendValidation)
+  assertTransitivelyRequires(graph, 'webapp-docker-build-tag-push', frontendValidation)
+  for (const deploymentJob of ['deploy-preview', 'deploy-production']) {
+    assertTransitivelyRequires(graph, deploymentJob, [
+      'backend-docker-build-tag-push',
+      'webapp-docker-build-tag-push',
+      ...completeValidation,
+    ])
   }
+  assertTransitivelyRequires(graph, 'cypress-e2e', ['deploy-preview', ...completeValidation])
 })

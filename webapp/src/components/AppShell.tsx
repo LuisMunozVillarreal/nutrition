@@ -1,18 +1,47 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
-import { usePathname, useRouter } from 'next/navigation'
-import { decideRouteAccess } from '@/lib/routeAccess'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { BACKEND_REAUTHENTICATION_REQUIRED } from '@/lib/sessionCapabilities'
+import { buildCallbackPath, decideRouteAccess } from '@/lib/routeAccess'
 import Sidebar from './Sidebar'
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+function SessionLoading() {
+  return (
+    <div className="p-12 text-center text-slate-500" data-testid="session-loading">
+      Loading session...
+    </div>
+  )
+}
+
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
+  const callbackPath = useMemo(
+    () => buildCallbackPath(pathname, searchParams.toString()),
+    [pathname, searchParams],
+  )
+  const reauthenticationRequired =
+    session?.error === BACKEND_REAUTHENTICATION_REQUIRED
   const access = useMemo(
-    () => decideRouteAccess(pathname, status, session?.user?.isStaff),
-    [pathname, status, session?.user?.isStaff],
+    () =>
+      decideRouteAccess(
+        pathname,
+        status,
+        session?.user?.isStaff,
+        callbackPath,
+        reauthenticationRequired,
+      ),
+    [
+      callbackPath,
+      pathname,
+      reauthenticationRequired,
+      session?.user?.isStaff,
+      status,
+    ],
   )
 
   useEffect(() => {
@@ -22,11 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [access, router])
 
   if (status === 'loading' || access.kind === 'loading') {
-    return (
-      <div className="p-12 text-center text-slate-500" data-testid="session-loading">
-        Loading session...
-      </div>
-    )
+    return <SessionLoading />
   }
 
   if (access.kind === 'redirect') {
@@ -48,5 +73,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
     </>
+  )
+}
+
+export default function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<SessionLoading />}>
+      <AppShellInner>{children}</AppShellInner>
+    </Suspense>
   )
 }

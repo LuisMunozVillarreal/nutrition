@@ -1,4 +1,5 @@
 import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { e2eFixtureName } from "../e2eFixtures";
 
 When("I navigate to the products page", () => {
     cy.visit("/products");
@@ -16,7 +17,7 @@ When("I navigate to the new product page", () => {
 
 When("I fill in the product name with {string}", (value: string) => {
     cy.get('[data-testid="field-name"]').should('be.visible').clear({force: true});
-    cy.get('[data-testid="field-name"]').type(value, {force: true});
+    cy.get('[data-testid="field-name"]').type(e2eFixtureName(value), {force: true});
     cy.wait(100);
 });
 

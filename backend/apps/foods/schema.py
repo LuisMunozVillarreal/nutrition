@@ -1188,7 +1188,11 @@ class CupboardMutation:
             raise PermissionError("Authentication required")
 
         try:
-            obj = CupboardItem.objects.get(pk=id, owner=user)
+            obj = (
+                CupboardItem.objects.select_for_update()
+                .select_related("food")
+                .get(pk=id, owner=user)
+            )
         except CupboardItem.DoesNotExist as e:
             raise ValueError("Item not found") from e
 
@@ -1199,8 +1203,10 @@ class CupboardMutation:
                 "consumedPerc cannot be less than linked consumption"
             )
         obj.manual_consumed_perc = requested_total - linked_consumed_perc
-        obj.save(update_fields=["manual_consumed_perc"])
-        recalculate_consumed_perc(obj)
+        CupboardItem.objects.filter(pk=obj.pk).update(
+            manual_consumed_perc=obj.manual_consumed_perc
+        )
+        recalculate_consumed_perc(obj, already_locked=True)
         return CupboardItemType.from_model(obj)
 
     @strawberry.mutation

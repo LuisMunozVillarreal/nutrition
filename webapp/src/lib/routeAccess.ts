@@ -19,8 +19,19 @@ export function safeCallbackPath(callbackUrl: string | null): string {
   ) {
     return '/'
   }
-  if (/^\/login(?:[/?#]|$)/.test(callbackUrl)) return '/'
-  return callbackUrl
+  const fragmentIndex = callbackUrl.indexOf('#')
+  const localPath =
+    fragmentIndex === -1 ? callbackUrl : callbackUrl.slice(0, fragmentIndex)
+  if (/^\/login(?:[/?#]|$)/.test(localPath)) return '/'
+  return localPath
+}
+
+export function buildCallbackPath(pathname: string, encodedQuery: string): string {
+  return encodedQuery ? `${pathname}?${encodedQuery}` : pathname
+}
+
+function loginDestination(callbackPath: string): string {
+  return `/login?callbackUrl=${encodeURIComponent(safeCallbackPath(callbackPath))}`
 }
 
 function staffRouteDestination(pathname: string): string | null {
@@ -34,14 +45,21 @@ export function decideRouteAccess(
   pathname: string,
   status: SessionStatus,
   isStaff: boolean | undefined,
+  callbackPath = pathname,
+  reauthenticationRequired = false,
 ): RouteAccessDecision {
   if (status === 'loading') return { kind: 'loading' }
+
+  if (reauthenticationRequired) {
+    if (isLoginPath(pathname)) return { kind: 'allow' }
+    return { kind: 'redirect', destination: loginDestination(callbackPath) }
+  }
 
   if (status === 'unauthenticated') {
     if (PUBLIC_PATHS.has(pathname) || isLoginPath(pathname)) return { kind: 'allow' }
     return {
       kind: 'redirect',
-      destination: `/login?callbackUrl=${encodeURIComponent(pathname)}`,
+      destination: loginDestination(callbackPath),
     }
   }
 

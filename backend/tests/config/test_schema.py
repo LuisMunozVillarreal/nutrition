@@ -18,7 +18,7 @@ from config.schema import authenticated_session_user, schema
 User = get_user_model()
 
 
-def bearer_context(user_id, session_user=None):
+def bearer_context(user_id, session_user=None, scheme="Bearer"):
     """Build a GraphQL request context carrying a signed bearer token."""
     token = jwt.encode(
         {
@@ -29,7 +29,7 @@ def bearer_context(user_id, session_user=None):
         algorithm="HS256",
     )
     request = RequestFactory().post(
-        "/graphql/", HTTP_AUTHORIZATION=f"Bearer {token}"
+        "/graphql/", HTTP_AUTHORIZATION=f"{scheme} {token}"
     )
     request.user = session_user or AnonymousUser()
     return request
@@ -256,7 +256,7 @@ def test_me_query_bearer_token_overrides_session_user():
         date_of_birth="2000-01-01",
         height=170.0,
     )
-    context = bearer_context(bearer_user.id, session_user)
+    context = bearer_context(bearer_user.id, session_user, scheme="bearer")
 
     result = schema.execute_sync("{ me { email } }", context_value=context)
 

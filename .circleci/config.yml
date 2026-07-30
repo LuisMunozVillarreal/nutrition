@@ -321,15 +321,12 @@ jobs:
 
             SANITIZED_BRANCH=$(python3 ../.circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
             NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
-            E2E_RUN_SUFFIX="$(openssl rand -hex 8)"
-            export E2E_REGULAR_EMAIL="e2e-regular-${E2E_RUN_SUFFIX}@example.com"
-            export E2E_STAFF_EMAIL="e2e-staff-${E2E_RUN_SUFFIX}@example.com"
-            export E2E_REGULAR_PASSWORD="$(openssl rand -hex 32)"
-            export E2E_STAFF_PASSWORD="$(openssl rand -hex 32)"
-            export CYPRESS_E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL"
-            export CYPRESS_E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD"
-            export CYPRESS_E2E_STAFF_EMAIL="$E2E_STAFF_EMAIL"
-            export CYPRESS_E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD"
+            E2E_RUN_TOKEN="$(openssl rand -hex 16)"
+            E2E_RUN_MARKER="__e2e_run_${E2E_RUN_TOKEN}__"
+            E2E_REGULAR_EMAIL="e2e-regular-${E2E_RUN_TOKEN}@example.com"
+            E2E_STAFF_EMAIL="e2e-staff-${E2E_RUN_TOKEN}@example.com"
+            E2E_REGULAR_PASSWORD="$(openssl rand -hex 32)"
+            E2E_STAFF_PASSWORD="$(openssl rand -hex 32)"
 
             run_backend() {
               printf '%s\n' "$E2E_LIFECYCLE_PAYLOAD" \
@@ -347,10 +344,9 @@ jobs:
                 cleanup_status=$?
               fi
               unset E2E_LIFECYCLE_PAYLOAD \
+                E2E_RUN_TOKEN E2E_RUN_MARKER \
                 E2E_REGULAR_EMAIL E2E_REGULAR_PASSWORD \
-                E2E_STAFF_EMAIL E2E_STAFF_PASSWORD \
-                CYPRESS_E2E_REGULAR_EMAIL CYPRESS_E2E_REGULAR_PASSWORD \
-                CYPRESS_E2E_STAFF_EMAIL CYPRESS_E2E_STAFF_PASSWORD
+                E2E_STAFF_EMAIL E2E_STAFF_PASSWORD
               if [ "$cleanup_status" -ne 0 ]; then
                 echo "E2E account cleanup failed." >&2
               fi
@@ -362,9 +358,9 @@ jobs:
             trap cleanup EXIT
 
             printf -v E2E_LIFECYCLE_PAYLOAD \
-              '{"regular_email":"%s","regular_password":"%s","staff_email":"%s","staff_password":"%s"}' \
+              '{"regular_email":"%s","regular_password":"%s","staff_email":"%s","staff_password":"%s","run_marker":"%s"}' \
               "$E2E_REGULAR_EMAIL" "$E2E_REGULAR_PASSWORD" \
-              "$E2E_STAFF_EMAIL" "$E2E_STAFF_PASSWORD"
+              "$E2E_STAFF_EMAIL" "$E2E_STAFF_PASSWORD" "$E2E_RUN_MARKER"
 
             run_backend python3 -m scripts.manage_e2e_users seed
             run_backend python3 -m scripts.seed_test_day
@@ -395,8 +391,13 @@ jobs:
             sudo service nginx restart
             echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts >/dev/null
 
-            export CYPRESS_BASE_URL="https://$TESTING_DOMAIN"
-            npm run cypress:run
+            CYPRESS_BASE_URL="https://$TESTING_DOMAIN" \
+              CYPRESS_E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL" \
+              CYPRESS_E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD" \
+              CYPRESS_E2E_STAFF_EMAIL="$E2E_STAFF_EMAIL" \
+              CYPRESS_E2E_STAFF_PASSWORD="$E2E_STAFF_PASSWORD" \
+              CYPRESS_E2E_RUN_MARKER="$E2E_RUN_MARKER" \
+              npm run cypress:run
       - store_artifacts:
           path: ~/project/webapp/cypress/videos
       - store_artifacts:
@@ -420,7 +421,15 @@ workflows:
           context:
             - Docker
           requires:
-            - webapp-checks
+            - pytest
+            - bandit
+            - flake8
+            - black
+            - mypy
+            - pylint
+            - pylint-tests
+            - pydocstyle
+            - pydocstyle-tests
       - webapp-docker-build-tag-push:
           context:
             - Docker

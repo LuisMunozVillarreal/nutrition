@@ -12,7 +12,7 @@ test('JWT capability callback records the staff capability at sign-in without re
   const jwt = createJwtCapabilityCallback(
     async () => {
       refreshCalls += 1
-      return false
+      return { authentication: 'authenticated', isStaff: false }
     },
     { now: () => 1_000 },
   )
@@ -35,7 +35,7 @@ test('JWT capability callback avoids refreshes inside the interval and revokes s
   const jwt = createJwtCapabilityCallback(
     async () => {
       refreshCalls += 1
-      return false
+      return { authentication: 'authenticated', isStaff: false }
     },
     { now: () => now },
   )
@@ -62,7 +62,10 @@ test('JWT capability callback promotes a regular user when the refresh reports s
   const { createJwtCapabilityCallback, STAFF_CAPABILITY_REFRESH_INTERVAL_MS } =
     await loadCapabilities()
   let now = 3_000
-  const jwt = createJwtCapabilityCallback(async () => true, { now: () => now })
+  const jwt = createJwtCapabilityCallback(
+    async () => ({ authentication: 'authenticated', isStaff: true }),
+    { now: () => now },
+  )
 
   let token = await jwt({
     token: {},
@@ -97,8 +100,50 @@ test('JWT capability callback fails closed and bounds retries after refresh fail
   token = await jwt({ token })
 
   assert.equal(token.isStaff, false)
+  assert.equal(token.accessToken, 'opaque-token')
+  assert.equal(token.error, undefined)
   assert.equal(token.staffCapabilityRefreshedAt, now)
   assert.equal(refreshCalls, 1)
+})
+
+test('unauthorized backend me clears the token and remains reauthentication-required across callbacks', async () => {
+  const {
+    applyTokenCapabilitiesToSession,
+    BACKEND_REAUTHENTICATION_REQUIRED,
+    createJwtCapabilityCallback,
+    STAFF_CAPABILITY_REFRESH_INTERVAL_MS,
+  } = await loadCapabilities()
+  let now = 4_500
+  let refreshCalls = 0
+  const jwt = createJwtCapabilityCallback(
+    async () => {
+      refreshCalls += 1
+      return { authentication: 'unauthenticated' }
+    },
+    { now: () => now },
+  )
+
+  let token = await jwt({
+    token: {},
+    user: { accessToken: 'expired-backend-token', isStaff: true },
+  })
+  now += STAFF_CAPABILITY_REFRESH_INTERVAL_MS
+  token = await jwt({ token })
+  token = await jwt({ token })
+  token = await jwt({ token })
+
+  assert.equal(token.accessToken, undefined)
+  assert.equal(token.isStaff, false)
+  assert.equal(token.error, BACKEND_REAUTHENTICATION_REQUIRED)
+  assert.equal(refreshCalls, 1)
+
+  const session = applyTokenCapabilitiesToSession(
+    { accessToken: 'stale-session-token', user: { name: 'User' } },
+    token,
+  )
+  assert.equal(session.accessToken, undefined)
+  assert.equal(session.user.isStaff, false)
+  assert.equal(session.error, BACKEND_REAUTHENTICATION_REQUIRED)
 })
 
 test('refreshed staff capability propagates from repeated JWT callbacks to the session', async () => {
@@ -108,7 +153,10 @@ test('refreshed staff capability propagates from repeated JWT callbacks to the s
     STAFF_CAPABILITY_REFRESH_INTERVAL_MS,
   } = await loadCapabilities()
   let now = 5_000
-  const jwt = createJwtCapabilityCallback(async () => true, { now: () => now })
+  const jwt = createJwtCapabilityCallback(
+    async () => ({ authentication: 'authenticated', isStaff: true }),
+    { now: () => now },
+  )
 
   let token = await jwt({
     token: {},
