@@ -26,5 +26,6 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
     interface JWT extends OptionalStaffCapability {
         accessToken?: string;
+        staffCapabilityRefreshedAt?: number;
     }
 }

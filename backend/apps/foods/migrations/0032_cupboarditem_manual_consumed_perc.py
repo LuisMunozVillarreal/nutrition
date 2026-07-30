@@ -2,11 +2,12 @@
 
 from decimal import Decimal
 
-from django.db import migrations, models
+from django.db import migrations, models, transaction
 from pint import UnitRegistry
 from pint.errors import DimensionalityError
 
 CONTEXTUAL_UNITS = {"container", "serving", "unit"}
+BATCH_SIZE = 500
 UREG = UnitRegistry()
 
 
@@ -53,21 +54,48 @@ def _linked_consumed_perc(item):
 
 def initialize_manual_consumed_perc(apps, schema_editor):
     """Set manual baseline to max(stored total minus linked total, zero)."""
-    del schema_editor
     cupboard_item = apps.get_model("foods", "CupboardItem")
-    items = cupboard_item.objects.select_related("food").prefetch_related(
-        "consumptions__serving__food", "consumptions__intake"
-    )
-    for item in items:
-        linked_perc = _linked_consumed_perc(item)
-        item.manual_consumed_perc = max(
-            item.consumed_perc - linked_perc, Decimal("0")
+    database = schema_editor.connection.alias
+    items = cupboard_item.objects.using(database)
+    highest_pk = items.order_by("-pk").values_list("pk", flat=True).first()
+    last_pk = None
+
+    while highest_pk is not None:
+        filters = {"pk__lte": highest_pk}
+        if last_pk is not None:
+            filters["pk__gt"] = last_pk
+        batch = list(
+            items.filter(**filters)
+            .select_related("food")
+            .prefetch_related(
+                "consumptions__serving__food", "consumptions__intake"
+            )
+            .order_by("pk")[:BATCH_SIZE]
         )
-        item.save(update_fields=["manual_consumed_perc"])
+        if not batch:
+            break
+
+        for item in batch:
+            linked_perc = _linked_consumed_perc(item)
+            item.manual_consumed_perc = max(
+                item.consumed_perc - linked_perc, Decimal("0")
+            )
+
+        with transaction.atomic(using=database):
+            cupboard_item.objects.using(database).bulk_update(
+                batch,
+                ["manual_consumed_perc"],
+                batch_size=BATCH_SIZE,
+            )
+        last_pk = batch[-1].pk
+        if last_pk >= highest_pk:
+            break
 
 
 class Migration(migrations.Migration):
     """Add the durable manual cupboard consumption baseline."""
+
+    atomic = False
 
     dependencies = [("foods", "0031_cupboarditem_owner")]
 
@@ -88,5 +116,6 @@ class Migration(migrations.Migration):
         migrations.RunPython(
             initialize_manual_consumed_perc,
             reverse_code=migrations.RunPython.noop,
+            atomic=False,
         ),
     ]
