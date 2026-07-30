@@ -27,11 +27,21 @@ class TestCupboardSchema:
         """Test listing cupboard items."""
         # Given an authenticated user and some cupboard items
         user = _create_user("cq@test.com")
+        other_user = _create_user("cq-other@test.com")
         fp = FoodProduct.objects.create(
             name="Milk", size=1000, size_unit="ml", num_servings=4
         )
         CupboardItem.objects.create(
-            food=fp, purchased_at=timezone.now(), consumed_perc=0
+            owner=user,
+            food=fp,
+            purchased_at=timezone.now(),
+            consumed_perc=0,
+        )
+        CupboardItem.objects.create(
+            owner=other_user,
+            food=fp,
+            purchased_at=timezone.now(),
+            consumed_perc=50,
         )
 
         # And a mock context
@@ -80,7 +90,31 @@ class TestCupboardSchema:
         # Then the item is created
         assert result.errors is None
         assert "Eggs" in result.data["createCupboardItem"]["foodLabel"]
-        assert CupboardItem.objects.filter(food=fp).exists()
+        item = CupboardItem.objects.get(food=fp)
+        assert item.owner == user
+
+    def test_cupboard_item_detail_hides_another_users_item(self, mocker):
+        """A user cannot read another user's cupboard item detail."""
+        user = _create_user("detail@test.com")
+        other_user = _create_user("detail-other@test.com")
+        fp = FoodProduct.objects.create(name="Private", num_servings=1)
+        item = CupboardItem.objects.create(
+            owner=other_user,
+            food=fp,
+            purchased_at=timezone.now(),
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        query = "query Item($id: ID!) { cupboardItem(id: $id) { id } }"
+
+        result = schema.execute_sync(
+            query,
+            variable_values={"id": str(item.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["cupboardItem"] is None
 
     def test_create_cupboard_item_from_recipe(self, mocker):
         """Test creating a cupboard item from a recipe base food ID."""
@@ -120,7 +154,10 @@ class TestCupboardSchema:
             name="Bread", size=500, size_unit="g", num_servings=10
         )
         item = CupboardItem.objects.create(
-            food=fp, purchased_at=timezone.now(), consumed_perc=0
+            owner=user,
+            food=fp,
+            purchased_at=timezone.now(),
+            consumed_perc=0,
         )
 
         # And a mock context
@@ -146,6 +183,36 @@ class TestCupboardSchema:
         assert result.data["updateCupboardItem"]["consumedPerc"] == 50.0
         assert result.data["updateCupboardItem"]["started"] is True
         assert result.data["updateCupboardItem"]["finished"] is False
+
+    def test_update_cupboard_item_rejects_another_user(self, mocker):
+        """A user cannot update another user's cupboard item."""
+        user = _create_user("update-private@test.com")
+        other_user = _create_user("update-private-other@test.com")
+        fp = FoodProduct.objects.create(name="Private", num_servings=1)
+        item = CupboardItem.objects.create(
+            owner=other_user,
+            food=fp,
+            purchased_at=timezone.now(),
+            consumed_perc=25,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation UpdateItem($id: ID!) {
+                updateCupboardItem(id: $id, consumedPerc: 50) { id }
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Item not found" in str(result.errors[0])
+        item.refresh_from_db()
+        assert item.consumed_perc == 25
 
     @pytest.mark.parametrize("consumed_perc", [-0.1, 100.1])
     def test_create_cupboard_item_rejects_out_of_range_consumption(
@@ -195,7 +262,10 @@ class TestCupboardSchema:
             name="Invalid Bread", size=500, size_unit="g", num_servings=10
         )
         item = CupboardItem.objects.create(
-            food=fp, purchased_at=timezone.now(), consumed_perc=25
+            owner=user,
+            food=fp,
+            purchased_at=timezone.now(),
+            consumed_perc=25,
         )
         mock_context = mocker.Mock()
         mock_context.request.user = user
@@ -231,7 +301,7 @@ class TestCupboardSchema:
             name="Rice", size=1000, size_unit="g", num_servings=10
         )
         item = CupboardItem.objects.create(
-            food=fp, purchased_at=timezone.now()
+            owner=user, food=fp, purchased_at=timezone.now()
         )
 
         # And a mock context
@@ -252,3 +322,29 @@ class TestCupboardSchema:
         assert result.errors is None
         assert result.data["deleteCupboardItem"] is True
         assert not CupboardItem.objects.filter(pk=item.id).exists()
+
+    def test_delete_cupboard_item_rejects_another_user(self, mocker):
+        """A user cannot delete another user's cupboard item."""
+        user = _create_user("delete-private@test.com")
+        other_user = _create_user("delete-private-other@test.com")
+        fp = FoodProduct.objects.create(name="Private", num_servings=1)
+        item = CupboardItem.objects.create(
+            owner=other_user,
+            food=fp,
+            purchased_at=timezone.now(),
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = (
+            "mutation DeleteItem($id: ID!) { deleteCupboardItem(id: $id) }"
+        )
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(item.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Item not found" in str(result.errors[0])
+        assert CupboardItem.objects.filter(pk=item.id).exists()

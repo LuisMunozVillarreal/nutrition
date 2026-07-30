@@ -113,7 +113,9 @@ def calculate_consumption_from_cooked_recipes(
         serving = recipe_ingredient.food
 
         cupboard_item = CupboardItem.objects.filter(
-            food=serving.food, finished=False
+            food=serving.food,
+            finished=False,
+            owner=instance.owner,
         ).first()
         if not cupboard_item:
             continue
@@ -147,7 +149,9 @@ def calculate_consumption_from_intakes(
     # New with food -> create consumption if there is cupboard item for it
     if created and instance.food is not None:
         item = CupboardItem.objects.filter(
-            food=instance.food.food, finished=False
+            food=instance.food.food,
+            finished=False,
+            owner=instance.day.plan.user,
         ).first()
         if not item:
             return
@@ -174,7 +178,9 @@ def calculate_consumption_from_intakes(
         instance.cupboard_item_consumption.delete()
 
     item = CupboardItem.objects.filter(
-        food=instance.food.food, finished=False  # type: ignore
+        food=instance.food.food,  # type: ignore
+        finished=False,
+        owner=instance.day.plan.user,
     ).first()
     if not item:
         return

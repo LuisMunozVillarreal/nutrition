@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { buildCustomIntakeEditForm, buildCustomIntakeUpdateVariables } from './intakeVariables'
 
 const INTAKE_QUERY = gql`
   query GetIntake($id: ID!) {
@@ -56,14 +57,14 @@ export default function EditIntakePage() {
       try {
         const res = await graphqlRequest<{ intake: any }>(INTAKE_QUERY, { id })
         if (res.intake) {
-          setForm({
-            meal: res.intake.meal,
-            numServings: String(res.intake.numServings),
-            energyKcal: String(res.intake.energyKcal),
-            proteinG: String(res.intake.proteinG),
-            fatG: String(res.intake.fatG),
-            carbsG: String(res.intake.carbsG),
-          })
+          setForm(res.intake.foodId ? {
+              meal: res.intake.meal,
+              numServings: String(res.intake.numServings),
+              energyKcal: String(res.intake.energyKcal),
+              proteinG: String(res.intake.proteinG),
+              fatG: String(res.intake.fatG),
+              carbsG: String(res.intake.carbsG),
+            } : buildCustomIntakeEditForm(res.intake))
           setReadOnly({ dayId: res.intake.dayId, foodId: res.intake.foodId })
         }
       } catch (err) { console.error('Failed to fetch intake', err) }
@@ -77,13 +78,14 @@ export default function EditIntakePage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await graphqlRequest(UPDATE_MUTATION, {
+      const variables = readOnly.foodId ? {
         id, meal: form.meal, numServings: parseFloat(form.numServings),
         energyKcal: form.energyKcal ? parseFloat(form.energyKcal) : 0,
         proteinG: form.proteinG ? parseFloat(form.proteinG) : 0,
         fatG: form.fatG ? parseFloat(form.fatG) : 0,
         carbsG: form.carbsG ? parseFloat(form.carbsG) : 0,
-      })
+      } : buildCustomIntakeUpdateVariables(id, form)
+      await graphqlRequest(UPDATE_MUTATION, variables)
     } finally { setSaving(false) }
   }
 

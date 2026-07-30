@@ -3,18 +3,19 @@
 import pytest
 from django.contrib.auth import get_user_model
 
-from apps.foods.models import Recipe
+from apps.foods.models import FoodProduct, Recipe, RecipeIngredient
 from config.schema import schema
 
 User = get_user_model()
 
 
-def _create_user(email):
+def _create_user(email, *, is_staff=False):
     return User.objects.create_user(
         email=email,
         password="password123",
         date_of_birth="2000-01-01",
         height=170.0,
+        is_staff=is_staff,
     )
 
 
@@ -204,7 +205,7 @@ class TestRecipeMutation:
     def test_delete_recipe(self, mocker):
         """Test deleting a recipe."""
         # Given an authenticated user and a recipe
-        user = _create_user("rdel@test.com")
+        user = _create_user("rdel@test.com", is_staff=True)
         recipe = Recipe.objects.create(
             name="Bye", size=100, size_unit="g", num_servings=1
         )
@@ -225,6 +226,82 @@ class TestRecipeMutation:
         assert result.errors is None
         assert result.data["deleteRecipe"] is True
         assert not Recipe.objects.filter(pk=recipe.id).exists()
+
+    def test_delete_recipe_rejects_non_staff_user(self, mocker):
+        """A regular user cannot delete from the shared recipe catalog."""
+        user = _create_user("rdel-regular@test.com")
+        recipe = Recipe.objects.create(
+            name="Shared Recipe", size=100, size_unit="g", num_servings=1
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = "mutation DeleteRecipe($id: ID!) { deleteRecipe(id: $id) }"
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(recipe.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert Recipe.objects.filter(pk=recipe.id).exists()
+
+    def test_delete_recipe_ingredient_rejects_non_staff_user(self, mocker):
+        """A regular user cannot delete a shared recipe ingredient."""
+        user = _create_user("ingredient-del-regular@test.com")
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe,
+            food=product.servings.first(),
+            num_servings=1,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation DeleteIngredient($id: ID!) {
+                deleteRecipeIngredient(id: $id)
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(ingredient.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "Staff access required" in str(result.errors[0])
+        assert RecipeIngredient.objects.filter(pk=ingredient.id).exists()
+
+    def test_staff_can_delete_recipe_ingredient(self, mocker):
+        """Staff can delete a shared recipe ingredient."""
+        user = _create_user("ingredient-del-staff@test.com", is_staff=True)
+        recipe = Recipe.objects.create(name="Shared", num_servings=1)
+        product = FoodProduct.objects.create(name="Ingredient", num_servings=1)
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe,
+            food=product.servings.first(),
+            num_servings=1,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        mutation = """
+            mutation DeleteIngredient($id: ID!) {
+                deleteRecipeIngredient(id: $id)
+            }
+        """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(ingredient.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["deleteRecipeIngredient"] is True
+        assert not RecipeIngredient.objects.filter(pk=ingredient.id).exists()
 
     def test_create_recipe_unauthenticated(self):
         """Test creating a recipe without authentication."""
