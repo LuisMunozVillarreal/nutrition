@@ -95,7 +95,7 @@ def backfill_manual_consumed_perc(apps, schema_editor):
     while True:
         with transaction.atomic(using=database):
             batch = list(
-                items.select_for_update()
+                items.select_for_update(of=("self",))
                 .filter(manual_consumed_perc__isnull=True)
                 .select_related("food")
                 .order_by("pk")[:BATCH_SIZE]
