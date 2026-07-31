@@ -19,8 +19,6 @@ RUN \
   postgresql-client \
   # Locales
   locales \
-  # Sudo
-  sudo \
   # Server
   nginx \
   libnginx-mod-http-lua \
@@ -52,10 +50,6 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # Add user and group
 ENV USER_NAME=$NAME
 RUN useradd -u 1001 -ms /bin/bash $USER_NAME
-
-# Add user to sudo group
-RUN echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-RUN /etc/init.d/sudo restart
 
 # Server directory
 ENV SRC_DIR="/srv/www/$NAME"
@@ -93,8 +87,8 @@ USER $USER_NAME
 RUN mkdir static
 RUN mkdir -p public/static
 
-# Open server port
-EXPOSE 80
+# Public listener on 8080 and health listener on 9000
+EXPOSE 8080 9000
 
 # Entry point
 COPY platform/docker/entrypoint.sh \

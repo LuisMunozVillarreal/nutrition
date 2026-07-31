@@ -22,20 +22,35 @@ serviceAccount:
 
 podAnnotations: {}
 
-podSecurityContext: {}
-  # fsGroup: 2000
+podSecurityContext:
+  # runAsUser: 1001
+  # runAsGroup: 1001
+  # fsGroup: 1001
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
 
-securityContext: {}
+securityContext:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  noNewPrivileges: true
   # capabilities:
   #   drop:
   #   - ALL
+  capabilities:
+    drop:
+      - ALL
   # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
 
 service:
   type: ClusterIP
   port: 80
+  targetPort: public
+
+containerPorts:
+  public: 8080
+  health: 9000
 
 ingress:
   enabled: true
