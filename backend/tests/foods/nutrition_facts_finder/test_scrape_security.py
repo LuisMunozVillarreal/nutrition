@@ -58,9 +58,27 @@ def _private_dns_addrinfo(*_, **__):
     ]
 
 
+def test_scrape_rejects_disallowed_scrape_host(monkeypatch, requests_mock):
+    """Hosts outside the allowlist are rejected before network access."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"www.ocado.com", "good.example.com"},
+    )
+
+    with pytest.raises(ValueError, match="Host not in scraper allowlist"):
+        get_product_nutritional_info_from_url("https://forbidden.example.test")
+
+    assert not requests_mock.called
+
+
 @pytest.mark.parametrize("url", ["https://127.0.0.1", "https://[::1]"])
-def test_scrape_rejects_private_hosts(url, requests_mock):
+def test_scrape_rejects_private_hosts(url, monkeypatch, requests_mock):
     """Non-public host literals are blocked."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"127.0.0.1", "::1"},
+    )
+
     with pytest.raises(ValueError, match="Disallowed"):
         get_product_nutritional_info_from_url(url)
 
@@ -74,8 +92,13 @@ def test_scrape_rejects_private_hosts(url, requests_mock):
         "https://[fd00::1]",
     ],
 )
-def test_scrape_rejects_private_ipv6_notations(url, requests_mock):
+def test_scrape_rejects_private_ipv6_notations(url, monkeypatch, requests_mock):
     """Private and loopback IPv6 alternative notations are blocked."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"::ffff:7f00:1", "fd00::1"},
+    )
+
     with pytest.raises(ValueError, match="Disallowed"):
         get_product_nutritional_info_from_url(url)
 
@@ -87,6 +110,10 @@ def test_scrape_rejects_dns_private_host(monkeypatch, requests_mock):
     monkeypatch.setattr(
         "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
         _private_dns_addrinfo,
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"private.example.test"},
     )
 
     with pytest.raises(ValueError, match="Disallowed resolved IP"):
@@ -101,11 +128,15 @@ def test_scrape_rejects_private_redirect_target(monkeypatch, requests_mock):
         "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
         _mixed_addrinfo,
     )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com", "private.example.test"},
+    )
 
     requests_mock.get(
         "https://good.example.com/page",
         status_code=302,
-        headers={"Location": "https://169.254.169.254/"},
+        headers={"Location": "https://private.example.test/"},
     )
 
     with pytest.raises(ValueError, match="Disallowed resolved IP"):
@@ -119,14 +150,29 @@ def test_scrape_rejects_private_ipv6_redirect_target(
 ):
     """Private IPv6 redirect targets are rejected."""
     monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com", "private6.example.test"},
+    )
+
+    monkeypatch.setattr(
         "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
-        _mixed_addrinfo,
+        lambda *args, **kwargs: (
+            (
+                socket.AF_INET6,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("fe80::1", 443),
+            )
+            if args[0] == "private6.example.test"
+            else _mixed_addrinfo(*args, **kwargs)
+        ),
     )
 
     requests_mock.get(
         "https://good.example.com/page",
         status_code=302,
-        headers={"Location": "https://[fe80::1]/"},
+        headers={"Location": "https://private6.example.test/"},
     )
 
     with pytest.raises(ValueError, match="Disallowed resolved IP"):
@@ -140,6 +186,10 @@ def test_scrape_rejects_redirect_to_different_host(monkeypatch, requests_mock):
     monkeypatch.setattr(
         "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
         _public_addrinfo,
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com", "other.example.com"},
     )
 
     requests_mock.get(

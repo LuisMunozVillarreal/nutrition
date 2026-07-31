@@ -76,6 +76,14 @@ SECURE_HSTS_PRELOAD = ENV.bool(
     "SECURE_HSTS_PRELOAD",
     default=False,
 )
+NUTRITION_SCRAPER_ALLOWED_HOSTS = ENV.list(
+    "NUTRITION_SCRAPER_ALLOWED_HOSTS",
+    default=[
+        "good.example.com",
+        "public.example.com",
+        "www.ocado.com",
+    ],
+)
 
 # Application definition
 
