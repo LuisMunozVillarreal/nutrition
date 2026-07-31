@@ -38,22 +38,25 @@ spec:
           image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - name: http
-              containerPort: 80
+            - name: public
+              containerPort: {{ .Values.containerPorts.public }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.containerPorts.health }}
               protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz/
-              port: 9000
+              port: health
             initialDelaySeconds: 15
           readinessProbe:
             httpGet:
               path: /healthz/
-              port: 9000
+              port: health
           startupProbe:
             httpGet:
               path: /healthz/
-              port: 9000
+              port: health
             initialDelaySeconds: 15
             failureThreshold: 600
             periodSeconds: 5
