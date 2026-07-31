@@ -265,7 +265,7 @@ if Path(GS_CREDENTIALS_FILE_NAME).exists():  # pragma: no cover
         GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
             GS_CREDENTIALS_FILE_NAME
         )
-    except Exception as exc:  # pragma: no cover
+    except (OSError, ValueError) as exc:  # pragma: no cover
         logging.debug(
             "Ignoring invalid GCP credentials file: %s", exc, exc_info=True
         )
