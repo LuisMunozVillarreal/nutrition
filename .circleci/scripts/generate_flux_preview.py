@@ -179,6 +179,22 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         metadata:
+          name: nutrition-backend
+        spec:
+          template:
+            spec:
+              containers:
+                - name: backend
+                  env:
+                    - name: SKIP_DB_RESTORE
+                      value: "true"
+      target:
+        kind: Deployment
+        name: nutrition-backend
+    - patch: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
           name: nutrition-webapp
         spec:
           template:
