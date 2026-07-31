@@ -52,6 +52,8 @@ Then("I should see {string} in the list", (text: string) => {
 });
 
 Then("I should be redirected to the cupboard list", () => {
-    cy.get('[data-testid="save-btn"]', { timeout: 10000 }).should('not.be.disabled');
     cy.url({ timeout: 10000 }).should("match", /\/cupboard$/);
+    cy.get('[data-testid="cupboard-title"]', { timeout: 10000 })
+        .should("be.visible")
+        .and("contain.text", "Cupboard");
 });
