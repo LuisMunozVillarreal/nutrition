@@ -26,21 +26,40 @@
     POSTGRESQL_USER=<postgresql-user>
     POSTGRESQL_PASSWORD=<postgresql-password>
     SECRET_KEY=<django-secret-key>
+    ENVIRONMENT=development
+    DEBUG=True
     ```
 
-1. Install uv
+2. For production-like environments, also configure:
+
+    ```
+    ENVIRONMENT=production
+    DEBUG=False
+    SESSION_COOKIE_SECURE=True
+    CSRF_COOKIE_SECURE=True
+    SECURE_SSL_REDIRECT=True
+    SECURE_HSTS_SECONDS=63072000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+    SECURE_HSTS_PRELOAD=False
+    CSRF_TRUSTED_ORIGINS=<comma-separated-origins>
+    ```
+
+    Use placeholders only when documenting domain values (e.g. `${BASE_DOMAIN}`,
+    `https://${BASE_DOMAIN}`), never real deployment hostnames.
+
+3. Install uv
 
     ```bash
     curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
-1. Install dependencies
+4. Install dependencies
 
     ```bash
     uv sync
     ```
 
-1. Run local server
+5. Run local server
 
     ```bash
     uv run ./manage.py runserver 0:8000
