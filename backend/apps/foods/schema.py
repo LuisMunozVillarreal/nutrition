@@ -212,6 +212,7 @@ class FoodProductType:
     sugars_g: float | None
     fibre_g: float | None
     salt_g: float | None
+    model: strawberry.Private[FoodProduct | None] = None
 
     @strawberry.field
     def servings(self) -> list[ServingType]:
@@ -220,12 +221,9 @@ class FoodProductType:
         Returns:
             list[ServingType]: list of servings.
         """
-        model = getattr(self, "_model", None)
+        model = self.model
         if model is not None:
-            return [
-                ServingType.from_model(s)
-                for s in model.servings.all()  # type: ignore[attr-defined]
-            ]
+            return [ServingType.from_model(s) for s in model.servings.all()]
         return [
             ServingType.from_model(s)
             for s in Serving.objects.filter(food_id=self.id).order_by("id")
@@ -274,7 +272,7 @@ class FoodProductType:
             ),
             salt_g=float(obj.salt_g) if obj.salt_g is not None else None,
         )
-        wrapped._model = obj  # type: ignore[attr-defined]
+        wrapped.model = obj
         return wrapped
 
 
@@ -728,6 +726,7 @@ class RecipeIngredientType:
     protein_g: float
     fat_g: float
     carbs_g: float
+    model: strawberry.Private[RecipeIngredient | None] = None
 
     @staticmethod
     def from_model(obj: RecipeIngredient) -> "RecipeIngredientType":
@@ -749,16 +748,20 @@ class RecipeIngredientType:
             fat_g=float(obj.fat_g),
             carbs_g=float(obj.carbs_g),
         )
-        wrapped._model = obj  # type: ignore[attr-defined]
+        wrapped.model = obj
         return wrapped
 
     @strawberry.field
     def food_label(self) -> str:
-        """Resolve ingredient label lazily to avoid eager food loading."""
-        model = getattr(self, "_model", None)
+        """Resolve ingredient label lazily to avoid eager food loading.
+
+        Returns:
+            str: human-readable label.
+        """
+        model = self.model
         if model is None:
             return ""
-        cached_food = model._state.fields_cache.get("food")
+        cached_food = model.__dict__.get("food")
         if cached_food is not None:
             return str(cached_food)
         return str(model.food)
@@ -784,6 +787,7 @@ class RecipeType:
     sugars_g: float | None
     fibre_g: float | None
     salt_g: float | None
+    model: strawberry.Private[Recipe | None] = None
 
     @strawberry.field
     def ingredients(self) -> list[RecipeIngredientType]:
@@ -792,11 +796,11 @@ class RecipeType:
         Returns:
             list[RecipeIngredientType]: list of ingredients.
         """
-        model = getattr(self, "_model", None)
+        model = self.model
         if model is not None:
             return [
                 RecipeIngredientType.from_model(i)
-                for i in model.ingredients.all()  # type: ignore[attr-defined]
+                for i in model.ingredients.all()
             ]
         return [
             RecipeIngredientType.from_model(i)
@@ -845,7 +849,7 @@ class RecipeType:
             ),
             salt_g=float(obj.salt_g) if obj.salt_g is not None else None,
         )
-        wrapped._model = obj  # type: ignore[attr-defined]
+        wrapped.model = obj
         return wrapped
 
 

@@ -141,7 +141,7 @@ class DayType:
     protein_g: float
     fat_g: float
     carbs_g: float
-    tdee: float
+    model: strawberry.Private[Day | None] = None
 
     @strawberry.field
     def intakes(self) -> list[IntakeType]:
@@ -150,7 +150,7 @@ class DayType:
         Returns:
             list[IntakeType]: list of intakes.
         """
-        model = getattr(self, "_model", None)
+        model = self.model
         if model is not None:
             return [IntakeType.from_model(i) for i in model.intakes.all()]
         return [
@@ -193,10 +193,20 @@ class DayType:
             protein_g=float(obj.protein_g),
             fat_g=float(obj.fat_g),
             carbs_g=float(obj.carbs_g),
-            tdee=float(obj.tdee) if obj.tdee else 0.0,
         )
-        wrapped._model = obj  # type: ignore[attr-defined]
+        wrapped.model = obj
         return wrapped
+
+    @strawberry.field
+    def tdee(self) -> float:
+        """Resolve total daily energy expenditure when requested.
+
+        Returns:
+            float: total daily energy expenditure.
+        """
+        if self.model is None:
+            return 0.0
+        return float(self.model.tdee) if self.model.tdee else 0.0
 
 
 @strawberry.type
@@ -209,9 +219,7 @@ class WeekPlanType:
     fat_perc: float
     deficit: int
     completed: bool
-    twee: float
-    energy_kcal_goal: float
-    energy_kcal: float
+    model: strawberry.Private[WeekPlan | None] = None
 
     @strawberry.field
     def days(self) -> list[DayType]:
@@ -220,7 +228,7 @@ class WeekPlanType:
         Returns:
             list[DayType]: list of days.
         """
-        model = getattr(self, "_model", None)
+        model = self.model
         if model is not None:
             return [DayType.from_model(d) for d in model.days.all()]
         return [
@@ -247,12 +255,42 @@ class WeekPlanType:
             fat_perc=float(obj.fat_perc),
             deficit=obj.deficit,
             completed=obj.completed,
-            twee=float(obj.twee),
-            energy_kcal_goal=float(obj.energy_kcal_goal),
-            energy_kcal=float(obj.energy_kcal),
         )
-        wrapped._model = obj  # type: ignore[attr-defined]
+        wrapped.model = obj
         return wrapped
+
+    @strawberry.field
+    def twee(self) -> float:
+        """Resolve TWEE when requested.
+
+        Returns:
+            float: total weekly energy expenditure estimate.
+        """
+        if self.model is None:
+            return 0.0
+        return float(self.model.twee)
+
+    @strawberry.field
+    def energy_kcal_goal(self) -> float:
+        """Resolve energy goal when requested.
+
+        Returns:
+            float: weekly energy target.
+        """
+        if self.model is None:
+            return 0.0
+        return float(self.model.energy_kcal_goal)
+
+    @strawberry.field
+    def energy_kcal(self) -> float:
+        """Resolve energy intake when requested.
+
+        Returns:
+            float: weekly accumulated energy intake.
+        """
+        if self.model is None:
+            return 0.0
+        return float(self.model.energy_kcal)
 
 
 @strawberry.type
