@@ -7,6 +7,88 @@ import sys
 import click
 from sanitise_branch import sanitise_branch_name
 
+KUSTOMIZATION_PREFIX = "nutrition-preview-"
+GIT_REPO_PREFIX = "source-"
+SERVICE_ACCOUNT_PREFIX = "nutrition-preview-sa"
+ROLE_PREFIX = "nutrition-preview-rbac"
+NAMESPACE_PREFIX = "nutrition-staging--"
+TRUSTED_SOURCE_BRANCH = "main"
+
+
+def _preview_service_account_name(sanitized_branch: str) -> str:
+    return f"{SERVICE_ACCOUNT_PREFIX}-{sanitized_branch}"
+
+
+def _preview_role_name(sanitized_branch: str) -> str:
+    return f"{ROLE_PREFIX}-{sanitized_branch}"
+
+
+def _preview_namespace_name(sanitized_branch: str) -> str:
+    return f"{NAMESPACE_PREFIX}{sanitized_branch}"
+
+
+def _build_preview_rbac(namespace: str, sanitized_branch: str) -> str:
+    """Generate RBAC objects used by Flux preview reconciliation."""
+    service_account_name = _preview_service_account_name(sanitized_branch)
+    role_name = _preview_role_name(sanitized_branch)
+
+    return f"""apiVersion: v1
+kind: Namespace
+metadata:
+  name: {namespace}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {service_account_name}
+  namespace: flux-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {role_name}
+  namespace: {namespace}
+rules:
+  - apiGroups: [""]
+    resources:
+      - "*"
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups: ["*"]
+    resources:
+      - "*"
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {role_name}
+  namespace: {namespace}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {role_name}
+subjects:
+  - kind: ServiceAccount
+    name: {service_account_name}
+    namespace: flux-system
+"""
+
 
 def generate_manifest(
     branch_name: str, image_tag: str, preview_domain: str | None = None
@@ -22,8 +104,9 @@ def generate_manifest(
         tuple[str, str]: A tuple of (manifest_content, sanitized_branch_name).
     """
     sanitized_branch = sanitise_branch_name(branch_name)
-    preview_name = f"nutrition-preview-{sanitized_branch}"
-    target_namespace = f"nutrition-staging--{sanitized_branch}"
+    preview_name = f"{KUSTOMIZATION_PREFIX}{sanitized_branch}"
+    target_namespace = _preview_namespace_name(sanitized_branch)
+    service_account_name = _preview_service_account_name(sanitized_branch)
 
     # Domain Logic
     # We use Flux Variable Substitution. The domain is NOT hardcoded here.
@@ -47,12 +130,13 @@ spec:
   interval: 1m0s
   path: ./platform/k8s/overlays/staging
   prune: true
+  serviceAccountName: {service_account_name}
   wait: true
   timeout: 10m
   targetNamespace: {target_namespace}
   sourceRef:
     kind: GitRepository
-    name: source-{sanitized_branch}
+    name: {GIT_REPO_PREFIX}{sanitized_branch}
   postBuild:
     substituteFrom:
       - kind: ConfigMap
@@ -146,6 +230,10 @@ def main(branch: str, tag: str, domain: str | None, dry_run: bool) -> None:
     kustomization_content, sanitized_branch = generate_manifest(
         branch, tag, domain
     )
+    target_namespace = _preview_namespace_name(sanitized_branch)
+    rbac_content = _build_preview_rbac(target_namespace, sanitized_branch)
+    kustomization_name = f"{KUSTOMIZATION_PREFIX}{sanitized_branch}"
+    service_account_name = _preview_service_account_name(sanitized_branch)
 
     # 2. Determine Repo URL for the GitRepository source
     try:
@@ -169,19 +257,19 @@ def main(branch: str, tag: str, domain: str | None, dry_run: bool) -> None:
     git_repo_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: GitRepository
 metadata:
-  name: source-{sanitized_branch}
+  name: {GIT_REPO_PREFIX}{sanitized_branch}
   namespace: flux-system
 spec:
   interval: 1m0s
   url: {repo_url}
   ref:
-    branch: {branch}
+    branch: {TRUSTED_SOURCE_BRANCH}
   secretRef:
     name: flux-system
 """
 
     # 4. Combine Manifests
-    full_manifest = f"{git_repo_manifest}---\n{kustomization_content}"
+    full_manifest = f"{rbac_content}---\n{git_repo_manifest}---\n{kustomization_content}"
 
     if dry_run:
         click.echo("--- Dry Run: Applying the following to cluster ---")
@@ -189,7 +277,9 @@ spec:
         return
 
     # 5. Apply to Cluster via Kubectl (Imperative)
-    click.echo(f"Applying Flux resources for branch '{branch}' to cluster...")
+    click.echo(
+        f"Applying Flux resources for branch '{branch}' to cluster (preview '{sanitized_branch}')..."
+    )
     try:
         subprocess.run(  # nosec: B607, B603
             ["kubectl", "apply", "-f", "-"],
@@ -197,8 +287,10 @@ spec:
             check=True,
         )
         click.echo(
-            f"Successfully applied GitRepository 'source-{sanitized_branch}' "
-            f"and Kustomization 'nutrition-preview-{sanitized_branch}'."
+            "Successfully applied namespace, service account, "
+            f"GitRepository '{GIT_REPO_PREFIX}{sanitized_branch}' "
+            f"and Kustomization '{kustomization_name}' "
+            f"as '{service_account_name}'."
         )
     except subprocess.CalledProcessError as e:
         click.echo(f"Failed to apply manifests: {e}", err=True)

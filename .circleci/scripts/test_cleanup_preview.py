@@ -1,8 +1,21 @@
 """Tests for the cleanup_flux_preview script."""
 
+from subprocess import CompletedProcess
+
 import pytest
-from cleanup_flux_preview import main
 from click.testing import CliRunner
+from cleanup_flux_preview import main
+from sanitise_branch import sanitise_branch_name
+
+
+def _not_found_output() -> CompletedProcess:
+    return CompletedProcess(args=["kubectl"], returncode=1, stdout="", stderr="not found")
+
+
+def _success_output() -> CompletedProcess:
+    return CompletedProcess(
+        args=["kubectl"], returncode=0, stdout="resource", stderr=""
+    )
 
 
 @pytest.fixture
@@ -13,63 +26,121 @@ def mock_run(mocker):
 
 def test_main_dry_run(mock_run):
     """Test the main function with dry-run enabled."""
-    # Given
     runner = CliRunner()
 
-    # When
     result = runner.invoke(main, ["feature/test", "--dry-run"])
+    sanitized = sanitise_branch_name("feature/test")
 
-    # Then
     assert result.exit_code == 0
     assert (
         "Cleaning up preview environment for branch 'feature/test'"
         in result.output
     )
-    assert "(sanitized: feature-test)" in result.output
+    assert f"(sanitized: {sanitized})" in result.output
     assert "[Dry Run] kubectl delete kustomization" in result.output
     assert "[Dry Run] kubectl delete gitrepository" in result.output
+    assert "[Dry Run] kubectl delete serviceaccount" in result.output
     assert "[Dry Run] kubectl delete namespace" in result.output
     mock_run.assert_not_called()
 
 
-def test_main_execution(mock_run):
-    """Test the main function execution (no dry-run)."""
-    # Given
+def test_main_execution_success(mock_run):
+    """Test successful cleanup executes deletion and verifies resources are gone."""
     runner = CliRunner()
+    # 4 delete calls then 4 get calls for verification
+    mock_run.side_effect = [
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _not_found_output(),
+        _not_found_output(),
+        _not_found_output(),
+        _not_found_output(),
+    ]
 
-    # When
     result = runner.invoke(main, ["feature/test"])
 
-    # Then
     assert result.exit_code == 0
-    assert "Executing: kubectl delete kustomization" in result.output
     assert "Cleanup sequence completed." in result.output
-    assert mock_run.call_count == 3
+    assert mock_run.call_count == 8
 
 
-def test_main_skip_main_branch(mock_run):
-    """Test that the script skips cleanup for 'main' branch."""
-    # Given
+def test_main_partial_delete_failure(mock_run):
+    """Test that cleanup exits non-zero when delete fails."""
     runner = CliRunner()
+    failure = CompletedProcess(
+        args=["kubectl"], returncode=1, stdout="", stderr="permission denied"
+    )
+    mock_run.side_effect = [_success_output(), failure]
 
-    # When
-    result = runner.invoke(main, ["main"])
-
-    # Then
-    assert result.exit_code == 0
-    assert "Branch is main. Skipping cleanup." in result.output
-    mock_run.assert_not_called()
-
-
-def test_main_subprocess_error(mock_run):
-    """Test error handling during subprocess execution."""
-    # Given
-    mock_run.side_effect = OSError("Command failed")
-    runner = CliRunner()
-
-    # When
     result = runner.invoke(main, ["feature/fail"])
 
-    # Then
+    assert result.exit_code == 1
+    assert "Failed to delete" in result.output
+    assert "Cleanup sequence failed." in result.output
+
+
+def test_main_retries_until_gone(mock_run, monkeypatch):
+    """Test deletion verification retries transiently visible resources."""
+    runner = CliRunner()
+    # Delete calls
+    outputs = [
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _success_output(),
+    ]
+    # Kustomization remains for 2 checks, then disappears
+    outputs += [
+        _success_output(),
+        _success_output(),
+        _not_found_output(),
+    ]
+    # Remaining resources are absent
+    outputs += [_not_found_output(), _not_found_output(), _not_found_output()]
+
+    mock_run.side_effect = outputs
+
+    # Keep test execution fast even when waiting for transient existence.
+    monkeypatch.setattr("cleanup_flux_preview.time.sleep", lambda *_args, **_kwargs: None)
+    result = runner.invoke(main, ["feature/test"])
+
     assert result.exit_code == 0
-    assert "Error executing command: Command failed" in result.output
+    assert "Waiting for kustomization" in result.output
+    assert "Cleanup sequence completed." in result.output
+
+
+def test_main_verification_failure(mock_run):
+    """Test cleanup fails when resource verification cannot complete."""
+    runner = CliRunner()
+    mock_run.side_effect = [
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        CompletedProcess(
+            args=["kubectl"],
+            returncode=1,
+            stdout="",
+            stderr="unable to check resource",
+        ),
+        _not_found_output(),
+        _not_found_output(),
+        _not_found_output(),
+    ]
+
+    result = runner.invoke(main, ["feature/test"])
+
+    assert result.exit_code == 1
+    assert "Unable to verify deletion of" in result.output
+    assert "Cleanup sequence failed." in result.output
+
+
+def test_main_skip_main_branch():
+    """Test that the script skips cleanup for 'main' branch."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["main"])
+
+    assert result.exit_code == 0
+    assert "Branch is main. Skipping cleanup." in result.output
