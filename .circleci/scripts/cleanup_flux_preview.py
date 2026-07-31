@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import click
 from sanitise_branch import sanitise_branch_name
 
-
 KUSTOMIZATION_PREFIX = "nutrition-preview-"
 GIT_REPO_PREFIX = "source-"
 NAMESPACE_PREFIX = "nutrition-staging--"
@@ -58,11 +57,19 @@ def _iter_resources(sanitized_branch: str) -> list[DeletableResource]:
     namespace = _preview_namespace_name(sanitized_branch)
     return [
         DeletableResource(
-            "kustomization", "flux-system", _preview_kustomization_name(sanitized_branch)
+            "kustomization",
+            "flux-system",
+            _preview_kustomization_name(sanitized_branch),
         ),
-        DeletableResource("gitrepository", "flux-system", _preview_git_repo_name(sanitized_branch)),
         DeletableResource(
-            "serviceaccount", "flux-system", _preview_service_account_name(sanitized_branch)
+            "gitrepository",
+            "flux-system",
+            _preview_git_repo_name(sanitized_branch),
+        ),
+        DeletableResource(
+            "serviceaccount",
+            "flux-system",
+            _preview_service_account_name(sanitized_branch),
         ),
         DeletableResource("namespace", None, namespace),
     ]
@@ -86,7 +93,9 @@ def _delete_resources(resources: list[DeletableResource]) -> tuple[bool, str]:
             )
 
         if result.returncode != 0:
-            message = (result.stderr or result.stdout or "unknown error").strip()
+            message = (
+                result.stderr or result.stdout or "unknown error"
+            ).strip()
             return (
                 False,
                 (
@@ -127,7 +136,9 @@ def _wait_for_absent(resource: DeletableResource) -> tuple[bool, str]:
         if not exists:
             return True, ""
 
-        click.echo(f"Waiting for {resource.kind} '{resource.name}' to disappear...")
+        click.echo(
+            f"Waiting for {resource.kind} '{resource.name}' to disappear..."
+        )
         time.sleep(VERIFICATION_POLL_SECONDS)
 
     return False, f"Timed out waiting for {resource.kind} '{resource.name}'."

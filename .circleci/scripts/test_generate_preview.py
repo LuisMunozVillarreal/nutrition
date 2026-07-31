@@ -1,10 +1,15 @@
 """Tests for the CircleCI flux preview generation script."""
 
 import subprocess
+import re
 
 import pytest
 from click.testing import CliRunner
-from generate_flux_preview import generate_manifest, main
+from generate_flux_preview import (
+    _build_preview_rbac,
+    generate_manifest,
+    main,
+)
 from sanitise_branch import MAX_LENGTH, sanitise_branch_name
 
 
@@ -38,11 +43,20 @@ def test_sanitize_branch():
     ]
 
     for branch_input in branches:
-        expected = sanitise_branch_name(branch_input)
         result = sanitise_branch_name(branch_input)
-        assert result == expected
+        assert result == sanitise_branch_name(branch_input)
         assert len(result) <= MAX_LENGTH
         assert result[0].isalnum() and result[-1].isalnum()
+        assert (
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", result) is not None
+        )
+
+
+def test_sanitize_branch_is_case_resilient():
+    """Test valid branch-case variants produce distinct outputs."""
+    assert sanitise_branch_name("feature/Case-Branch") != sanitise_branch_name(
+        "feature/case-branch"
+    )
 
 
 def test_sanitize_has_stable_hash_collision_resistance():
@@ -50,10 +64,51 @@ def test_sanitize_has_stable_hash_collision_resistance():
     slug_a = sanitise_branch_name("feature/foo")
     slug_b = sanitise_branch_name("feature-foo")
     slug_c = sanitise_branch_name("feature@foo")
+    slug_d = sanitise_branch_name("feature+foo")
 
     assert slug_a != slug_b
     assert slug_a != slug_c
     assert slug_b != slug_c
+    assert slug_c != slug_d
+
+
+def test_sanitize_deterministic_collision_matrix():
+    """Regression tests for deterministic output across known collision-sensitive inputs."""
+    candidate_branches = [
+        "feature/foo",
+        "feature-foo",
+        "feature+foo",
+        "feature@foo",
+        "Feature/Foo",
+        "feature/foo/",
+        "_",
+        "",
+        "a" * 34,
+        "a" * 35,
+    ]
+
+    sanitized = [sanitise_branch_name(branch) for branch in candidate_branches]
+    assert len(sanitized) == len(set(sanitized))
+    assert all(
+        len(name) <= MAX_LENGTH
+        and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name)
+        for name in sanitized
+    )
+
+
+def test_build_preview_rbac_is_namespace_scoped():
+    """Preview RBAC must be namespace-scoped and never cluster-scoped."""
+    sanitized = sanitise_branch_name("feature/test")
+    namespace = f"nutrition-staging--{sanitized}"
+    rbac_manifest = _build_preview_rbac(namespace, sanitized)
+
+    assert "kind: ClusterRole" not in rbac_manifest
+    assert "kind: ClusterRoleBinding" not in rbac_manifest
+    assert "namespace: flux-system" in rbac_manifest
+    assert f"namespace: {namespace}" in rbac_manifest
+    assert f"name: nutrition-preview-rbac-{sanitized}" in rbac_manifest
+    assert f"name: nutrition-preview-sa-{sanitized}" in rbac_manifest
+    assert f"name: nutrition-preview-sa-{sanitized}" in rbac_manifest
 
 
 def test_generate_manifest_content():
@@ -65,14 +120,10 @@ def test_generate_manifest_content():
     manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
 
     assert sanitized == sanitise_branch_name(branch)
-    assert (
-        f"name: nutrition-preview-{sanitized}" in manifest
-    )
+    assert f"name: nutrition-preview-{sanitized}" in manifest
     assert f"targetNamespace: nutrition-staging--{sanitized}" in manifest
     assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in manifest
-    assert (
-        f"name: source-{sanitized}"
-    ) in manifest
+    assert (f"name: source-{sanitized}") in manifest
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.domain.com" in manifest
 
@@ -99,12 +150,17 @@ def test_main_execution(mock_check_output, mock_run):
     sanitized = sanitise_branch_name("feature/test")
 
     assert result.exit_code == 0
-    assert "Applying Flux resources for branch 'feature/test' to cluster (preview" in result.output
+    assert (
+        "Applying Flux resources for branch 'feature/test' to cluster (preview"
+        in result.output
+    )
     assert (
         f"Successfully applied namespace, service account, GitRepository 'source-{sanitized}' "
         f"and Kustomization 'nutrition-preview-{sanitized}' as 'nutrition-preview-sa-{sanitized}'."
     ) in result.output
-    mock_check_output.assert_called_with(["git", "config", "--get", "remote.origin.url"])
+    mock_check_output.assert_called_with(
+        ["git", "config", "--get", "remote.origin.url"]
+    )
     mock_run.assert_called_once()
 
 
@@ -118,11 +174,13 @@ def test_main_dry_run(mock_check_output):
 
     assert result.exit_code == 0
     assert (
-        "--- Dry Run: Applying the following to cluster ---"
-        in result.output
+        "--- Dry Run: Applying the following to cluster ---" in result.output
     )
     assert "url: ssh://git@github.com/user/repo.git" in result.output
-    assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in result.output
+    assert (
+        f"serviceAccountName: nutrition-preview-sa-{sanitized}"
+        in result.output
+    )
     assert "kind: ServiceAccount" in result.output
     assert "kind: Role" in result.output
     assert "kind: RoleBinding" in result.output
@@ -136,7 +194,10 @@ def test_main_skip_main_branch():
     result = runner.invoke(main, ["main", "v1"])
 
     assert result.exit_code == 0
-    assert "Branch is main. Skipping preview generation (handled by prod flow)." in result.output
+    assert (
+        "Branch is main. Skipping preview generation (handled by prod flow)."
+        in result.output
+    )
 
 
 def test_main_subprocess_error(mock_check_output, mock_run):

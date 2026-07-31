@@ -1,4 +1,4 @@
-"""Script to clone Kubernetes secrets to preview namespaces in CI."""
+"""Script to generate short-lived, least-privilege preview secrets in CI."""
 
 import secrets
 import subprocess  # nosec: B404
@@ -60,7 +60,7 @@ def wait_for_namespace(namespace: str, timeout_seconds: int = 300) -> None:
 
 
 def clone_secrets(target_namespace: str) -> None:
-    """Clone the required secrets to the target namespace.
+    """Create the required preview secrets directly in the target namespace.
 
     Args:
         target_namespace (str): The namespace to clone secrets to.
