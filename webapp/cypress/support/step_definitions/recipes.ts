@@ -28,6 +28,8 @@ When("I fill in the recipe energy with {string}", (value: string) => {
 });
 
 Then("I should be redirected to the recipes list", () => {
-    cy.get('[data-testid="save-btn"]', { timeout: 10000 }).should('not.be.disabled');
     cy.url({ timeout: 10000 }).should("match", /\/recipes$/);
+    cy.get('[data-testid="recipes-title"]', { timeout: 10000 }).should(
+        "be.visible",
+    );
 });
