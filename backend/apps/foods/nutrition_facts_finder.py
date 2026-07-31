@@ -4,7 +4,7 @@ import ast
 import ipaddress
 import socket
 from typing import Any, Dict, Set
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
 from bs4 import BeautifulSoup
@@ -146,15 +146,11 @@ def _follow_redirects(url: str) -> bytes:
                 and response.headers.get("Location") is not None
             ):
                 location = response.headers["Location"]
-                current_url = urljoin(response.url, location)
-                _validate_url(current_url)
-                redirect_host = urlsplit(current_url).hostname
-                if redirect_host is None:
-                    raise NutritionFactsFetchError("Invalid redirect target")
-                if redirect_host.lower() != initial_host.lower():
-                    raise NutritionFactsFetchError(
-                        "Redirect host mismatch in follow-up request"
-                    )
+                current_url = _resolve_redirect_url(
+                    current_url,
+                    location,
+                    initial_host,
+                )
                 continue
             if 300 <= response.status_code < 400:
                 raise NutritionFactsFetchError(
@@ -168,6 +164,45 @@ def _follow_redirects(url: str) -> bytes:
     raise NutritionFactsFetchError(
         "Too many redirects while fetching source URL"
     )
+
+
+def _resolve_redirect_url(
+    current_url: str, location: str, expected_host: str
+) -> str:
+    """Resolve redirect target and keep requests on the same validated host."""
+    location = location.strip()
+    if not location:
+        raise NutritionFactsFetchError(
+            "Redirect Location header missing value"
+        )
+    if location.startswith("//"):
+        raise NutritionFactsFetchError(
+            "Protocol-relative redirects are disallowed"
+        )
+
+    if "://" in location:
+        next_url = location
+    else:
+        base = urlsplit(current_url)
+        base_url = urlunsplit(
+            (
+                base.scheme,
+                base.netloc,
+                base.path,
+                "",
+                "",
+            )
+        )
+        next_url = urljoin(base_url, location)
+
+    _validate_url(next_url)
+
+    next_host = urlsplit(next_url).hostname
+    if next_host is None or next_host.lower() != expected_host.lower():
+        raise NutritionFactsFetchError(
+            "Redirect host mismatch in follow-up request"
+        )
+    return next_url
 
 
 def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
