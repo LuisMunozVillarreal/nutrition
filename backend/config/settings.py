@@ -99,6 +99,7 @@ NUTRITION_SCRAPER_ALLOWED_HOSTS = ENV.list(
 INSTALLED_APPS = [
     "apps.exercises",
     "apps.foods",
+    "apps.garmin",
     "apps.goals",
     "apps.measurements",
     "apps.plans",
@@ -116,6 +117,24 @@ INSTALLED_APPS = [
     "taggit",
     "strawberry.django",
 ]
+
+
+GARMIN_ENABLED = ENV.bool("GARMIN_ENABLED", default=False)
+GARMIN_CLIENT_ID = ENV.str("GARMIN_CLIENT_ID", default="")
+GARMIN_CLIENT_SECRET = ENV.str("GARMIN_CLIENT_SECRET", default="")
+GARMIN_AUTHORIZATION_URL = ENV.str("GARMIN_AUTHORIZATION_URL", default="")
+GARMIN_TOKEN_URL = ENV.str("GARMIN_TOKEN_URL", default="")
+GARMIN_ACTIVITIES_URL = ENV.str("GARMIN_ACTIVITIES_URL", default="")
+GARMIN_CALLBACK_URL = ENV.str("GARMIN_CALLBACK_URL", default="")
+GARMIN_SCOPES = ENV.str("GARMIN_SCOPES", default="")
+GARMIN_REQUEST_TIMEOUT_SECONDS = ENV.int("GARMIN_REQUEST_TIMEOUT_SECONDS", default=10)
+GARMIN_ACTIVITY_MAX_PAGES = ENV.int("GARMIN_ACTIVITY_MAX_PAGES", default=200)
+GARMIN_ACTIVITIES_LIMIT = ENV.int("GARMIN_ACTIVITIES_LIMIT", default=100)
+GARMIN_STATE_TTL_SECONDS = ENV.int("GARMIN_STATE_TTL_SECONDS", default=300)
+GARMIN_TOKEN_ENCRYPTION_KEY = ENV.str(
+    "GARMIN_TOKEN_ENCRYPTION_KEY",
+    default="",
+)
 
 
 MIDDLEWARE = [

@@ -66,6 +66,29 @@ test('unauthenticated and expired protected sessions gate deep links at sign-in'
   assert.deepEqual(decideRouteAccess('/plans/new', 'loading', false), {
     kind: 'loading',
   })
+
+  assert.deepEqual(
+    decideRouteAccess('/settings', 'unauthenticated', false),
+    {
+      kind: 'redirect',
+      destination: '/login?callbackUrl=%2Fsettings',
+    },
+  )
+  assert.deepEqual(
+    decideRouteAccess('/settings/garmin-callback', 'unauthenticated', false),
+    {
+      kind: 'redirect',
+      destination:
+        '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
+    },
+  )
+})
+
+test('authenticated sessions can access settings routes', async () => {
+  const { decideRouteAccess } = await routePolicy()
+
+  assert.deepEqual(decideRouteAccess('/settings', 'authenticated', false), { kind: 'allow' })
+  assert.deepEqual(decideRouteAccess('/settings/garmin-callback', 'authenticated', false), { kind: 'allow' })
 })
 
 test('backend reauthentication gates rolling sessions without creating a login loop', async () => {
