@@ -92,7 +92,9 @@ def test_scrape_rejects_private_hosts(url, monkeypatch, requests_mock):
         "https://[fd00::1]",
     ],
 )
-def test_scrape_rejects_private_ipv6_notations(url, monkeypatch, requests_mock):
+def test_scrape_rejects_private_ipv6_notations(
+    url, monkeypatch, requests_mock
+):
     """Private and loopback IPv6 alternative notations are blocked."""
     monkeypatch.setattr(
         "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
