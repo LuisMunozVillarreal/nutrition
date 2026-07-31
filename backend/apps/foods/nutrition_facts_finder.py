@@ -77,7 +77,14 @@ def _validate_host(hostname: str) -> None:
         ) from exc
 
     # All resolved endpoints must be publicly routable.
-    for _, _, _, _, address in addrs:
+    resolved_records = addrs
+    if (
+        isinstance(addrs, tuple)
+        and len(addrs) == 5
+        and not isinstance(addrs[0], tuple)
+    ):
+        resolved_records = [addrs]
+    for _, _, _, _, address in resolved_records:
         resolved = ipaddress.ip_address(address[0])
         if not _is_public_ip(resolved):
             raise NutritionFactsFetchError(
@@ -93,7 +100,9 @@ def _validate_url(url: str) -> str:
     if parsed.username or parsed.password:
         raise NutritionFactsFetchError("Credentials in URL are not allowed")
     if parsed.port is not None:
-        raise NutritionFactsFetchError("Ports are not supported for scraping URLs")
+        raise NutritionFactsFetchError(
+            "Ports are not supported for scraping URLs"
+        )
 
     if parsed.hostname is None:
         raise NutritionFactsFetchError("URL must include a valid host")
