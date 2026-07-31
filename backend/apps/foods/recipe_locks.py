@@ -75,13 +75,13 @@ def lock_recipe_ingredients(
     ingredient_model = apps.get_model("foods", "RecipeIngredient")
     ordered_ids = sorted(set(recipe_ids))
     recipes = list(
-        recipe_model.objects.select_for_update()
+        recipe_model.objects.select_for_update(of=("self",))
         .using(using)
         .filter(pk__in=ordered_ids)
         .order_by("pk")
     )
     ingredients = list(
-        ingredient_model.objects.select_for_update()
+        ingredient_model.objects.select_for_update(of=("self",))
         .using(using)
         .filter(recipe_id__in=ordered_ids)
         .select_related("food__food")

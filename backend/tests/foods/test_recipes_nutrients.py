@@ -45,6 +45,61 @@ def test_do_not_calculate_recipe_nutrients(db, recipe_ingredient):
     assert recipe.protein_g == 250
 
 
+def test_full_stale_recipe_save_preserves_concurrent_protected_state(
+    db, recipe_factory, food_product_factory, recipe_ingredient_factory
+):
+    """An unrelated full save cannot restore stale mode, units, or totals."""
+    recipe = recipe_factory(
+        nutrients_from_ingredients=False,
+        size=Decimal("500"),
+        size_unit="g",
+        nutritional_info_unit="g",
+        protein_g=Decimal("99"),
+    )
+    product = food_product_factory(
+        size=Decimal("1"), size_unit="kg", protein_g=Decimal("10")
+    )
+    serving = Serving.objects.create(
+        food=product, serving_size=Decimal("1"), serving_unit="kg"
+    )
+    recipe_ingredient_factory(recipe=recipe, food=serving)
+    concurrent = Recipe.objects.get(pk=recipe.pk)
+    stale = Recipe.objects.get(pk=recipe.pk)
+
+    concurrent.nutrients_from_ingredients = True
+    concurrent.size_unit = "kg"
+    concurrent.nutritional_info_unit = "kg"
+    concurrent.num_servings = Decimal("4")
+    concurrent.save()
+    stale.name = "Stale rename"
+    stale.save()
+
+    stale.refresh_from_db()
+    assert stale.name == "Stale rename"
+    assert stale.nutrients_from_ingredients is True
+    assert stale.size_unit == "kg"
+    assert stale.nutritional_info_unit == "kg"
+    assert stale.num_servings == Decimal("4")
+    assert stale.size == Decimal("1")
+    assert stale.protein_g == Decimal("100")
+
+
+def test_stale_recipe_save_can_explicitly_override_a_protected_field(
+    db, recipe_factory
+):
+    """Listing a protected field in update_fields is an intentional write."""
+    recipe = recipe_factory(nutrients_from_ingredients=False)
+    concurrent = Recipe.objects.get(pk=recipe.pk)
+    stale = Recipe.objects.get(pk=recipe.pk)
+    concurrent.nutrients_from_ingredients = True
+    concurrent.save(update_fields=["nutrients_from_ingredients"])
+
+    stale.save(update_fields=["nutrients_from_ingredients"])
+
+    stale.refresh_from_db()
+    assert stale.nutrients_from_ingredients is False
+
+
 def test_increase_recipe_nutrient(db, recipe_ingredient):
     """Increase recipe nutrient correctly."""
     # Given
@@ -355,6 +410,35 @@ def test_recipe_ingredient_create_locks_recipe_and_ingredients_before_write(
 
     recipe_lock.assert_called()
     ingredient_lock.assert_called()
+
+
+def test_recipe_joined_lock_queries_target_only_their_base_rows(
+    db, mocker, recipe_factory, recipe_ingredient_factory
+):
+    """Recipe locks never add joined serving/food rows to the lock graph."""
+    recipe = recipe_factory(nutrients_from_ingredients=True, size=0)
+    recipe_ingredient_factory(recipe=recipe)
+    lock_targets = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_lock_targets(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if (
+            was_unfetched
+            and queryset.query.select_for_update
+            and queryset.query.select_related
+        ):
+            lock_targets.append(
+                (queryset.model, queryset.query.select_for_update_of)
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_lock_targets)
+    recipe.name = "Joined lock audit"
+
+    recipe.save()
+
+    assert lock_targets == [(RecipeIngredient, ("self",))]
 
 
 def test_bulk_serving_cascade_prelocks_all_affected_recipe_hierarchies(

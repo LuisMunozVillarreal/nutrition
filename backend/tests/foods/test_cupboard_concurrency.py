@@ -13,6 +13,7 @@ from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
+from apps.foods import cupboard_locks
 from apps.foods import deletion as food_deletion
 from apps.foods.models import (
     CupboardItem,
@@ -491,3 +492,170 @@ class ServingCascadeConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.item.consumed_perc, Decimal("20"))
         self.assertEqual(self.day.energy_kcal, Decimal("0"))
         self.assertEqual(self.plan.energy_kcal, Decimal("0"))
+
+
+@skipUnless(
+    connection.vendor == "postgresql"
+    and connection.features.has_select_for_update,
+    "PostgreSQL row locks are required",
+)
+class IntakeCupboardGlobalOrderConcurrencyTests(TransactionTestCase):
+    """Exercise opposite intake swaps and cascades across shared stock rows."""
+
+    reset_sequences = True
+
+    def setUp(self):
+        """Create two independent plan hierarchies sharing two cupboard rows."""
+        self.user = User.objects.create_user(
+            email="cupboard-global-order@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=self.user,
+            body_fat_perc=Decimal("20"),
+            weight=Decimal("80"),
+        )
+        self.plans = [
+            WeekPlan.objects.create(
+                user=self.user,
+                measurement=measurement,
+                start_date=datetime.date(2026, 2, 2 + 7 * index),
+                protein_g_kg=Decimal("1.8"),
+                fat_perc=Decimal("25"),
+                deficit=100,
+            )
+            for index in range(2)
+        ]
+        self.days = [plan.days.get(day_num=1) for plan in self.plans]
+        self.products = [
+            FoodProduct.objects.create(
+                name=f"Global-order stock {index}",
+                size=Decimal("100"),
+                size_unit="g",
+                num_servings=10,
+            )
+            for index in range(2)
+        ]
+        self.servings = [
+            product.servings.create(
+                serving_size=Decimal("10"), serving_unit="g"
+            )
+            for product in self.products
+        ]
+        self.items = [
+            CupboardItem.objects.create(
+                owner=self.user,
+                food=product,
+                purchased_at=timezone.now(),
+            )
+            for product in self.products
+        ]
+
+    @staticmethod
+    def _run_competing(first, second):
+        ready = threading.Barrier(2)
+
+        def run(operation):
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '5s'")
+                    cursor.execute("SET statement_timeout = '15s'")
+                ready.wait(timeout=10)
+                operation()
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(run, worker) for worker in (first, second)
+            ]
+            for future in futures:
+                future.result(timeout=20)
+
+    def test_opposite_intake_food_swaps_lock_both_items_by_pk(self):
+        """A-to-B and B-to-A swaps cannot deadlock on old/new item order."""
+        intakes = [
+            Intake.objects.create(
+                day=day,
+                food=serving,
+                meal=Intake.MEAL_LUNCH,
+            )
+            for day, serving in zip(self.days, self.servings, strict=True)
+        ]
+        before_cupboard = threading.Barrier(2)
+        original_lock = intake_model.lock_intake_cupboard_rows
+
+        def synchronize_before_cupboard(*args, **kwargs):
+            before_cupboard.wait(timeout=10)
+            return original_lock(*args, **kwargs)
+
+        def swap(intake_id, serving_id):
+            stale = Intake.objects.get(pk=intake_id)
+            stale.food_id = serving_id
+            stale.save()
+
+        with patch.object(
+            intake_model,
+            "lock_intake_cupboard_rows",
+            new=synchronize_before_cupboard,
+        ):
+            self._run_competing(
+                lambda: swap(intakes[0].pk, self.servings[1].pk),
+                lambda: swap(intakes[1].pk, self.servings[0].pk),
+            )
+
+        for item in self.items:
+            item.refresh_from_db()
+            self.assertEqual(item.consumed_perc, Decimal("10"))
+        self.assertEqual(
+            list(
+                CupboardItemConsumption.objects.order_by(
+                    "intake_id"
+                ).values_list("item_id", flat=True)
+            ),
+            [self.items[1].pk, self.items[0].pk],
+        )
+
+    def _assert_opposite_cascades_complete(self, roots):
+        for day in self.days:
+            for serving in reversed(self.servings):
+                Intake.objects.create(
+                    day=day,
+                    food=serving,
+                    meal=Intake.MEAL_LUNCH,
+                )
+        before_cupboard = threading.Barrier(2)
+        original_lock = cupboard_locks.lock_cupboard_items
+
+        def synchronize_before_cupboard(*args, **kwargs):
+            before_cupboard.wait(timeout=10)
+            return original_lock(*args, **kwargs)
+
+        def delete(model, row_id):
+            model.objects.get(pk=row_id).delete()
+
+        with patch.object(
+            cupboard_locks,
+            "lock_cupboard_items",
+            new=synchronize_before_cupboard,
+        ):
+            self._run_competing(
+                lambda: delete(type(roots[0]), roots[0].pk),
+                lambda: delete(type(roots[1]), roots[1].pk),
+            )
+
+        self.assertFalse(Intake.objects.exists())
+        for item in self.items:
+            item.refresh_from_db()
+            self.assertEqual(item.consumed_perc, Decimal("0"))
+
+    def test_opposite_day_cascades_lock_complete_item_sets_by_pk(self):
+        """Day cascades prelock shared cupboard sets without inversion."""
+        self._assert_opposite_cascades_complete(self.days)
+
+    def test_opposite_week_cascades_lock_complete_item_sets_by_pk(self):
+        """Weekly plan cascades prelock shared cupboard sets without inversion."""
+        self._assert_opposite_cascades_complete(self.plans)

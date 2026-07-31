@@ -14,11 +14,15 @@ class NutritionDeletionLocks:
 
     recipe_locks: Any | None
     intake_locks: Any | None
+    cupboard_locks: Any | None
+    plan_locks: Any | None
 
     def clear_markers(self) -> None:
         """Remove transaction-scoped markers from prelocked model instances."""
         if self.intake_locks is not None:
             self.intake_locks.aggregate_locks.clear_markers()
+        if self.plan_locks is not None:
+            self.plan_locks.clear_markers()
 
 
 @contextmanager
@@ -30,6 +34,7 @@ def activate_nutrition_deletion_locks(
     Args:
         locks (NutritionDeletionLocks): Bundles held by the outer transaction.
     """
+    from apps.foods.cupboard_locks import activate_cupboard_item_locks
     from apps.foods.recipe_locks import activate_recipe_aggregate_locks
     from apps.plans.models.intake import activate_intake_deletion_locks
 
@@ -41,6 +46,10 @@ def activate_nutrition_deletion_locks(
         if locks.intake_locks is not None:
             stack.enter_context(
                 activate_intake_deletion_locks(locks.intake_locks)
+            )
+        if locks.cupboard_locks is not None:
+            stack.enter_context(
+                activate_cupboard_item_locks(locks.cupboard_locks)
             )
         yield
 
@@ -114,7 +123,7 @@ def lock_nutrition_deletion(
     serving_model = apps.get_model("foods", "Serving")
     food_model = apps.get_model("foods", "Food")
     intake_model = apps.get_model("plans", "Intake")
-    cupboard_item_model = apps.get_model("foods", "CupboardItem")
+
     consumption_model = apps.get_model("foods", "CupboardItemConsumption")
     serving_ids: list[int] = []
     target_recipe_ids: list[int] = []
@@ -164,7 +173,7 @@ def lock_nutrition_deletion(
             .distinct()
         )
     else:
-        return NutritionDeletionLocks(None, None)
+        return NutritionDeletionLocks(None, None, None, None)
 
     recipe_locks = None
     if serving_ids:
@@ -185,21 +194,27 @@ def lock_nutrition_deletion(
         set(affected_consumptions.values_list("item_id", flat=True))
     )
     intake_locks = None
+    plan_locks = None
+    cupboard_locks = None
     if day_ids:
         # Keep plan/day/intake ordering aligned with all intake writers.
         if affected_intakes is not None:
             from apps.plans.models.intake import lock_intake_deletion_rows
 
-            intake_locks = lock_intake_deletion_rows(affected_intakes, using)
+            intake_locks = lock_intake_deletion_rows(
+                affected_intakes,
+                using,
+                cupboard_item_ids=tuple(cupboard_item_ids),
+            )
+            cupboard_locks = intake_locks.cupboard_locks
         else:
             from apps.plans.locks import lock_plan_aggregate_rows
 
-            lock_plan_aggregate_rows(using=using, day_ids=day_ids)
-    if cupboard_item_ids:
-        list(
-            cupboard_item_model.objects.select_for_update(of=("self",))
-            .using(using)
-            .filter(pk__in=cupboard_item_ids)
-            .order_by("pk")
-        )
-    return NutritionDeletionLocks(recipe_locks, intake_locks)
+            plan_locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
+    if cupboard_locks is None:
+        from apps.foods.cupboard_locks import lock_cupboard_items
+
+        cupboard_locks = lock_cupboard_items(cupboard_item_ids, using)
+    return NutritionDeletionLocks(
+        recipe_locks, intake_locks, cupboard_locks, plan_locks
+    )
