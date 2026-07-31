@@ -169,6 +169,10 @@ def get_product_nutritional_info_from_url(url: str) -> Dict[str, Any | float]:
 
     Returns:
         Dict[str, str | float]
+
+    Raises:
+        ValueError: If the URL cannot be safely fetched or if the parsed
+            response body is invalid.
     """
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
