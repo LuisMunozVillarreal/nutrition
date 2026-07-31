@@ -1,5 +1,9 @@
 IMAGE_NAME?=luismunozvillarreal/nutrition-backend
 TAG?=latest
+DJANGO_SETTINGS_MODULE?=config.settings
+SECRET_KEY?=insecure-local-test-secret
+GEMINI_API_KEY?=local-test-gemini-key
+DATABASE_URL?=sqlite:///db.sqlite3
 
 .PHONY: install python-checks pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push restore-db migrations-check migrate ci-migrations
 
@@ -9,6 +13,10 @@ install:
 python-checks: pytest bandit flake8 black-fix mypy pylint pylint-tests pydocstyle pydocstyle-tests
 
 pytest:
+	DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) \
+	SECRET_KEY=$(SECRET_KEY) \
+	GEMINI_API_KEY=$(GEMINI_API_KEY) \
+	DATABASE_URL=$(DATABASE_URL) \
 	uv run pytest -n 4 tests ../.circleci/scripts $(ARGS)
 
 bandit:

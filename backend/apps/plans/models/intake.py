@@ -330,6 +330,42 @@ class Intake(Nutrients):
         editable=False,
     )
 
+    @classmethod
+    def validate_meal(cls, meal: str) -> str:
+        """Validate and normalize a user-supplied meal token.
+
+        Args:
+            meal (str): The caller-provided meal label.
+
+        Returns:
+            str: Normalized meal token.
+
+        Raises:
+            ValueError: If the meal is not a supported canonical value.
+        """
+        normalized = meal.strip()
+        if normalized not in cls.MEAL_ORDER:
+            raise ValueError(
+                "meal must be one of: "
+                + ", ".join(meal for meal, _ in cls.MEAL_CHOICES)
+            )
+        return normalized
+
+    @classmethod
+    def meal_order_for(cls, meal: str) -> int:
+        """Return the canonical sort order for a validated meal.
+
+        Args:
+            meal (str): Meal token to map.
+
+        Returns:
+            int: Meal order index.
+
+        Raises:
+            ValueError: If the meal is unsupported.
+        """
+        return cls.MEAL_ORDER[cls.validate_meal(meal)]
+
     notes = models.TextField(
         blank=True,
     )
@@ -437,7 +473,8 @@ class Intake(Nutrients):
                     cupboard_locks = lock_intake_cupboard_rows(
                         self, previous, using
                     )
-                    self.meal_order = self.MEAL_ORDER[self.meal]
+                    self.meal = self.validate_meal(self.meal)
+                    self.meal_order = self.meal_order_for(self.meal)
 
                     if previous is not None and self.food is None:
                         removed_food_without_macro_edits = (
