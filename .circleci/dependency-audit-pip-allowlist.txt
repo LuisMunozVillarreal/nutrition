@@ -1,0 +1,3 @@
+# Temporary vulnerability waivers (backend) for production audit gates.
+# Add one vulnerability ID per line and include owner/date justification in the PR.
+# Remove each entry as soon as a patched dependency is merged.
