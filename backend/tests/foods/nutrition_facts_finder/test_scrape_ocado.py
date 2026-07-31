@@ -30,6 +30,7 @@ def ocado_request(requests_mock):
     return requests_mock.get(
         URL,
         status_code=200,
+        headers={"Content-Type": "text/html; charset=utf-8"},
         text="<html><body>hola</body></html>",
     )
 
