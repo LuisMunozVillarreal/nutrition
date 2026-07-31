@@ -1018,6 +1018,87 @@ def test_0036_treats_null_food_size_as_ambiguous():
 
 @pytest.mark.django_db(transaction=True)
 # pylint: disable-next=too-many-locals
+def test_0036_uses_canonical_cup_semantics_in_historical_state():
+    """Historical cup links convert both ways before exact remainder rounding."""
+    start_target = ("foods", "0035_relax_preview_snapshot_constraints")
+    migration_target = ("foods", "0036_backfill_manual_consumed_perc")
+    executor = MigrationExecutor(connection)
+
+    try:
+        executor.migrate([start_target])
+        historical_apps = executor.loader.project_state([start_target]).apps
+        historical_food = historical_apps.get_model("foods", "Food")
+        historical_serving = historical_apps.get_model("foods", "Serving")
+        historical_item = historical_apps.get_model("foods", "CupboardItem")
+        historical_consumption = historical_apps.get_model(
+            "foods", "CupboardItemConsumption"
+        )
+
+        cup_to_ml_food = historical_food.objects.create(
+            name="Historical cup to millilitres",
+            size=Decimal("500"),
+            size_unit="ml",
+        )
+        ml_to_cup_food = historical_food.objects.create(
+            name="Historical millilitres to cups",
+            size=Decimal("2"),
+            size_unit="c",
+        )
+        cup_serving = historical_serving.objects.create(
+            food=cup_to_ml_food,
+            serving_size=Decimal("1"),
+            serving_unit="c",
+        )
+        ml_serving = historical_serving.objects.create(
+            food=ml_to_cup_food,
+            serving_size=Decimal("300"),
+            serving_unit="ml",
+        )
+        items = [
+            historical_item.objects.create(
+                food=cup_to_ml_food,
+                purchased_at=timezone.now(),
+                consumed_perc=Decimal("60"),
+                manual_consumed_perc=None,
+            ),
+            historical_item.objects.create(
+                food=ml_to_cup_food,
+                purchased_at=timezone.now(),
+                consumed_perc=Decimal("80"),
+                manual_consumed_perc=None,
+            ),
+            historical_item.objects.create(
+                food=ml_to_cup_food,
+                purchased_at=timezone.now(),
+                consumed_perc=Decimal("60"),
+                manual_consumed_perc=None,
+            ),
+        ]
+        historical_consumption.objects.create(
+            item=items[0], serving=cup_serving
+        )
+        for item in items[1:]:
+            historical_consumption.objects.create(
+                item=item, serving=ml_serving
+            )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([migration_target])
+        migrated_apps = executor.loader.project_state([migration_target]).apps
+        migrated_item = migrated_apps.get_model("foods", "CupboardItem")
+
+        assert list(
+            migrated_item.objects.filter(pk__in=[item.pk for item in items])
+            .order_by("pk")
+            .values_list("manual_consumed_perc", flat=True)
+        ) == [Decimal("12.68"), Decimal("16.60"), Decimal("0.00")]
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+
+@pytest.mark.django_db(transaction=True)
+# pylint: disable-next=too-many-locals
 def test_0036_quarantines_nonpositive_sizes_without_changing_valid_rows():
     """Historical non-positive denominators use the ambiguous baseline."""
     start_target = ("foods", "0035_relax_preview_snapshot_constraints")

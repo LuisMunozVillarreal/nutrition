@@ -7,9 +7,31 @@ from django.db.models import Case, F, Value, When
 from pint import UnitRegistry
 from pint.errors import DimensionalityError
 
-CONTEXTUAL_UNITS = {"container", "serving", "unit"}
+CONTEXTUAL_UNITS = frozenset({"container", "serving", "unit"})
 BATCH_SIZE = 500
-UREG = UnitRegistry()
+
+# Freeze the concrete values persisted by the historical model into this data
+# migration. An empty registry avoids Pint's built-in aliases (notably ``c``
+# for the speed of light) and keeps these conversion factors independent of
+# later runtime-unit changes.
+UNIT_DEFINITIONS = (
+    "g = [mass]",
+    "mg = 0.001 g",
+    "kg = 1000 g",
+    "oz = 28.349523125 g",
+    "lb = 16 oz",
+    "l = [volume]",
+    "ml = 0.001 l",
+    "cl = 0.01 l",
+    "floz = 29.573529562499985 ml",
+    "c = 8 floz",
+    "tsp = 4.92892159375 ml",
+    "tbsp = 3 tsp",
+    "pt = 16 floz",
+)
+UREG = UnitRegistry(None)
+for unit_definition in UNIT_DEFINITIONS:
+    UREG.define(unit_definition)
 
 
 def _serving_amount(consumption):

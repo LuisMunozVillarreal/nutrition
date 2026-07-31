@@ -82,6 +82,33 @@ class RecipeIngredientConcurrencyTests(TransactionTestCase):
         self.assertEqual(recipe.ingredients.count(), 2)
         self.assertEqual(recipe.size, Decimal("1100"))
 
+    def test_refresh_then_concurrent_write_is_not_restored_by_full_save(self):
+        """A refreshed baseline preserves a later write from another connection."""
+        recipe = self._recipe()
+        Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("1"))
+        stale = Recipe.objects.get(pk=recipe.pk)
+        Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("2"))
+        stale.refresh_from_db()
+        concurrent_done = threading.Event()
+
+        def concurrent_write():
+            Recipe.objects.filter(pk=recipe.pk).update(
+                num_servings=Decimal("3")
+            )
+            concurrent_done.set()
+
+        def unrelated_save():
+            if not concurrent_done.wait(timeout=10):
+                raise RuntimeError("concurrent recipe write did not finish")
+            stale.name = "Concurrent refreshed rename"
+            stale.save()
+
+        self._run_concurrently(concurrent_write, unrelated_save)
+
+        recipe.refresh_from_db()
+        self.assertEqual(recipe.name, "Concurrent refreshed rename")
+        self.assertEqual(recipe.num_servings, Decimal("3"))
+
     def test_recipe_update_loaded_before_ingredient_write_recomputes_latest_state(
         self,
     ):

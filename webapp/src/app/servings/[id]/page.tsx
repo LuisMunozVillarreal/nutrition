@@ -6,6 +6,7 @@ import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 import { servingUnitChoices } from '@/lib/units'
+import { servingMacroDisplayValues } from './servingMacroDisplay'
 
 const SERVING_QUERY = gql`
   query GetServing($foodId: ID!) {
@@ -87,6 +88,8 @@ function EditServingForm() {
 
   const handleDelete = async () => { await graphqlRequest(DELETE_MUTATION, { id }) }
 
+  const displayMacros = servingMacroDisplayValues(readOnly)
+
   if (loading) return <div className="p-12 text-center text-slate-500">Loading...</div>
 
   return (
@@ -111,10 +114,10 @@ function EditServingForm() {
           content: (
             <>
               <p className="text-xs text-slate-500 mb-4">Values below are derived from the Food Product base nutrition and current serving ratio.</p>
-              <ReadonlyField label="Energy (kcal)" value={readOnly.energyKcal ? Math.round(readOnly.energyKcal) : '—'} />
-              <ReadonlyField label="Protein (g)" value={readOnly.proteinG ? Math.round(readOnly.proteinG) : '—'} />
-              <ReadonlyField label="Fat (g)" value={readOnly.fatG ? Math.round(readOnly.fatG) : '—'} />
-              <ReadonlyField label="Carbs (g)" value={readOnly.carbsG ? Math.round(readOnly.carbsG) : '—'} />
+              <ReadonlyField label="Energy (kcal)" value={displayMacros.energyKcal} />
+              <ReadonlyField label="Protein (g)" value={displayMacros.proteinG} />
+              <ReadonlyField label="Fat (g)" value={displayMacros.fatG} />
+              <ReadonlyField label="Carbs (g)" value={displayMacros.carbsG} />
             </>
           ),
         }
