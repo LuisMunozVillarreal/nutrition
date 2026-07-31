@@ -32,6 +32,7 @@ CORS_ALLOWED_ORIGINS = ENV.list(
 SITE_ID = 1
 
 ENVIRONMENT = ENV("ENVIRONMENT", default="development")
+IS_PRODUCTION = ENVIRONMENT != "development"
 if ENVIRONMENT == "development":  # pragma: no cover
     ALLOWED_HOSTS = [
         "192.168.1.101",
@@ -44,6 +45,37 @@ if ENVIRONMENT == "development":  # pragma: no cover
     ]
     DEBUG = True
 
+CSRF_TRUSTED_ORIGINS = ENV.list("CSRF_TRUSTED_ORIGINS", default=[])
+if not CSRF_TRUSTED_ORIGINS and IS_PRODUCTION:
+    CSRF_TRUSTED_ORIGINS = [
+        f"https://{host}" for host in ALLOWED_HOSTS if host
+    ]
+
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if IS_PRODUCTION else None
+)
+
+SESSION_COOKIE_SECURE = ENV.bool(
+    "SESSION_COOKIE_SECURE",
+    default=IS_PRODUCTION,
+)
+CSRF_COOKIE_SECURE = ENV.bool("CSRF_COOKIE_SECURE", default=IS_PRODUCTION)
+SECURE_SSL_REDIRECT = ENV.bool(
+    "SECURE_SSL_REDIRECT",
+    default=IS_PRODUCTION,
+)
+SECURE_HSTS_SECONDS = ENV.int(
+    "SECURE_HSTS_SECONDS",
+    default=63072000 if IS_PRODUCTION else 0,
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = ENV.bool(
+    "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+    default=IS_PRODUCTION,
+)
+SECURE_HSTS_PRELOAD = ENV.bool(
+    "SECURE_HSTS_PRELOAD",
+    default=False,
+)
 
 # Application definition
 

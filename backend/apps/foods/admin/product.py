@@ -122,7 +122,10 @@ class FoodProductForm(forms.ModelForm):
                     "URL is required to scrape the info from"
                 )
 
-            data = get_product_nutritional_info_from_url(url)
+            try:
+                data = get_product_nutritional_info_from_url(url)
+            except ValueError as exc:
+                raise forms.ValidationError(str(exc))
 
             del self.errors["name"]
 
