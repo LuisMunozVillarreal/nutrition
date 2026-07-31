@@ -150,9 +150,7 @@ def _follow_redirects(url: str) -> bytes:
                 _validate_url(current_url)
                 redirect_host = urlsplit(current_url).hostname
                 if redirect_host is None:
-                    raise NutritionFactsFetchError(
-                        "Invalid redirect target"
-                    )
+                    raise NutritionFactsFetchError("Invalid redirect target")
                 if redirect_host.lower() != initial_host.lower():
                     raise NutritionFactsFetchError(
                         "Redirect host mismatch in follow-up request"
