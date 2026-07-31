@@ -170,6 +170,59 @@ def recalculate_consumed_perc(
         cupboard_item.finished = total_consumed_perc == 100
 
 
+def _cook_recipe_from_cupboard(
+    recipe: Recipe, cooked_item: CupboardItem, using: str
+) -> None:
+    """Lock recipe stock canonically, then create every ingredient link.
+
+    Nutrition writers acquire ``WeekPlan`` and ``Day`` rows first, an existing
+    ``Intake`` row when applicable, and ``CupboardItem`` rows last. A recipe
+    fan-out has no plan or intake rows, so it joins that global order at the
+    cupboard step and acquires every affected row by ascending primary key.
+
+    Args:
+        recipe (Recipe): recipe whose ingredient stock will be consumed.
+        cooked_item (CupboardItem): newly created recipe cupboard item.
+        using (str): database alias used by the cupboard write.
+    """
+    ingredients = tuple(
+        recipe.ingredients.using(using)
+        .select_related("food__food")
+        .order_by("pk")
+    )
+    ingredient_food_ids = {
+        ingredient.food.food_id for ingredient in ingredients
+    }
+    locked_items_by_food: dict[int, CupboardItem] = {}
+    for item in (
+        CupboardItem.objects.select_for_update(of=("self",))
+        .using(using)
+        .select_related("food")
+        .filter(
+            food_id__in=ingredient_food_ids,
+            finished=False,
+            owner_id=cooked_item.owner_id,
+        )
+        .order_by("pk")
+    ):
+        locked_items_by_food.setdefault(item.food_id, item)
+
+    for ingredient in ingredients:
+        cupboard_item = locked_items_by_food.get(ingredient.food.food_id)
+        if cupboard_item is None:
+            continue
+        consumption = CupboardItemConsumption(
+            item=cupboard_item,
+            serving=ingredient.food,
+            num_servings=ingredient.num_servings,
+        )
+        setattr(consumption, "_locked_cupboard_item", (using, cupboard_item))
+        try:
+            consumption.save(using=using)
+        finally:
+            delattr(consumption, "_locked_cupboard_item")
+
+
 @receiver(post_save, sender=CupboardItem)
 def calculate_consumption_from_cooked_recipes(
     sender: CupboardItem,  # pylint: disable=unused-argument
@@ -188,28 +241,12 @@ def calculate_consumption_from_cooked_recipes(
     if not created:
         return
 
-    recipe = Recipe.objects.filter(pk=instance.food.pk).first()
+    using = kwargs["using"]
+    recipe = Recipe.objects.using(using).filter(pk=instance.food.pk).first()
     if not recipe:
         return
 
-    for recipe_ingredient in recipe.ingredients.all():
-        serving = recipe_ingredient.food
-
-        cupboard_item = CupboardItem.objects.filter(
-            food=serving.food,
-            finished=False,
-            owner=instance.owner,
-        ).first()
-        if not cupboard_item:
-            continue
-
-        CupboardItemConsumption.objects.create(
-            item=cupboard_item,
-            serving=serving,
-            num_servings=recipe_ingredient.num_servings,
-        )
-
-        recalculate_consumed_perc(cupboard_item)
+    _cook_recipe_from_cupboard(recipe, instance, using)
 
 
 @receiver(post_save, sender=Intake)
@@ -368,8 +405,16 @@ def control_finished_items(
     Raises:
         CupboardItemConsumptionTooBigError: if the cupboard item serving is too
             big to be consumed.
+        RuntimeError: if an internal prelocked cupboard context is invalid.
     """
-    cupboard_item = _lock_cupboard_item(instance, using)
+    locked_context = getattr(instance, "_locked_cupboard_item", None)
+    if locked_context is None:
+        cupboard_item = _lock_cupboard_item(instance, using)
+    else:
+        locked_using, cupboard_item = locked_context
+        if locked_using != using or cupboard_item.pk != instance.item_id:
+            raise RuntimeError("invalid prelocked cupboard item")
+        instance.item = cupboard_item
     _reconcile_manual_consumed_perc(cupboard_item)
     if instance.id is not None:
         return

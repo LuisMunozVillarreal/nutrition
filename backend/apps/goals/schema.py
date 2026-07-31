@@ -113,7 +113,9 @@ class GoalMutation:
         obj = FatPercGoal.objects.create(
             user=user,
             body_fat_perc=validated_percentage_decimal(
-                body_fat_perc, "bodyFatPerc"
+                body_fat_perc,
+                "bodyFatPerc",
+                FatPercGoal._meta.get_field("body_fat_perc"),
             ),
         )
         return FatPercGoalType.from_model(obj)
@@ -144,7 +146,9 @@ class GoalMutation:
             raise PermissionError("Authentication required")
 
         validated_body_fat_perc = validated_percentage_decimal(
-            body_fat_perc, "bodyFatPerc"
+            body_fat_perc,
+            "bodyFatPerc",
+            FatPercGoal._meta.get_field("body_fat_perc"),
         )
         try:
             obj = FatPercGoal.objects.get(pk=id, user=user)

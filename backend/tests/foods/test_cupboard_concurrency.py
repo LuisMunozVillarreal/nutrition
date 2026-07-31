@@ -18,6 +18,9 @@ from apps.foods.models import (
     CupboardItem,
     CupboardItemConsumption,
     FoodProduct,
+    Recipe,
+    RecipeIngredient,
+    Serving,
 )
 from apps.foods.signals.handlers import cupboard as cupboard_handlers
 from apps.measurements.models import Measurement
@@ -224,6 +227,133 @@ class CupboardManualLinkedConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.item.manual_consumed_perc, Decimal("40"))
         self.assertEqual(self.item.consumed_perc, Decimal("40"))
         self.assertFalse(self.item.consumptions.exists())
+
+
+@skipUnless(
+    connection.vendor == "postgresql"
+    and connection.features.has_select_for_update,
+    "PostgreSQL row locks are required",
+)
+class RecipeCupboardFanoutConcurrencyTests(TransactionTestCase):
+    """Exercise cooked recipes sharing multiple cupboard rows."""
+
+    reset_sequences = True
+
+    def setUp(self):
+        """Create two recipes with the same ingredients in opposite orders."""
+        self.user = User.objects.create_user(
+            email="recipe-fanout@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        self.products = [
+            FoodProduct.objects.create(
+                name=f"Shared stock {index}",
+                size=Decimal("100"),
+                size_unit="g",
+                num_servings=10,
+            )
+            for index in range(2)
+        ]
+        self.servings = [
+            Serving.objects.create(
+                food=product,
+                serving_size=Decimal("10"),
+                serving_unit="g",
+            )
+            for product in self.products
+        ]
+        self.items = [
+            CupboardItem.objects.create(
+                owner=self.user,
+                food=product,
+                purchased_at=timezone.now(),
+            )
+            for product in self.products
+        ]
+        first_recipe = Recipe.objects.create(
+            name="Forward recipe", size=1, size_unit="count", num_servings=1
+        )
+        second_recipe = Recipe.objects.create(
+            name="Reverse recipe", size=1, size_unit="count", num_servings=1
+        )
+        for serving in self.servings:
+            RecipeIngredient.objects.create(
+                recipe=first_recipe, food=serving, num_servings=1
+            )
+        for serving in reversed(self.servings):
+            RecipeIngredient.objects.create(
+                recipe=second_recipe, food=serving, num_servings=1
+            )
+        self.recipe_ids = (first_recipe.pk, second_recipe.pk)
+
+    def test_opposite_recipe_orders_lock_shared_cupboard_rows_without_deadlock(
+        self,
+    ):
+        """Both fan-outs complete after synchronizing their first legacy lock."""
+        ready = threading.Barrier(2)
+        first_legacy_locks = threading.Barrier(2)
+        threads_seen = set()
+        threads_seen_guard = threading.Lock()
+        original_lock = (
+            cupboard_handlers._lock_cupboard_item  # pylint: disable=protected-access
+        )
+
+        def synchronize_first_legacy_lock(instance, using):
+            locked_item = original_lock(instance, using)
+            thread_id = threading.get_ident()
+            with threads_seen_guard:
+                is_first = thread_id not in threads_seen
+                threads_seen.add(thread_id)
+            if is_first:
+                first_legacy_locks.wait(timeout=10)
+            return locked_item
+
+        def cook(recipe_id):
+            close_old_connections()
+            try:
+                recipe = Recipe.objects.get(pk=recipe_id)
+                user = User.objects.get(pk=self.user.pk)
+                ready.wait(timeout=10)
+                CupboardItem.objects.create(
+                    owner=user,
+                    food=recipe,
+                    purchased_at=timezone.now(),
+                )
+                return id(connection.connection)
+            finally:
+                close_old_connections()
+
+        with (
+            patch(
+                "apps.foods.signals.handlers.cupboard._lock_cupboard_item",
+                side_effect=synchronize_first_legacy_lock,
+            ),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            futures = [
+                executor.submit(cook, recipe_id)
+                for recipe_id in self.recipe_ids
+            ]
+            connection_ids = [future.result(timeout=20) for future in futures]
+
+        self.assertNotEqual(*connection_ids)
+        self.assertEqual(
+            CupboardItem.objects.filter(
+                owner=self.user, food_id__in=self.recipe_ids
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            CupboardItemConsumption.objects.filter(
+                item__in=self.items
+            ).count(),
+            4,
+        )
+        for item in self.items:
+            item.refresh_from_db()
+            self.assertEqual(item.consumed_perc, Decimal("20"))
 
 
 @skipUnless(

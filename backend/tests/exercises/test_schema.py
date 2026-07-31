@@ -497,6 +497,58 @@ class TestUpdateExercise:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("operation", "distance"),
+    [("create", 0.01), ("update", 99999999.99)],
+)
+def test_exercise_mutations_accept_two_decimal_boundaries(
+    mocker, operation, distance
+):
+    """Exercise create and update accept supported distance boundaries."""
+    user, day = _create_user_with_day(
+        f"exercise-boundary-{operation}@example.com"
+    )
+    exercise = Exercise.objects.create(
+        day=day, time="10:00", type="walk", kcals=100, distance=1
+    )
+    context = mocker.Mock()
+    context.request.user = user
+    if operation == "create":
+        exercise.delete()
+        mutation = """
+            mutation Boundary($dayId: Int!, $distance: Float) {
+                createExercise(
+                    dayId: $dayId, type: "walk", kcals: 100,
+                    distance: $distance
+                ) { id }
+            }
+        """
+        variables = {"dayId": day.id, "distance": distance}
+    else:
+        mutation = """
+            mutation Boundary($id: ID!, $distance: Float) {
+                updateExercise(
+                    id: $id, type: "walk", kcals: 100,
+                    distance: $distance
+                ) { id }
+            }
+        """
+        variables = {"id": str(exercise.id), "distance": distance}
+
+    result = schema.execute_sync(
+        mutation, variable_values=variables, context_value=context
+    )
+
+    assert result.errors is None
+    persisted = Exercise.objects.get(
+        pk=result.data[
+            "createExercise" if operation == "create" else "updateExercise"
+        ]["id"]
+    )
+    assert persisted.distance == Decimal(str(distance))
+
+
+@pytest.mark.django_db
 class TestDayStepsQuery:
     """Tests for day steps queries."""
 

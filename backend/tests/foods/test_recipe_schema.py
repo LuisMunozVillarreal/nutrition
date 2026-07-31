@@ -1,5 +1,10 @@
 """Tests for Recipes GraphQL schema."""
 
+# The complete recipe GraphQL contract is intentionally exercised together.
+# pylint: disable=too-many-lines
+
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -112,6 +117,68 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         assert result.data["createRecipe"]["name"] == "Porridge"
         assert Recipe.objects.filter(name="Porridge").exists()
 
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_recipe_accepts_representable_decimal_boundaries(
+        self, mocker, operation
+    ):
+        """Both recipe write paths preserve supported one/two-decimal values."""
+        user = _create_user(
+            f"recipe-boundary-{operation}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(name="Original")
+        arguments = """
+            name: "Boundary", size: 99.9, sizeUnit: "g", numServings: 0.1,
+            energyKcal: 12.34, proteinG: 23.45, fatG: 34.56,
+            carbsG: 45.67, saturatedFatG: 1.23, sugarsG: 2.34,
+            fibreG: 3.45, saltG: null
+        """
+        if operation == "create":
+            mutation = f"mutation {{ createRecipe({arguments}) {{ id }} }}"
+        else:
+            mutation = f"""
+                mutation UpdateBoundary($id: ID!) {{
+                    updateRecipe(id: $id, {arguments}) {{ id }}
+                }}
+            """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(recipe.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        persisted = Recipe.objects.get(
+            pk=result.data[
+                "createRecipe" if operation == "create" else "updateRecipe"
+            ]["id"]
+        )
+        assert (
+            persisted.size,
+            persisted.num_servings,
+            persisted.energy_kcal,
+            persisted.protein_g,
+            persisted.fat_g,
+            persisted.carbs_g,
+            persisted.saturated_fat_g,
+            persisted.sugar_carbs_g,
+            persisted.fibre_carbs_g,
+            persisted.salt_g,
+        ) == (
+            Decimal("99.9"),
+            Decimal("0.1"),
+            Decimal("12.34"),
+            Decimal("23.45"),
+            Decimal("34.56"),
+            Decimal("45.67"),
+            Decimal("1.23"),
+            Decimal("2.34"),
+            Decimal("3.45"),
+            None,
+        )
+
     def test_create_recipe_rejects_non_staff_user(self, mocker):
         """A regular user cannot create a shared recipe."""
         user = _create_user("rc-regular@test.com")
@@ -179,7 +246,16 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         assert recipe.name == "Shared"
 
     @pytest.mark.parametrize(
-        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+        "size",
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_create_recipe_rejects_invalid_size_without_persisting(
         self, mocker, size
@@ -203,11 +279,19 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         assert result.errors is not None
         assert not Recipe.objects.filter(name="Invalid size").exists()
 
-    @pytest.mark.parametrize("num_servings", [0.0, -1.0])
-    def test_create_recipe_rejects_non_positive_serving_count(
-        self, mocker, num_servings
+    @pytest.mark.parametrize(
+        ("num_servings", "error"),
+        [
+            (0.0, "numServings must be greater than 0"),
+            (-1.0, "numServings must be greater than 0"),
+            (0.01, "numServings exceeds supported precision"),
+            (1000000000.0, "numServings exceeds supported precision"),
+        ],
+    )
+    def test_create_recipe_rejects_invalid_serving_count(
+        self, mocker, num_servings, error
     ):
-        """Creating a recipe requires a positive serving count."""
+        """Creating a recipe requires a positive, representable serving count."""
         user = _create_user(
             f"rc-invalid-{num_servings}@test.com", is_staff=True
         )
@@ -229,11 +313,20 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         )
 
         assert result.errors is not None
-        assert "numServings must be greater than 0" in str(result.errors[0])
+        assert error in str(result.errors[0])
         assert not Recipe.objects.filter(name="Invalid").exists()
 
     @pytest.mark.parametrize(
-        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+        "size",
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_update_recipe_rejects_invalid_size_without_partial_writes(
         self, mocker, size
@@ -287,11 +380,19 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
             200,
         )
 
-    @pytest.mark.parametrize("num_servings", [0.0, -1.0])
-    def test_update_recipe_rejects_non_positive_serving_count(
-        self, mocker, num_servings
+    @pytest.mark.parametrize(
+        ("num_servings", "error"),
+        [
+            (0.0, "numServings must be greater than 0"),
+            (-1.0, "numServings must be greater than 0"),
+            (0.01, "numServings exceeds supported precision"),
+            (1000000000.0, "numServings exceeds supported precision"),
+        ],
+    )
+    def test_update_recipe_rejects_invalid_serving_count(
+        self, mocker, num_servings, error
     ):
-        """Updating a recipe requires a positive serving count."""
+        """Updating a recipe requires a positive, representable serving count."""
         user = _create_user(
             f"ru-invalid-{num_servings}@test.com", is_staff=True
         )
@@ -319,7 +420,7 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         )
 
         assert result.errors is not None
-        assert "numServings must be greater than 0" in str(result.errors[0])
+        assert error in str(result.errors[0])
         recipe.refresh_from_db()
         assert recipe.name == "Valid"
         assert recipe.num_servings == 1
@@ -338,7 +439,9 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
             "saltG",
         ],
     )
-    @pytest.mark.parametrize("value", [-0.1, float("nan"), float("inf")])
+    @pytest.mark.parametrize(
+        "value", [-0.1, 0.001, 100000000.0, float("nan"), float("inf")]
+    )
     def test_recipe_rejects_invalid_nutrients_without_partial_writes(
         self, mocker, operation, field_name, value
     ):
@@ -606,8 +709,76 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         assert recipe.ingredients.count() == 1
 
     @pytest.mark.parametrize(
+        ("operation", "num_servings"), [("add", 0.1), ("update", 99.9)]
+    )
+    def test_recipe_ingredient_accepts_one_decimal_boundaries(
+        self, mocker, operation, num_servings
+    ):
+        """Ingredient add and update preserve supported one-decimal boundaries."""
+        user = _create_user(
+            f"ingredient-boundary-{operation}@test.com", is_staff=True
+        )
+        recipe = Recipe.objects.create(name=f"Boundary {operation}")
+        product = FoodProduct.objects.create(name=f"Ingredient {operation}")
+        food = product.servings.get(serving_size=100, serving_unit="g")
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe, food=food, num_servings=1
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        if operation == "add":
+            ingredient.delete()
+            mutation = """
+                mutation Boundary(
+                    $recipeId: ID!, $foodId: ID!, $numServings: Float!
+                ) {
+                    addRecipeIngredient(
+                        recipeId: $recipeId, foodId: $foodId,
+                        numServings: $numServings
+                    ) { id }
+                }
+            """
+            variables = {
+                "recipeId": str(recipe.id),
+                "foodId": str(food.id),
+                "numServings": num_servings,
+            }
+        else:
+            mutation = """
+                mutation Boundary(
+                    $id: ID!, $foodId: ID!, $numServings: Float!
+                ) {
+                    updateRecipeIngredient(
+                        id: $id, foodId: $foodId,
+                        numServings: $numServings
+                    ) { id }
+                }
+            """
+            variables = {
+                "id": str(ingredient.id),
+                "foodId": str(food.id),
+                "numServings": num_servings,
+            }
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        persisted = RecipeIngredient.objects.get(
+            pk=result.data[
+                (
+                    "addRecipeIngredient"
+                    if operation == "add"
+                    else "updateRecipeIngredient"
+                )
+            ]["id"]
+        )
+        assert persisted.num_servings == Decimal(str(num_servings))
+
+    @pytest.mark.parametrize(
         "num_servings",
-        [0, -0.1, float("nan"), float("inf"), -float("inf")],
+        [0, 0.01, -0.1, float("nan"), float("inf"), -float("inf")],
     )
     def test_add_recipe_ingredient_rejects_invalid_count_without_partial_writes(
         self, mocker, num_servings
@@ -739,7 +910,7 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
 
     @pytest.mark.parametrize(
         "num_servings",
-        [0, -0.1, float("nan"), float("inf"), -float("inf")],
+        [0, 0.01, -0.1, float("nan"), float("inf"), -float("inf")],
     )
     def test_update_recipe_ingredient_rejects_invalid_count_without_partial_writes(
         self, mocker, num_servings

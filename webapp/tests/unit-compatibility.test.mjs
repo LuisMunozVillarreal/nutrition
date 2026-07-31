@@ -59,3 +59,22 @@ test('product and serving forms apply compatibility choices', async () => {
     assert.match(source, /nutritionalInfoUnit/)
   }
 })
+
+test('recipe forms advertise the size units covered by the recipe nutrient contract', async () => {
+  const advertisedRecipeUnits = ['g', 'ml', 'floz', 'oz', 'container', 'serving']
+
+  for (const pagePath of [
+    '../src/app/recipes/new/page.tsx',
+    '../src/app/recipes/[id]/page.tsx',
+  ]) {
+    const source = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    const choices = source.match(/const UNIT_CHOICES = \[([\s\S]*?)\n\]/)
+    assert.ok(choices, `recipe unit choices were not found in ${pagePath}`)
+    assert.deepEqual(
+      [...choices[1].matchAll(/\{\s*value:\s*'([^']+)'/g)].map((match) => match[1]),
+      advertisedRecipeUnits,
+    )
+    assert.match(source, /name="sizeUnit"[\s\S]*?options=\{UNIT_CHOICES\}/)
+    assert.match(source, /sizeUnit:\s*form\.sizeUnit/)
+  }
+})

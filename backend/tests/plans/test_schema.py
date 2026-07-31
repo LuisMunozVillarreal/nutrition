@@ -1,7 +1,8 @@
 """Tests for Plans, Days, and Intakes GraphQL schema."""
 
 # This module keeps the complete plan GraphQL contract in one regression suite.
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,too-many-arguments,too-many-positional-arguments
+# pylint: disable=too-many-locals
 
 import datetime
 from decimal import Decimal
@@ -110,6 +111,76 @@ class TestWeekPlanSchema:
         # Check that 7 days were generated
         assert len(result.data["createWeekPlan"]["days"]) == 7
 
+    @pytest.mark.parametrize(
+        ("operation", "protein_g_kg", "fat_perc", "deficit"),
+        [
+            ("create", 0.1, 0.1, 0),
+            ("update", 2.1, 25.1, 101),
+        ],
+    )
+    def test_week_plan_mutations_accept_representable_values(
+        self, mocker, operation, protein_g_kg, fat_perc, deficit
+    ):
+        """Plan writes preserve one-decimal fields and the integer deficit."""
+        user, plan = _create_user_and_plan(
+            f"plan-boundary-{operation}@test.com"
+        )
+        measurement = plan.measurement
+        context = mocker.Mock()
+        context.request.user = user
+        if operation == "create":
+            plan.delete()
+            mutation = """
+                mutation Boundary(
+                    $measurementId: Int!, $proteinGKg: Float!,
+                    $fatPerc: Float!, $deficit: Int!
+                ) {
+                    createWeekPlan(
+                        startDate: "2026-01-05", measurementId: $measurementId,
+                        proteinGKg: $proteinGKg, fatPerc: $fatPerc,
+                        deficit: $deficit
+                    ) { id }
+                }
+            """
+            variables = {
+                "measurementId": measurement.id,
+                "proteinGKg": protein_g_kg,
+                "fatPerc": fat_perc,
+                "deficit": deficit,
+            }
+        else:
+            mutation = """
+                mutation Boundary(
+                    $id: ID!, $proteinGKg: Float!,
+                    $fatPerc: Float!, $deficit: Int!
+                ) {
+                    updateWeekPlan(
+                        id: $id, proteinGKg: $proteinGKg,
+                        fatPerc: $fatPerc, deficit: $deficit
+                    ) { id }
+                }
+            """
+            variables = {
+                "id": str(plan.id),
+                "proteinGKg": protein_g_kg,
+                "fatPerc": fat_perc,
+                "deficit": deficit,
+            }
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        persisted = WeekPlan.objects.get(
+            pk=result.data[
+                "createWeekPlan" if operation == "create" else "updateWeekPlan"
+            ]["id"]
+        )
+        assert persisted.protein_g_kg == Decimal(str(protein_g_kg))
+        assert persisted.fat_perc == Decimal(str(fat_perc))
+        assert persisted.deficit == deficit
+
     def test_update_week_plan(self, mocker):
         """Test updating a week plan."""
         user, plan = _create_user_and_plan("wpupd@test.com")
@@ -208,6 +279,8 @@ class TestWeekPlanSchema:
         [
             ("proteinGKg", -0.1, "proteinGKg must be greater than 0"),
             ("proteinGKg", 0.0, "proteinGKg must be greater than 0"),
+            ("proteinGKg", 0.01, None),
+            ("proteinGKg", 1000000000.0, None),
             ("proteinGKg", float("nan"), None),
             ("proteinGKg", float("inf"), None),
             (
@@ -220,6 +293,7 @@ class TestWeekPlanSchema:
                 100.0,
                 "fatPerc must be greater than 0 and less than 100",
             ),
+            ("fatPerc", 99.99, None),
             ("fatPerc", float("nan"), None),
             ("fatPerc", float("inf"), None),
             ("deficit", -1, "deficit must be greater than or equal to 0"),
@@ -433,7 +507,8 @@ class TestIntakeSchema:
         "field", ["energyKcal", "proteinG", "fatG", "carbsG"]
     )
     @pytest.mark.parametrize(
-        "value", [-1.0, float("nan"), float("inf"), -float("inf")]
+        "value",
+        [-1.0, 0.001, 100000000.0, float("nan"), float("inf"), -float("inf")],
     )
     def test_create_custom_intake_rejects_invalid_macros_without_writes(
         self, mocker, field, value
@@ -573,6 +648,106 @@ class TestIntakeSchema:
             Decimal("40.00"),
         )
 
+    @pytest.mark.parametrize("food_backed", [False, True])
+    @pytest.mark.parametrize(
+        ("operation", "num_servings", "nutrient"),
+        [("create", 0.1, 12.34), ("update", 99.9, 56.78)],
+    )
+    def test_intake_mutations_accept_representable_decimal_boundaries(
+        self, mocker, operation, num_servings, nutrient, food_backed
+    ):
+        """Custom and food-backed intakes preserve supported serving precision."""
+        user, plan = _create_user_and_plan(
+            f"intake-boundary-{operation}-{food_backed}@test.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        product = FoodProduct.objects.create(
+            name=f"Boundary intake {operation} {food_backed}",
+            energy_kcal=10,
+            protein_g=2,
+            fat_g=1,
+            carbs_g=3,
+        )
+        food = product.servings.get(serving_size=100, serving_unit="g")
+        intake = Intake.objects.create(
+            day=day,
+            food=food if food_backed else None,
+            meal="lunch",
+            num_servings=1,
+            energy_kcal=1,
+            protein_g=1,
+            fat_g=1,
+            carbs_g=1,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        if operation == "create":
+            intake.delete()
+            mutation = """
+                mutation Boundary(
+                    $dayId: Int!, $foodId: ID, $numServings: Float!,
+                    $nutrient: Float
+                ) {
+                    createIntake(
+                        dayId: $dayId, foodId: $foodId, meal: "lunch",
+                        numServings: $numServings, energyKcal: $nutrient,
+                        proteinG: $nutrient, fatG: $nutrient,
+                        carbsG: $nutrient
+                    ) { id }
+                }
+            """
+            variables = {
+                "dayId": day.id,
+                "foodId": str(food.id) if food_backed else None,
+                "numServings": num_servings,
+                "nutrient": nutrient,
+            }
+        else:
+            mutation = """
+                mutation Boundary(
+                    $id: ID!, $numServings: Float!, $nutrient: Float
+                ) {
+                    updateIntake(
+                        id: $id, meal: "dinner", numServings: $numServings,
+                        energyKcal: $nutrient, proteinG: $nutrient,
+                        fatG: $nutrient, carbsG: $nutrient
+                    ) { id }
+                }
+            """
+            variables = {
+                "id": str(intake.id),
+                "numServings": num_servings,
+                "nutrient": nutrient,
+            }
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        persisted = Intake.objects.get(
+            pk=result.data[
+                "createIntake" if operation == "create" else "updateIntake"
+            ]["id"]
+        )
+        assert persisted.num_servings == Decimal(str(num_servings))
+        expected_nutrients = (
+            (
+                Decimal("10") * Decimal(str(num_servings)),
+                Decimal("2") * Decimal(str(num_servings)),
+                Decimal("1") * Decimal(str(num_servings)),
+                Decimal("3") * Decimal(str(num_servings)),
+            )
+            if food_backed
+            else (Decimal(str(nutrient)),) * 4
+        )
+        assert (
+            persisted.energy_kcal,
+            persisted.protein_g,
+            persisted.fat_g,
+            persisted.carbs_g,
+        ) == expected_nutrients
+
     def test_create_food_intake_overconsumption_rolls_back_everything(
         self, mocker
     ):
@@ -660,7 +835,15 @@ class TestIntakeSchema:
 
     @pytest.mark.parametrize(
         "num_servings",
-        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     @pytest.mark.parametrize("food_backed", [False, True])
     @pytest.mark.parametrize("operation", ["create", "update"])
@@ -853,7 +1036,8 @@ class TestIntakeSchema:
         "field", ["energyKcal", "proteinG", "fatG", "carbsG"]
     )
     @pytest.mark.parametrize(
-        "value", [-1.0, float("nan"), float("inf"), -float("inf")]
+        "value",
+        [-1.0, 0.001, 100000000.0, float("nan"), float("inf"), -float("inf")],
     )
     def test_update_custom_intake_rejects_invalid_macros_without_writes(
         self, mocker, field, value
