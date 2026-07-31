@@ -125,7 +125,9 @@ def lock_day_and_intake_before_delete(
             aggregate_locks = lock_plan_aggregate_rows(
                 using=using, day_ids=(instance.day_id,)
             )
-            Intake.objects.select_for_update().using(using).get(pk=instance.pk)
+            Intake.objects.select_for_update(of=("self",)).using(using).get(
+                pk=instance.pk
+            )
             setattr(instance, "_nutrition_locks", aggregate_locks)
         day = aggregate_locks.days_by_pk[instance.day_id]
         instance.day = day

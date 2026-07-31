@@ -4,10 +4,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from unittest import skipUnless
+from unittest.mock import patch
 
 from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 
+from apps.foods import recipe_locks
 from apps.foods.models import FoodProduct, Recipe, RecipeIngredient, Serving
 
 
@@ -168,3 +170,54 @@ class RecipeIngredientConcurrencyTests(TransactionTestCase):
         recipe.refresh_from_db()
         self.assertEqual(recipe.ingredients.count(), 1)
         self.assertEqual(recipe.size, Decimal("100"))
+
+    def test_concurrent_moves_recompute_the_intermediate_recipe(self):
+        """R1-to-R2/R3 races restart after observing a newer current owner."""
+        recipes = [self._recipe() for _ in range(3)]
+        serving = self._serving("100", "g")
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipes[0], food=serving
+        )
+        stale_moves = [
+            RecipeIngredient.objects.get(pk=ingredient.pk) for _ in range(2)
+        ]
+        first_lock_attempt = threading.Barrier(2)
+        seen_threads = set()
+        seen_guard = threading.Lock()
+        original_lock = recipe_locks.lock_recipe_ingredients
+
+        def synchronize_after_stale_owner_sample(*args, **kwargs):
+            thread_id = threading.get_ident()
+            with seen_guard:
+                first_attempt = thread_id not in seen_threads
+                seen_threads.add(thread_id)
+            if first_attempt:
+                first_lock_attempt.wait(timeout=10)
+            return original_lock(*args, **kwargs)
+
+        def move(stale, destination):
+            stale.recipe_id = destination.pk
+            stale.save(update_fields=["recipe"])
+
+        with patch.object(
+            recipe_locks,
+            "lock_recipe_ingredients",
+            new=synchronize_after_stale_owner_sample,
+        ):
+            self._run_concurrently(
+                lambda: move(stale_moves[0], recipes[1]),
+                lambda: move(stale_moves[1], recipes[2]),
+            )
+
+        ingredient.refresh_from_db()
+        for recipe in recipes:
+            recipe.refresh_from_db()
+            expected_size = sum(
+                (
+                    row.size
+                    for row in RecipeIngredient.objects.filter(recipe=recipe)
+                ),
+                Decimal("0"),
+            )
+            self.assertEqual(recipe.size, expected_size)
+        self.assertIn(ingredient.recipe_id, (recipes[1].pk, recipes[2].pk))

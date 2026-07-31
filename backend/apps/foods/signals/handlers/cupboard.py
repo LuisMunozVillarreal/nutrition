@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
-from django.db import router, transaction
+from django.db import models, router, transaction
 from django.db.models.signals import (
     post_delete,
     post_save,
@@ -135,7 +135,7 @@ def recalculate_consumed_perc(
         authoritative_item = cupboard_item
         if not already_locked:
             authoritative_item = (
-                CupboardItem.objects.select_for_update()
+                CupboardItem.objects.select_for_update(of=("self",))
                 .using(using)
                 .select_related("food")
                 .get(pk=cupboard_item.pk)
@@ -249,6 +249,36 @@ def calculate_consumption_from_cooked_recipes(
     _cook_recipe_from_cupboard(recipe, instance, using)
 
 
+def _intake_cupboard_item(instance: Intake, using: str) -> CupboardItem | None:
+    """Return the intake's destination item from its complete lock bundle."""
+    from apps.foods.cupboard_locks import get_cupboard_item_locks
+
+    if instance.food is None:
+        return None
+    active_locks = get_cupboard_item_locks()
+    if active_locks is not None:
+        if active_locks.using != using:
+            raise RuntimeError("cupboard lock bundle uses another database")
+        for item in active_locks.items_by_pk.values():
+            if (
+                item.food_id == instance.food.food_id
+                and item.owner_id == instance.day.plan.user_id
+                and not item.finished
+            ):
+                return item
+        return None
+    return (
+        CupboardItem.objects.using(using)
+        .filter(
+            food_id=instance.food.food_id,
+            finished=False,
+            owner_id=instance.day.plan.user_id,
+        )
+        .order_by("pk")
+        .first()
+    )
+
+
 @receiver(post_save, sender=Intake)
 def calculate_consumption_from_intakes(
     sender: Intake,  # pylint: disable=unused-argument
@@ -264,17 +294,15 @@ def calculate_consumption_from_intakes(
         created (bool): whether the instance is created or not.
         kwargs (Any): keyword arguments.
     """
+    using = kwargs["using"]
+
     # New without food -> no action
     if created and instance.food is None:
         return
 
     # New with food -> create consumption if there is cupboard item for it
     if created and instance.food is not None:
-        item = CupboardItem.objects.filter(
-            food=instance.food.food,
-            finished=False,
-            owner=instance.day.plan.user,
-        ).first()
+        item = _intake_cupboard_item(instance, using)
         if not item:
             return
 
@@ -291,20 +319,18 @@ def calculate_consumption_from_intakes(
     # -> no action otherwise
     if not created and instance.food is None:
         if hasattr(instance, "cupboard_item_consumption"):
-            instance.cupboard_item_consumption.delete()
+            models.Model.delete(
+                instance.cupboard_item_consumption, using=using
+            )
         return
 
     # Exixting with food
     # -> if it had consumption, and its food is different from the new one
     # -> if it didn't have food, add consumption,
     if hasattr(instance, "cupboard_item_consumption"):
-        instance.cupboard_item_consumption.delete()
+        models.Model.delete(instance.cupboard_item_consumption, using=using)
 
-    item = CupboardItem.objects.filter(
-        food=instance.food.food,  # type: ignore
-        finished=False,
-        owner=instance.day.plan.user,
-    ).first()
+    item = _intake_cupboard_item(instance, using)
     if not item:
         return
 
@@ -358,12 +384,22 @@ def _lock_cupboard_item(
     instance: CupboardItemConsumption, using: str
 ) -> CupboardItem:
     """Lock and return the authoritative cupboard row for a linked write."""
-    cupboard_item = (
-        CupboardItem.objects.select_for_update()
-        .using(using)
-        .select_related("food")
-        .get(pk=instance.item_id)
-    )
+    from apps.foods.cupboard_locks import get_cupboard_item_locks
+
+    active_locks = get_cupboard_item_locks()
+    if active_locks is not None:
+        if not active_locks.covers((instance.item_id,), using):
+            raise RuntimeError(
+                "cupboard lock bundle does not cover linked write"
+            )
+        cupboard_item = active_locks.items_by_pk[instance.item_id]
+    else:
+        cupboard_item = (
+            CupboardItem.objects.select_for_update(of=("self",))
+            .using(using)
+            .select_related("food")
+            .get(pk=instance.item_id)
+        )
     instance.item = cupboard_item
     return cupboard_item
 

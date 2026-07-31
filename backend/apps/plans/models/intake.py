@@ -12,6 +12,10 @@ from apps.foods.models.nutrients import NUTRIENT_LIST, Nutrients
 from apps.plans.locks import PlanAggregateLocks, lock_plan_aggregate_rows
 
 
+class _IntakeOwnerChanged(Exception):
+    """Signal that provisional day locks missed the authoritative owner."""
+
+
 @dataclass
 class IntakeDeletionLocks:
     """Rows locked before Django collects a bulk intake deletion."""
@@ -19,6 +23,7 @@ class IntakeDeletionLocks:
     using: str
     aggregate_locks: PlanAggregateLocks
     intakes: tuple[models.Model, ...]
+    cupboard_locks: Any
 
     def covers(self, intake_id: int, day_id: int, using: str) -> bool:
         """Return whether this bundle owns the intake and its day locks.
@@ -61,21 +66,28 @@ def activate_intake_deletion_locks(
     Args:
         locks (IntakeDeletionLocks): Bundle held by the outer transaction.
     """
+    from apps.foods.cupboard_locks import activate_cupboard_item_locks
+
     token = _active_intake_deletion_locks.set(locks)
     try:
-        yield
+        with activate_cupboard_item_locks(locks.cupboard_locks):
+            yield
     finally:
         _active_intake_deletion_locks.reset(token)
 
 
 def lock_intake_deletion_rows(
-    targets: models.QuerySet, using: str
+    targets: models.QuerySet,
+    using: str,
+    cupboard_item_ids: tuple[int, ...] = (),
 ) -> IntakeDeletionLocks:
     """Lock all target plans, days, and intakes in canonical PK order.
 
     Args:
         targets (models.QuerySet): Complete affected intake selection.
         using (str): Database alias used by the deletion.
+        cupboard_item_ids: Additional stock rows reached by an outer
+            serving or food cascade.
 
     Returns:
         IntakeDeletionLocks: Locked hierarchy exposed to collector signals.
@@ -91,7 +103,65 @@ def lock_intake_deletion_rows(
         .filter(pk__in=intake_ids)
         .order_by("pk")
     )
-    return IntakeDeletionLocks(using, aggregate_locks, intakes)
+    consumption_model = apps.get_model("foods", "CupboardItemConsumption")
+    all_cupboard_item_ids = set(cupboard_item_ids)
+    all_cupboard_item_ids.update(
+        consumption_model.objects.using(using)
+        .filter(intake_id__in=intake_ids)
+        .values_list("item_id", flat=True)
+    )
+    from apps.foods.cupboard_locks import lock_cupboard_items
+
+    cupboard_locks = lock_cupboard_items(all_cupboard_item_ids, using)
+    return IntakeDeletionLocks(using, aggregate_locks, intakes, cupboard_locks)
+
+
+def lock_intake_cupboard_rows(
+    intake: "Intake", previous: "Intake | None", using: str
+) -> Any:
+    """Discover and globally lock an intake write's old and new stock rows.
+
+    Args:
+        intake: Pending intake values, including the destination food and day.
+        previous: Authoritative locked row before this write, when updating.
+        using: Database alias on which rows must be locked.
+
+    Returns:
+        A scoped bundle containing every old and destination cupboard row.
+    """
+    consumption_model = apps.get_model("foods", "CupboardItemConsumption")
+    item_model = apps.get_model("foods", "CupboardItem")
+    serving_model = apps.get_model("foods", "Serving")
+    item_ids = set()
+    if previous is not None:
+        item_ids.update(
+            consumption_model.objects.using(using)
+            .filter(intake_id=previous.pk)
+            .values_list("item_id", flat=True)
+        )
+    if intake.food_id is not None:
+        food_id = (
+            serving_model.objects.using(using)
+            .filter(pk=intake.food_id)
+            .values_list("food_id", flat=True)
+            .get()
+        )
+        candidate_id = (
+            item_model.objects.using(using)
+            .filter(
+                food_id=food_id,
+                finished=False,
+                owner_id=intake.day.plan.user_id,
+            )
+            .order_by("pk")
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if candidate_id is not None:
+            item_ids.add(candidate_id)
+    from apps.foods.cupboard_locks import lock_cupboard_items
+
+    return lock_cupboard_items(item_ids, using)
 
 
 class IntakeQuerySet(models.QuerySet):
@@ -317,7 +387,8 @@ class Intake(Nutrients):
             using=using, day_ids=day_ids
         )
         locked_days = aggregate_locks.days_by_pk
-        self._caller_day = self._state.fields_cache.get("day")
+        if self._caller_day is None:
+            self._caller_day = self._state.fields_cache.get("day")
         self.day = locked_days[self.day_id]
         self._nutrition_day_ids = tuple(sorted(day_ids))
         self._nutrition_locks = aggregate_locks
@@ -328,11 +399,21 @@ class Intake(Nutrients):
                     "Intake was deleted before this write acquired its locks"
                 )
             return None
-        return (
-            intake_model.objects.select_for_update()
+        previous = (
+            intake_model.objects.select_for_update(of=("self",))
             .using(using)
             .get(pk=self.pk)
         )
+        if previous.day_id not in day_ids:
+            raise _IntakeOwnerChanged
+        return previous
+
+    def _clear_write_locks(self) -> None:
+        """Clear every transaction-scoped aggregate marker after an attempt."""
+        if self._nutrition_locks is not None:
+            self._nutrition_locks.clear_markers()
+        self._nutrition_locks = None
+        self._nutrition_day_ids = ()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Atomically save an intake and all of its derived effects.
@@ -340,43 +421,65 @@ class Intake(Nutrients):
         Args:
             args (list): arguments.
             kwargs (dict): keyword arguments.
+
+        Raises:
+            RuntimeError: If an outer transaction must be retried after a
+                concurrent owner change, or the bounded retry is exhausted.
         """
         using = kwargs.get("using") or router.db_for_write(
             type(self), instance=self
         )
-        with transaction.atomic(using=using):
+        entered_in_atomic = transaction.get_connection(using).in_atomic_block
+        for attempt in range(3):
             try:
-                previous = self._lock_write_rows(using)
-                self.meal_order = self.MEAL_ORDER[self.meal]
-
-                if previous is not None and self.food is None:
-                    removed_food_without_macro_edits = (
-                        previous.food_id is not None
-                        and all(
-                            (getattr(self, nutrient) or 0)
-                            == (getattr(previous, nutrient) or 0)
-                            for nutrient in NUTRIENT_LIST
-                        )
+                with transaction.atomic(using=using):
+                    previous = self._lock_write_rows(using)
+                    cupboard_locks = lock_intake_cupboard_rows(
+                        self, previous, using
                     )
-                    if removed_food_without_macro_edits:
+                    self.meal_order = self.MEAL_ORDER[self.meal]
+
+                    if previous is not None and self.food is None:
+                        removed_food_without_macro_edits = (
+                            previous.food_id is not None
+                            and all(
+                                (getattr(self, nutrient) or 0)
+                                == (getattr(previous, nutrient) or 0)
+                                for nutrient in NUTRIENT_LIST
+                            )
+                        )
+                        if removed_food_without_macro_edits:
+                            for nutrient in NUTRIENT_LIST:
+                                setattr(self, nutrient, 0)
+
+                    self.processed = self.food is not None or any(
+                        (getattr(self, nutrient) or 0) != 0
+                        for nutrient in NUTRIENT_LIST
+                    )
+
+                    if self.food:
                         for nutrient in NUTRIENT_LIST:
-                            setattr(self, nutrient, 0)
+                            value = getattr(self.food, nutrient) or 0
+                            setattr(self, nutrient, value * self.num_servings)
 
-                self.processed = self.food is not None or any(
-                    (getattr(self, nutrient) or 0) != 0
-                    for nutrient in NUTRIENT_LIST
-                )
+                    from apps.foods.cupboard_locks import (
+                        activate_cupboard_item_locks,
+                    )
 
-                if self.food:
-                    for nutrient in NUTRIENT_LIST:
-                        value = getattr(self.food, nutrient) or 0
-                        setattr(self, nutrient, value * self.num_servings)
-
-                super().save(*args, **kwargs)
+                    with activate_cupboard_item_locks(cupboard_locks):
+                        super().save(*args, **kwargs)
+                break
+            except _IntakeOwnerChanged as error:
+                if entered_in_atomic or attempt == 2:
+                    raise RuntimeError(
+                        "Intake owner changed while acquiring locks; retry the "
+                        "outer transaction"
+                    ) from error
             finally:
-                if self._nutrition_locks is not None:
-                    self._nutrition_locks.clear_markers()
-                self._nutrition_locks = None
+                self._clear_write_locks()
+        else:  # pragma: no cover - the bounded loop always breaks or raises
+            raise RuntimeError("intake lock retry exhausted")
+        self._caller_day = None
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         """Delete an intake and its aggregate/cupboard effects atomically.
@@ -391,14 +494,14 @@ class Intake(Nutrients):
         using = kwargs.get("using") or router.db_for_write(
             type(self), instance=self
         )
+        targets = type(self).objects.using(using).filter(pk=self.pk)
         with transaction.atomic(using=using):
+            locks = lock_intake_deletion_rows(targets, using)
             try:
-                self._lock_write_rows(using)
-                return super().delete(*args, **kwargs)
+                with activate_intake_deletion_locks(locks):
+                    return super().delete(*args, **kwargs)
             finally:
-                if self._nutrition_locks is not None:
-                    self._nutrition_locks.clear_markers()
-                self._nutrition_locks = None
+                locks.aggregate_locks.clear_markers()
 
 
 class IntakePicture(models.Model):

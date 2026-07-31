@@ -736,6 +736,7 @@ class RecipeType:
     brand: str | None
     name: str
     description: str
+    nutrients_from_ingredients: bool
     size: float
     size_unit: str
     num_servings: float
@@ -777,6 +778,7 @@ class RecipeType:
             brand=obj.brand,
             name=obj.name,
             description=obj.description,
+            nutrients_from_ingredients=obj.nutrients_from_ingredients,
             size=float(obj.size),
             size_unit=obj.size_unit,
             num_servings=float(obj.num_servings),
@@ -989,37 +991,39 @@ class RecipeMutation:
             ValueError: if recipe not found.
         """
         _require_staff_user(info)
-        validated_size = validated_positive_decimal(
-            size, "size", Recipe._meta.get_field("size")
-        )
-        validated_size_unit = _validated_unit(size_unit, "sizeUnit")
-        validated_num_servings = _validated_recipe_num_servings(num_servings)
-        nutrients = _validated_nutrients(
-            Recipe,
-            energy_kcal=energy_kcal,
-            protein_g=protein_g,
-            fat_g=fat_g,
-            carbs_g=carbs_g,
-            saturated_fat_g=saturated_fat_g,
-            sugars_g=sugars_g,
-            fibre_g=fibre_g,
-            salt_g=salt_g,
-        )
-
         try:
-            obj = Recipe.objects.get(pk=id)
+            obj = Recipe.objects.select_for_update().get(pk=id)
         except Recipe.DoesNotExist as e:
             raise ValueError("Recipe not found") from e
 
+        validated_num_servings = _validated_recipe_num_servings(num_servings)
         obj.name = name
         obj.brand = brand
         obj.description = description
-        obj.size = validated_size
-        obj.size_unit = validated_size_unit
-        obj.nutritional_info_unit = validated_size_unit
         obj.num_servings = validated_num_servings
-        for nutrient_name, nutrient_value in nutrients.items():
-            setattr(obj, nutrient_name, nutrient_value)
+
+        if not obj.nutrients_from_ingredients:
+            validated_size = validated_positive_decimal(
+                size, "size", Recipe._meta.get_field("size")
+            )
+            validated_size_unit = _validated_unit(size_unit, "sizeUnit")
+            nutrients = _validated_nutrients(
+                Recipe,
+                energy_kcal=energy_kcal,
+                protein_g=protein_g,
+                fat_g=fat_g,
+                carbs_g=carbs_g,
+                saturated_fat_g=saturated_fat_g,
+                sugars_g=sugars_g,
+                fibre_g=fibre_g,
+                salt_g=salt_g,
+            )
+            obj.size = validated_size
+            obj.size_unit = validated_size_unit
+            obj.nutritional_info_unit = validated_size_unit
+            for nutrient_name, nutrient_value in nutrients.items():
+                setattr(obj, nutrient_name, nutrient_value)
+
         obj.save()
         return RecipeType.from_model(obj)
 

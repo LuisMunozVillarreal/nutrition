@@ -3,13 +3,17 @@
 # pylint: disable=cyclic-import
 
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Collection, cast
 
 from django.db import models, router, transaction
 
 from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
 from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_SERVING
+
+
+class _RecipeIngredientOwnerChanged(Exception):
+    """Signal that provisional recipe locks missed the authoritative owner."""
 
 
 class RecipeIngredientQuerySet(models.QuerySet):
@@ -45,6 +49,19 @@ class RecipeIngredientManager(
 class Recipe(Food):
     """Recipe models class."""
 
+    _PROTECTED_WRITE_FIELDS = frozenset(
+        NUTRIENT_LIST
+        + [
+            "nutrients_from_ingredients",
+            "nutritional_info_size",
+            "nutritional_info_unit",
+            "size",
+            "size_unit",
+            "num_servings",
+        ]
+    )
+    _loaded_protected_write_values: dict[str, Any]
+
     description = models.TextField(
         blank=True,
     )
@@ -53,6 +70,57 @@ class Recipe(Food):
         default=False,
         verbose_name="Calculate nutrients from ingredients",
     )
+
+    @classmethod
+    def from_db(
+        cls,
+        db: str | None,
+        field_names: Collection[str],
+        values: Collection[Any],
+    ) -> "Recipe":
+        """Remember loaded protected values for stale-safe full model saves.
+
+        Args:
+            db: Database alias from which the row was loaded.
+            field_names: Model fields included in the query.
+            values: Values returned for those fields.
+
+        Returns:
+            The hydrated recipe with its protected-field baseline captured.
+        """
+        instance = cast("Recipe", super().from_db(db, field_names, values))
+        # Django's polymorphic from_db return type is narrower than its stubs.
+        # pylint: disable-next=protected-access,no-member
+        instance._capture_protected_write_values()
+        return instance
+
+    def _capture_protected_write_values(self) -> None:
+        """Record the protected values represented by this caller instance."""
+        self._loaded_protected_write_values = {
+            field: getattr(self, field)
+            for field in self._PROTECTED_WRITE_FIELDS
+            if field not in self.get_deferred_fields()
+        }
+
+    def _reconcile_protected_write_values(
+        self,
+        authoritative: "Recipe",
+        update_fields: set[str] | None,
+        protected_update_fields: set[str],
+    ) -> None:
+        """Copy protected fields not intentionally owned by this write."""
+        if update_fields is not None:
+            caller_owned = update_fields & self._PROTECTED_WRITE_FIELDS
+        else:
+            loaded = getattr(self, "_loaded_protected_write_values", {})
+            caller_owned = {
+                field
+                for field, original in loaded.items()
+                if getattr(self, field) != original
+            }
+            caller_owned.update(protected_update_fields)
+        for field in self._PROTECTED_WRITE_FIELDS - caller_owned:
+            setattr(self, field, getattr(authoritative, field))
 
     @property
     def num_ingredients(self) -> int:
@@ -66,13 +134,22 @@ class Recipe(Food):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Serialize recipe writes with ingredients and preserve derived totals.
 
+        Full saves own protected fields only when they changed since this model
+        instance was loaded. Partial saves own protected fields explicitly named
+        in ``update_fields``. Callers constructing an existing instance manually
+        may name intentional protected fields in ``_protected_update_fields``.
+
         Args:
             args (Any): positional model save arguments.
             kwargs (Any): keyword model save arguments.
         """
         skip_aggregate_lock = kwargs.pop("_skip_aggregate_lock", False)
+        protected_update_fields: set[str] = set(
+            kwargs.pop("_protected_update_fields", ())
+        )
         if self.pk is None or skip_aggregate_lock:
             super().save(*args, **kwargs)
+            self._capture_protected_write_values()
             return
 
         using = kwargs.get("using") or router.db_for_write(
@@ -89,15 +166,25 @@ class Recipe(Food):
                 raise type(self).DoesNotExist(
                     "Recipe was deleted before this write acquired its locks"
                 )
+            update_fields = kwargs.get("update_fields")
+            normalized_update_fields = (
+                None if update_fields is None else set(update_fields)
+            )
+            self._reconcile_protected_write_values(
+                recipes[self.pk],
+                normalized_update_fields,
+                protected_update_fields,
+            )
             apply_recipe_ingredient_totals(self, ingredients)
             if (
                 self.nutrients_from_ingredients
-                and kwargs.get("update_fields") is not None
+                and normalized_update_fields is not None
             ):
-                kwargs["update_fields"] = set(kwargs["update_fields"]) | set(
+                kwargs["update_fields"] = normalized_update_fields | set(
                     NUTRIENT_LIST + ["size"]
                 )
             super().save(*args, **kwargs)
+            self._capture_protected_write_values()
 
     def __str__(self) -> str:
         """Get string representation of the object.
@@ -232,24 +319,19 @@ class RecipeIngredient(Nutrients):
             None if update_fields is None else update_fields | snapshot_fields
         )
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        """Lock, mutate, and authoritatively rebuild recipe aggregates atomically.
-
-        Args:
-            args (Any): positional model save arguments.
-            kwargs (Any): keyword model save arguments.
-        """
-        using = kwargs.get("using") or router.db_for_write(
-            type(self), instance=self
-        )
+    def _save_with_provisional_owners(
+        self, db_alias: str, *args: Any, **kwargs: Any
+    ) -> tuple[dict[int, Recipe], Recipe | None]:
+        """Perform one owner-lock attempt and reject a stale lock set."""
         aggregate_observer = cast(
             Recipe | None, self._state.fields_cache.get("recipe")
         )
+        was_adding = self._state.adding
         previous_recipe_id = None
         if self.pk is not None:
             previous_recipe_id = (
                 type(self)
-                .objects.using(using)
+                .objects.using(db_alias)
                 .filter(pk=self.pk)
                 .values_list("recipe_id", flat=True)
                 .first()
@@ -261,33 +343,88 @@ class RecipeIngredient(Nutrients):
         from apps.foods.recipe_locks import lock_recipe_ingredients
         from apps.foods.signals.handlers.recipe_nutrients import (
             recompute_recipe_nutrients,
-            synchronize_recipe_aggregates,
             validate_recipe_ingredient_size,
         )
 
-        with transaction.atomic(using=using):
-            recipes, ingredients = lock_recipe_ingredients(recipe_ids, using)
-            previous = next(
-                (
-                    ingredient
-                    for ingredient in ingredients
-                    if ingredient.pk == self.pk
-                ),
-                None,
-            )
-            target_recipe = recipes[self.recipe_id]
-            self.recipe = target_recipe
-            update_fields = kwargs.get("update_fields")
-            prepared_fields = self._prepare_snapshots(
-                previous,
-                None if update_fields is None else set(update_fields),
-            )
-            if prepared_fields is not None:
-                kwargs["update_fields"] = prepared_fields
-            validate_recipe_ingredient_size(self, target_recipe)
-            super().save(*args, **kwargs)
-            for recipe_id in sorted(recipe_ids):
-                recompute_recipe_nutrients(recipes[recipe_id], using)
+        recipes, ingredients = lock_recipe_ingredients(recipe_ids, db_alias)
+        previous = next(
+            (
+                ingredient
+                for ingredient in ingredients
+                if ingredient.pk == self.pk
+            ),
+            None,
+        )
+        if self.pk is not None and previous is None:
+            try:
+                current = (
+                    type(self)
+                    .objects.select_for_update(of=("self",))
+                    .using(db_alias)
+                    .get(pk=self.pk)
+                )
+            except type(self).DoesNotExist:
+                if not was_adding:
+                    raise
+            else:
+                if current.recipe_id not in recipe_ids:
+                    raise _RecipeIngredientOwnerChanged
+                previous = current
+        target_recipe = recipes[self.recipe_id]
+        self.recipe = target_recipe
+        update_fields = kwargs.get("update_fields")
+        prepared_fields = self._prepare_snapshots(
+            previous,
+            None if update_fields is None else set(update_fields),
+        )
+        if prepared_fields is not None:
+            kwargs["update_fields"] = prepared_fields
+        validate_recipe_ingredient_size(self, target_recipe)
+        super().save(*args, **kwargs)
+        for recipe_id in sorted(recipe_ids):
+            recompute_recipe_nutrients(recipes[recipe_id], db_alias)
+        return recipes, aggregate_observer
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Lock, mutate, and authoritatively rebuild recipe aggregates atomically.
+
+        A movable row's owner sampled before locks is provisional. If the locked
+        child reveals a different owner, the attempt rolls back completely and
+        restarts in a fresh transaction with a bounded retry count.
+
+        Args:
+            args (Any): positional model save arguments.
+            kwargs (Any): keyword model save arguments.
+
+        Raises:
+            RuntimeError: If an outer transaction must be retried after a
+                concurrent owner change, or the bounded retry is exhausted.
+        """
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
+        )
+        from apps.foods.signals.handlers.recipe_nutrients import (
+            synchronize_recipe_aggregates,
+        )
+
+        entered_in_atomic = transaction.get_connection(using).in_atomic_block
+        for attempt in range(3):
+            try:
+                with transaction.atomic(using=using):
+                    recipes, aggregate_observer = (
+                        self._save_with_provisional_owners(
+                            using, *args, **kwargs
+                        )
+                    )
+                break
+            except _RecipeIngredientOwnerChanged as error:
+                if entered_in_atomic or attempt == 2:
+                    raise RuntimeError(
+                        "Recipe ingredient owner changed while acquiring locks; "
+                        "retry the outer transaction"
+                    ) from error
+        else:  # pragma: no cover - the bounded loop always breaks or raises
+            raise RuntimeError("recipe ingredient lock retry exhausted")
         target_recipe = recipes[self.recipe_id]
         if aggregate_observer is not None and synchronize_recipe_aggregates(
             target_recipe, aggregate_observer

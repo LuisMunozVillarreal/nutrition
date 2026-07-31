@@ -86,6 +86,30 @@ class TestRecipeQuery:
         assert result.data["recipe"]["name"] == "Pasta"
         assert result.data["recipe"]["description"] == "Yummy"
 
+    def test_recipe_detail_query_exposes_ingredient_derived_mode(self, mocker):
+        """Recipe responses include the persisted aggregate source mode."""
+        user = _create_user("recipe-mode@test.com")
+        recipe = Recipe.objects.create(
+            name="Ingredient-derived",
+            nutrients_from_ingredients=True,
+            size=0,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                query GetRecipeMode($id: ID!) {
+                    recipe(id: $id) { nutrientsFromIngredients }
+                }
+            """,
+            variable_values={"id": str(recipe.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        assert result.data["recipe"]["nutrientsFromIngredients"] is True
+
 
 @pytest.mark.django_db
 class TestRecipeMutation:  # pylint: disable=too-many-public-methods
@@ -221,6 +245,87 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         # Then the recipe is updated
         assert result.errors is None
         assert result.data["updateRecipe"]["name"] == "New Name"
+
+    def test_update_empty_derived_recipe_ignores_client_aggregates(
+        self, mocker
+    ):
+        """Metadata edits preserve authoritative zero totals for empty recipes."""
+        user = _create_user("derived-update@test.com", is_staff=True)
+        recipe = Recipe.objects.create(
+            name="Empty derived",
+            description="Before",
+            nutrients_from_ingredients=True,
+            size=0,
+            size_unit="g",
+            nutritional_info_unit="g",
+            num_servings=1,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateDerivedRecipe($id: ID!) {
+                    updateRecipe(
+                        id: $id,
+                        name: "Renamed derived",
+                        brand: "Updated brand",
+                        description: "After",
+                        size: 0,
+                        sizeUnit: "unsupported-client-unit",
+                        numServings: 2,
+                        energyKcal: 999,
+                        proteinG: 999,
+                        fatG: 999,
+                        carbsG: 999,
+                        saturatedFatG: 999,
+                        sugarsG: 999,
+                        fibreG: 999,
+                        saltG: 999
+                    ) {
+                        name size sizeUnit numServings energyKcal
+                    }
+                }
+            """,
+            variable_values={"id": str(recipe.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        assert result.data["updateRecipe"] == {
+            "name": "Renamed derived",
+            "size": 0.0,
+            "sizeUnit": "g",
+            "numServings": 2.0,
+            "energyKcal": 0.0,
+        }
+        recipe.refresh_from_db()
+        assert (recipe.brand, recipe.description) == ("Updated brand", "After")
+        assert (
+            recipe.size,
+            recipe.size_unit,
+            recipe.nutritional_info_unit,
+            recipe.energy_kcal,
+            recipe.protein_g,
+            recipe.fat_g,
+            recipe.carbs_g,
+            recipe.saturated_fat_g,
+            recipe.sugar_carbs_g,
+            recipe.fibre_carbs_g,
+            recipe.salt_g,
+        ) == (
+            Decimal("0"),
+            "g",
+            "g",
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+            Decimal("0"),
+        )
 
     def test_update_recipe_rejects_non_staff_user(self, mocker):
         """A regular user cannot update a shared recipe."""
