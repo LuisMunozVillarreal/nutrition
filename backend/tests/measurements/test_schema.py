@@ -234,11 +234,15 @@ class TestCreateMeasurement:
         ("field", "value"),
         [
             ("weight", 0.0),
+            ("weight", 0.01),
+            ("weight", 1000000000.0),
             ("weight", -1.0),
             ("weight", float("nan")),
             ("weight", float("inf")),
             ("weight", -float("inf")),
             ("bodyFatPerc", 0.0),
+            ("bodyFatPerc", 0.01),
+            ("bodyFatPerc", 99.99),
             ("bodyFatPerc", -1.0),
             ("bodyFatPerc", 100.0),
             ("bodyFatPerc", 100.1),
@@ -279,6 +283,70 @@ class TestCreateMeasurement:
 
         assert result.errors is not None
         assert not Measurement.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("operation", "body_fat_perc", "weight"),
+    [("create", 0.1, 0.1), ("update", 99.9, 99.9)],
+)
+def test_measurement_mutations_accept_one_decimal_boundaries(
+    mocker, operation, body_fat_perc, weight
+):
+    """Measurement create and update preserve supported one-decimal values."""
+    user = User.objects.create_user(
+        email=f"measurement-boundary-{operation}@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    measurement = Measurement.objects.create(
+        user=user, body_fat_perc=20, weight=80
+    )
+    context = mocker.Mock()
+    context.request.user = user
+    if operation == "create":
+        measurement.delete()
+        mutation = """
+            mutation Boundary($bodyFatPerc: Float!, $weight: Float!) {
+                createMeasurement(
+                    bodyFatPerc: $bodyFatPerc, weight: $weight
+                ) { id }
+            }
+        """
+        variables = {"bodyFatPerc": body_fat_perc, "weight": weight}
+    else:
+        mutation = """
+            mutation Boundary(
+                $id: ID!, $bodyFatPerc: Float!, $weight: Float!
+            ) {
+                updateMeasurement(
+                    id: $id, bodyFatPerc: $bodyFatPerc, weight: $weight
+                ) { id }
+            }
+        """
+        variables = {
+            "id": str(measurement.id),
+            "bodyFatPerc": body_fat_perc,
+            "weight": weight,
+        }
+
+    result = schema.execute_sync(
+        mutation, variable_values=variables, context_value=context
+    )
+
+    assert result.errors is None
+    persisted = Measurement.objects.get(
+        pk=result.data[
+            (
+                "createMeasurement"
+                if operation == "create"
+                else "updateMeasurement"
+            )
+        ]["id"]
+    )
+    assert persisted.body_fat_perc == Decimal(str(body_fat_perc))
+    assert persisted.weight == Decimal(str(weight))
 
 
 @pytest.mark.django_db
@@ -462,11 +530,15 @@ class TestUpdateMeasurement:
         ("field", "value"),
         [
             ("weight", 0.0),
+            ("weight", 0.01),
+            ("weight", 1000000000.0),
             ("weight", -1.0),
             ("weight", float("nan")),
             ("weight", float("inf")),
             ("weight", -float("inf")),
             ("bodyFatPerc", 0.0),
+            ("bodyFatPerc", 0.01),
+            ("bodyFatPerc", 99.99),
             ("bodyFatPerc", -1.0),
             ("bodyFatPerc", 100.0),
             ("bodyFatPerc", 100.1),

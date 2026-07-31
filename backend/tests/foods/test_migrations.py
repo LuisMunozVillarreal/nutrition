@@ -997,6 +997,103 @@ def test_recorded_preview_0034_state_bridges_forward_without_rewriting_values():
         executor.migrate(executor.loader.graph.leaf_nodes())
 
 
+def test_0036_treats_null_food_size_as_ambiguous():
+    """A corrupt nullable historical denominator cannot block the backfill."""
+    migration = importlib.import_module(
+        "apps.foods.migrations.0036_backfill_manual_consumed_perc"
+    )
+    linked_totals = {1: Decimal("0")}
+    ambiguous_items = set()
+    consumption = SimpleNamespace(item_id=1)
+    items = {1: SimpleNamespace(pk=1, food=SimpleNamespace(size=None))}
+
+    # pylint: disable-next=protected-access
+    migration._add_linked_consumption(
+        linked_totals, ambiguous_items, consumption, items
+    )
+
+    assert linked_totals == {1: Decimal("0")}
+    assert ambiguous_items == {1}
+
+
+@pytest.mark.django_db(transaction=True)
+# pylint: disable-next=too-many-locals
+def test_0036_quarantines_nonpositive_sizes_without_changing_valid_rows():
+    """Historical non-positive denominators use the ambiguous baseline."""
+    start_target = ("foods", "0035_relax_preview_snapshot_constraints")
+    migration_target = ("foods", "0036_backfill_manual_consumed_perc")
+    executor = MigrationExecutor(connection)
+
+    try:
+        executor.migrate([start_target])
+        historical_apps = executor.loader.project_state([start_target]).apps
+        historical_food = historical_apps.get_model("foods", "Food")
+        historical_serving = historical_apps.get_model("foods", "Serving")
+        historical_item = historical_apps.get_model("foods", "CupboardItem")
+        historical_consumption = historical_apps.get_model(
+            "foods", "CupboardItemConsumption"
+        )
+
+        invalid_foods = [
+            historical_food.objects.create(
+                name=f"Non-positive historical food {size}", size=Decimal(size)
+            )
+            for size in ("0", "-1")
+        ]
+        valid_food = historical_food.objects.create(
+            name="Valid historical food", size=Decimal("400")
+        )
+        invalid_servings = [
+            historical_serving.objects.create(
+                food=food,
+                serving_size=Decimal("100"),
+                serving_unit="g",
+            )
+            for food in invalid_foods
+        ]
+        valid_serving = historical_serving.objects.create(
+            food=valid_food,
+            serving_size=Decimal("100"),
+            serving_unit="g",
+        )
+        invalid_items = [
+            historical_item.objects.create(
+                food=food,
+                purchased_at=timezone.now(),
+                consumed_perc=Decimal("40"),
+                manual_consumed_perc=None,
+            )
+            for food in invalid_foods
+        ]
+        valid_item = historical_item.objects.create(
+            food=valid_food,
+            purchased_at=timezone.now(),
+            consumed_perc=Decimal("40"),
+            manual_consumed_perc=None,
+        )
+        for item, serving in zip(invalid_items, invalid_servings, strict=True):
+            historical_consumption.objects.create(item=item, serving=serving)
+        historical_consumption.objects.create(
+            item=valid_item, serving=valid_serving
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([migration_target])
+        migrated_apps = executor.loader.project_state([migration_target]).apps
+        migrated_item = migrated_apps.get_model("foods", "CupboardItem")
+
+        assert list(
+            migrated_item.objects.filter(
+                pk__in=[item.pk for item in invalid_items] + [valid_item.pk]
+            )
+            .order_by("pk")
+            .values_list("manual_consumed_perc", flat=True)
+        ) == [Decimal("0"), Decimal("0"), Decimal("15")]
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 @pytest.mark.django_db(transaction=True)
 def test_committed_batch_failure_resumes_with_a_fresh_executor(monkeypatch):
     """A failed non-atomic operation resumes from its committed null-only work."""

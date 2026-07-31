@@ -124,7 +124,17 @@ class TestCreateGoal:
 
     @pytest.mark.parametrize(
         "body_fat_perc",
-        [0, 100, -0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+        [
+            0,
+            0.01,
+            99.99,
+            100,
+            -0.1,
+            100.1,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_create_goal_rejects_invalid_percentage_without_partial_write(
         self, mocker, body_fat_perc
@@ -199,7 +209,17 @@ class TestUpdateGoal:
 
     @pytest.mark.parametrize(
         "body_fat_perc",
-        [0, 100, -0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+        [
+            0,
+            0.01,
+            99.99,
+            100,
+            -0.1,
+            100.1,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_update_goal_rejects_invalid_percentage_without_partial_write(
         self, mocker, body_fat_perc
@@ -279,6 +299,58 @@ class TestUpdateGoal:
 
         # Then an error is returned
         assert result.errors is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("operation", "body_fat_perc"), [("create", 0.1), ("update", 99.9)]
+)
+def test_goal_mutations_accept_one_decimal_percentage_boundaries(
+    mocker, operation, body_fat_perc
+):
+    """Goal create and update preserve supported percentage boundaries."""
+    user = User.objects.create_user(
+        email=f"goal-boundary-{operation}@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    goal = FatPercGoal.objects.create(user=user, body_fat_perc=15)
+    context = mocker.Mock()
+    context.request.user = user
+    if operation == "create":
+        goal.delete()
+        mutation = """
+            mutation Boundary($bodyFatPerc: Float!) {
+                createFatPercGoal(bodyFatPerc: $bodyFatPerc) { id }
+            }
+        """
+        variables = {"bodyFatPerc": body_fat_perc}
+    else:
+        mutation = """
+            mutation Boundary($id: ID!, $bodyFatPerc: Float!) {
+                updateFatPercGoal(
+                    id: $id, bodyFatPerc: $bodyFatPerc
+                ) { id }
+            }
+        """
+        variables = {"id": str(goal.id), "bodyFatPerc": body_fat_perc}
+
+    result = schema.execute_sync(
+        mutation, variable_values=variables, context_value=context
+    )
+
+    assert result.errors is None
+    persisted = FatPercGoal.objects.get(
+        pk=result.data[
+            (
+                "createFatPercGoal"
+                if operation == "create"
+                else "updateFatPercGoal"
+            )
+        ]["id"]
+    )
+    assert float(persisted.body_fat_perc) == body_fat_perc
 
 
 @pytest.mark.django_db
