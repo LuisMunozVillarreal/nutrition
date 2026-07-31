@@ -24,8 +24,8 @@ from apps.foods.models import (
 )
 from apps.foods.signals.handlers import cupboard as cupboard_handlers
 from apps.measurements.models import Measurement
-from apps.plans import locks as plan_locks
 from apps.plans.models import Intake, WeekPlan
+from apps.plans.models import intake as intake_model
 from config.schema import schema
 
 User = get_user_model()
@@ -419,7 +419,7 @@ class ServingCascadeConcurrencyTests(TransactionTestCase):
         deletion_plan_lock_attempted = threading.Event()
         release_writer = threading.Event()
         original_cupboard_lock = CupboardItem.objects.select_for_update
-        original_plan_locks = plan_locks.lock_plan_aggregate_rows
+        original_plan_locks = intake_model.lock_plan_aggregate_rows
 
         def pause_writer_before_cupboard(*args, **kwargs):
             if (
@@ -466,7 +466,7 @@ class ServingCascadeConcurrencyTests(TransactionTestCase):
                 side_effect=pause_writer_before_cupboard,
             ),
             patch.object(
-                plan_locks,
+                intake_model,
                 "lock_plan_aggregate_rows",
                 side_effect=observe_deletion_plan_lock,
             ),
