@@ -1,15 +1,11 @@
 """Tests for the CircleCI flux preview generation script."""
 
-import subprocess
 import re
+import subprocess
 
 import pytest
 from click.testing import CliRunner
-from generate_flux_preview import (
-    _build_preview_rbac,
-    generate_manifest,
-    main,
-)
+from generate_flux_preview import _build_preview_rbac, generate_manifest, main
 from sanitise_branch import MAX_LENGTH, sanitise_branch_name
 
 
@@ -26,7 +22,7 @@ def mock_run(mocker):
 
 
 def test_sanitize_branch():
-    """Test branch sanitization produces deterministic and collision-resistant values."""
+    """Test branch sanitization is deterministic and collision-resistant."""
     branches = [
         "feature/new-ui",
         "feature/new/ui",
@@ -73,7 +69,7 @@ def test_sanitize_has_stable_hash_collision_resistance():
 
 
 def test_sanitize_deterministic_collision_matrix():
-    """Regression tests for deterministic output across known collision-sensitive inputs."""
+    """Regression tests for deterministic output across collision-sensitive inputs."""
     candidate_branches = [
         "feature/foo",
         "feature-foo",
@@ -123,7 +119,7 @@ def test_generate_manifest_content():
     assert f"name: nutrition-preview-{sanitized}" in manifest
     assert f"targetNamespace: nutrition-staging--{sanitized}" in manifest
     assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in manifest
-    assert (f"name: source-{sanitized}") in manifest
+    assert f"name: source-{sanitized}" in manifest
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.domain.com" in manifest
 
@@ -155,8 +151,10 @@ def test_main_execution(mock_check_output, mock_run):
         in result.output
     )
     assert (
-        f"Successfully applied namespace, service account, GitRepository 'source-{sanitized}' "
-        f"and Kustomization 'nutrition-preview-{sanitized}' as 'nutrition-preview-sa-{sanitized}'."
+        f"Successfully applied namespace, service account, "
+        f"GitRepository 'source-{sanitized}' and Kustomization "
+        f"'nutrition-preview-{sanitized}' as "
+        f"'nutrition-preview-sa-{sanitized}'."
     ) in result.output
     mock_check_output.assert_called_with(
         ["git", "config", "--get", "remote.origin.url"]

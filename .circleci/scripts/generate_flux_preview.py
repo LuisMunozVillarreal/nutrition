@@ -280,7 +280,8 @@ spec:
 
     # 5. Apply to Cluster via Kubectl (Imperative)
     click.echo(
-        f"Applying Flux resources for branch '{branch}' to cluster (preview '{sanitized_branch}')..."
+        f"Applying Flux resources for branch '{branch}' to "
+        f"cluster (preview '{sanitized_branch}')..."
     )
     try:
         subprocess.run(  # nosec: B607, B603

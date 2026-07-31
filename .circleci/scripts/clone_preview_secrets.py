@@ -1,10 +1,10 @@
 """Script to generate short-lived, least-privilege preview secrets in CI."""
 
+import json
 import secrets
 import subprocess  # nosec: B404
 import sys
 import time
-import json
 
 import click
 from sanitise_branch import sanitise_branch_name
@@ -28,7 +28,7 @@ SECRET_SCHEMA = {
 }
 NAMESPACE_PREFIX = "nutrition-staging--"
 
-TARGET_SECRET_PREFIX = "nutrition-preview"
+TARGET_SECRET_PREFIX = "nutrition-preview"  # nosec: B105
 
 
 def wait_for_namespace(namespace: str, timeout_seconds: int = 300) -> None:

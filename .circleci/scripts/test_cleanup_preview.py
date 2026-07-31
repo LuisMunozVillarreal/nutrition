@@ -3,8 +3,8 @@
 from subprocess import CompletedProcess
 
 import pytest
-from click.testing import CliRunner
 from cleanup_flux_preview import main
+from click.testing import CliRunner
 from sanitise_branch import sanitise_branch_name
 
 
