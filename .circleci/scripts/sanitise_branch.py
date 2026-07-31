@@ -10,8 +10,7 @@ DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
 
 
 def _normalize_branch_name(branch_name: str) -> str:
-    """
-    Normalize Git branch names to lowercase DNS-label safe characters.
+    """Normalize Git branch names to lowercase DNS-label safe characters.
 
     Replaces invalid characters with '-' and collapses consecutive separators.
     """
@@ -45,6 +44,9 @@ def sanitise_branch_name(branch_name: str) -> str:
 
     Returns:
         str: A sanitized string safe for K8s resource names.
+
+    Raises:
+        ValueError: If the normalised and hashed name is not a valid DNS label.
     """
     normalised = _normalize_branch_name(branch_name)
     sanitized = _append_stable_hash(normalised, branch_name)
