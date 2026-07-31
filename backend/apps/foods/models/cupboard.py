@@ -7,6 +7,7 @@ from typing import Any
 
 from django.db import models, router, transaction
 
+from ..deletion import NutritionDeletionManager, NutritionDeletionMixin
 from .product import FoodProduct
 from .recipe import Recipe
 from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_SERVING
@@ -192,7 +193,7 @@ class CupboardItem(models.Model):
             super().save(*args, **kwargs)
 
 
-class CupboardItemConsumption(models.Model):
+class CupboardItemConsumption(NutritionDeletionMixin, models.Model):
     """CupboardItemConsumption model class.
 
     A `CupboardItemConsumption` will be added to the DB when it's
@@ -201,6 +202,8 @@ class CupboardItemConsumption(models.Model):
     The reason why is because it's unknown what servings will be used to
     consume a product.
     """
+
+    objects = NutritionDeletionManager()
 
     item = models.ForeignKey(
         "foods.CupboardItem",

@@ -7,15 +7,19 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection
 from django.db.models import Sum
+from django.db.models.query import QuerySet
 from django.test import TransactionTestCase
 
 from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
+from config.schema import schema
 
 
 @unittest.skipUnless(
@@ -35,14 +39,15 @@ class IntakeAggregateConcurrencyTests(TransactionTestCase):
             date_of_birth="2000-01-01",
             height=170,
         )
-        measurement = Measurement.objects.create(
+        self.user = user
+        self.measurement = Measurement.objects.create(
             user=user,
             body_fat_perc=Decimal("20"),
             weight=Decimal("80"),
         )
         self.plan = WeekPlan.objects.create(
             user=user,
-            measurement=measurement,
+            measurement=self.measurement,
             start_date=datetime.date(2026, 1, 5),
             protein_g_kg=Decimal("1.8"),
             fat_perc=Decimal("25"),
@@ -150,4 +155,81 @@ class IntakeAggregateConcurrencyTests(TransactionTestCase):
         self.assertIn(results[0], ("updated", "deleted-first"))
         self.assertEqual(results[1], "deleted")
         self.assertFalse(Intake.objects.filter(pk=intake.pk).exists())
+        self._assert_stored_totals_match_rows()
+
+    def test_measurement_update_and_intake_create_do_not_deadlock(self):
+        """Cross-feature writes serialize plan-before-day and keep fresh totals."""
+        role = threading.local()
+        measurement_has_plan = threading.Event()
+        release_measurement = threading.Event()
+        intake_reached_plan_save = threading.Event()
+        original_fetch_all = (
+            QuerySet._fetch_all  # pylint: disable=protected-access
+        )
+        original_plan_save = WeekPlan.save
+
+        def pause_measurement_after_plan_lock(queryset):
+            original_fetch_all(queryset)
+            if (
+                getattr(role, "name", None) == "measurement"
+                and queryset.model is WeekPlan
+                and queryset.query.select_for_update
+            ):
+                measurement_has_plan.set()
+                if not release_measurement.wait(timeout=10):
+                    raise TimeoutError("measurement lock interleave timed out")
+
+        def observe_intake_plan_save(plan, *args, **kwargs):
+            if getattr(role, "name", None) == "intake":
+                intake_reached_plan_save.set()
+            return original_plan_save(plan, *args, **kwargs)
+
+        def update_measurement():
+            role.name = "measurement"
+            context = SimpleNamespace(request=SimpleNamespace(user=self.user))
+            return schema.execute_sync(
+                """
+                    mutation UpdateMeasurement($id: ID!) {
+                        updateMeasurement(
+                            id: $id, bodyFatPerc: 18, weight: 82
+                        ) { id }
+                    }
+                """,
+                variable_values={"id": str(self.measurement.pk)},
+                context_value=context,
+            )
+
+        def create_intake():
+            role.name = "intake"
+            return Intake.objects.create(
+                day_id=self.day.pk,
+                food=None,
+                meal=Intake.MEAL_LUNCH,
+                energy_kcal=Decimal("125"),
+            ).pk
+
+        with (
+            patch.object(
+                QuerySet, "_fetch_all", new=pause_measurement_after_plan_lock
+            ),
+            patch.object(WeekPlan, "save", new=observe_intake_plan_save),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            measurement_future = executor.submit(update_measurement)
+            self.assertTrue(measurement_has_plan.wait(timeout=10))
+            intake_future = executor.submit(create_intake)
+
+            # Under the old Day-then-WeekPlan order the intake reaches plan.save
+            # while holding Day, completing the PostgreSQL deadlock cycle.
+            intake_reached_plan_save.wait(timeout=1)
+            release_measurement.set()
+            measurement_result = measurement_future.result(timeout=20)
+            intake_future.result(timeout=20)
+
+        self.assertIsNone(measurement_result.errors)
+        self.measurement.refresh_from_db()
+        self.day.refresh_from_db()
+        self.assertEqual(self.measurement.weight, Decimal("82.0"))
+        self.assertEqual(self.day.energy_kcal, Decimal("125.00"))
+        self.assertEqual(self.day.protein_g_goal, Decimal("147.60"))
         self._assert_stored_totals_match_rows()

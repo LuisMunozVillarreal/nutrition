@@ -5,7 +5,7 @@
 from decimal import Decimal
 
 import strawberry
-from django.db import transaction
+from django.db import router, transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import (
@@ -14,6 +14,7 @@ from apps.libs.graphql import (
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
+from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, WeekPlan
 from apps.plans.schema import _validated_week_plan_parameters
 
@@ -173,17 +174,23 @@ class MeasurementMutation:
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
 
-        plans = list(
-            WeekPlan.objects.select_for_update()
-            .filter(measurement=obj)
-            .order_by("id")
+        plan_ids = tuple(
+            WeekPlan.objects.filter(measurement=obj)
+            .order_by("pk")
+            .values_list("pk", flat=True)
         )
-        days = list(
-            Day.objects.select_for_update()
-            .filter(plan__in=plans)
-            .select_related("plan")
-            .order_by("plan_id", "day_num")
+        day_ids = tuple(
+            Day.objects.filter(plan_id__in=plan_ids)
+            .order_by("pk")
+            .values_list("pk", flat=True)
         )
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=router.db_for_write(Measurement, instance=obj),
+            plan_ids=plan_ids,
+            day_ids=day_ids,
+        )
+        plans = aggregate_locks.plans
+        days = aggregate_locks.days
         proposed_measurement = Measurement(
             user=user,
             body_fat_perc=validated_body_fat_perc,
@@ -208,11 +215,14 @@ class MeasurementMutation:
                 [Decimal(day.deficit) for day in plan_days],
             )
 
-        obj.body_fat_perc = validated_body_fat_perc
-        obj.weight = validated_weight
-        obj.save()
-        for day in days:
-            day.save()
+        try:
+            obj.body_fat_perc = validated_body_fat_perc
+            obj.weight = validated_weight
+            obj.save()
+            for day in days:
+                day.save()
+        finally:
+            aggregate_locks.clear_markers()
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation

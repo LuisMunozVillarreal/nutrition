@@ -9,12 +9,15 @@ from django.db import models
 # TODO: Remove this when the stubs are available - pylint: disable=fixme
 from taggit.managers import TaggableManager  # type: ignore[import-untyped]
 
+from ..deletion import NutritionDeletionManager, NutritionDeletionMixin
 from .nutrients import Nutrients
 from .units import UNIT_CHOICES, UNIT_FLUID_OUNCE, UNIT_GRAM, UREG
 
 
-class Food(Nutrients):
+class Food(NutritionDeletionMixin, Nutrients):
     """Food model class."""
+
+    objects = NutritionDeletionManager()
 
     brand = models.CharField(
         max_length=255,
