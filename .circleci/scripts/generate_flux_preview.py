@@ -226,7 +226,7 @@ def main(branch: str, tag: str, domain: str | None, dry_run: bool) -> None:
     """
     if branch == "main":
         click.echo(
-            "Branch is main. Skipping preview " "generation (handled by prod flow)."
+            "Branch is main. Skipping preview generation " + "(handled by prod flow)."
         )
         sys.exit(0)
 
