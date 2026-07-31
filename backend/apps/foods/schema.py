@@ -7,6 +7,7 @@ from typing import cast
 
 import strawberry
 from django.db import models, transaction
+from django.db.models import Prefetch
 from strawberry.types import Info
 
 from apps.foods.models import (
@@ -219,6 +220,12 @@ class FoodProductType:
         Returns:
             list[ServingType]: list of servings.
         """
+        model = getattr(self, "_model", None)
+        if model is not None:
+            return [
+                ServingType.from_model(s)
+                for s in model.servings.all()  # type: ignore[attr-defined]
+            ]
         return [
             ServingType.from_model(s)
             for s in Serving.objects.filter(food_id=self.id).order_by("id")
@@ -234,7 +241,7 @@ class FoodProductType:
         Returns:
             FoodProductType: GraphQL type.
         """
-        return FoodProductType(
+        wrapped = FoodProductType(
             id=strawberry.ID(str(obj.id)),
             brand=obj.brand,
             name=obj.name,
@@ -267,6 +274,8 @@ class FoodProductType:
             ),
             salt_g=float(obj.salt_g) if obj.salt_g is not None else None,
         )
+        wrapped._model = obj  # type: ignore[attr-defined]
+        return wrapped
 
 
 @strawberry.type
@@ -289,7 +298,14 @@ class FoodQuery:
 
         return [
             FoodProductType.from_model(fp)
-            for fp in FoodProduct.objects.all().order_by("name")
+            for fp in FoodProduct.objects.prefetch_related(
+                Prefetch(
+                    "servings",
+                    queryset=Serving.objects.select_related("food").order_by(
+                        "id"
+                    ),
+                )
+            ).order_by("name")
         ]
 
     @strawberry.field
@@ -310,7 +326,16 @@ class FoodQuery:
             return None
 
         try:
-            return FoodProductType.from_model(FoodProduct.objects.get(pk=id))
+            return FoodProductType.from_model(
+                FoodProduct.objects.prefetch_related(
+                    Prefetch(
+                        "servings",
+                        queryset=Serving.objects.select_related(
+                            "food"
+                        ).order_by("id"),
+                    )
+                ).get(pk=id)
+            )
         except FoodProduct.DoesNotExist:
             return None
 
@@ -698,7 +723,6 @@ class RecipeIngredientType:
     id: strawberry.ID
     recipe_id: strawberry.ID
     food_id: strawberry.ID
-    food_label: str
     num_servings: float
     energy_kcal: float
     protein_g: float
@@ -715,17 +739,29 @@ class RecipeIngredientType:
         Returns:
             RecipeIngredientType: GraphQL type.
         """
-        return RecipeIngredientType(
+        wrapped = RecipeIngredientType(
             id=strawberry.ID(str(obj.id)),
             recipe_id=strawberry.ID(str(obj.recipe_id)),
             food_id=strawberry.ID(str(obj.food_id)),
-            food_label=str(obj.food),
             num_servings=float(obj.num_servings),
             energy_kcal=float(obj.energy_kcal),
             protein_g=float(obj.protein_g),
             fat_g=float(obj.fat_g),
             carbs_g=float(obj.carbs_g),
         )
+        wrapped._model = obj  # type: ignore[attr-defined]
+        return wrapped
+
+    @strawberry.field
+    def food_label(self) -> str:
+        """Resolve ingredient label lazily to avoid eager food loading."""
+        model = getattr(self, "_model", None)
+        if model is None:
+            return ""
+        cached_food = model._state.fields_cache.get("food")
+        if cached_food is not None:
+            return str(cached_food)
+        return str(model.food)
 
 
 @strawberry.type
@@ -756,6 +792,12 @@ class RecipeType:
         Returns:
             list[RecipeIngredientType]: list of ingredients.
         """
+        model = getattr(self, "_model", None)
+        if model is not None:
+            return [
+                RecipeIngredientType.from_model(i)
+                for i in model.ingredients.all()  # type: ignore[attr-defined]
+            ]
         return [
             RecipeIngredientType.from_model(i)
             for i in RecipeIngredient.objects.filter(
@@ -773,7 +815,7 @@ class RecipeType:
         Returns:
             RecipeType: GraphQL type.
         """
-        return RecipeType(
+        wrapped = RecipeType(
             id=strawberry.ID(str(obj.id)),
             brand=obj.brand,
             name=obj.name,
@@ -803,6 +845,8 @@ class RecipeType:
             ),
             salt_g=float(obj.salt_g) if obj.salt_g is not None else None,
         )
+        wrapped._model = obj  # type: ignore[attr-defined]
+        return wrapped
 
 
 @strawberry.type
@@ -824,7 +868,15 @@ class RecipeQuery:
             return []
         return [
             RecipeType.from_model(r)
-            for r in Recipe.objects.all().order_by("name")
+            for r in Recipe.objects.prefetch_related(
+                Prefetch(
+                    "ingredients",
+                    queryset=RecipeIngredient.objects.select_related(
+                        "food"
+                    ).order_by("id"),
+                ),
+                "ingredients__food",
+            ).order_by("name")
         ]
 
     @strawberry.field
@@ -842,7 +894,17 @@ class RecipeQuery:
         if user is None or not user.is_authenticated:
             return None
         try:
-            return RecipeType.from_model(Recipe.objects.get(pk=id))
+            return RecipeType.from_model(
+                Recipe.objects.prefetch_related(
+                    Prefetch(
+                        "ingredients",
+                        queryset=RecipeIngredient.objects.select_related(
+                            "food"
+                        ).order_by("id"),
+                    ),
+                    "ingredients__food",
+                ).get(pk=id)
+            )
         except Recipe.DoesNotExist:
             return None
 

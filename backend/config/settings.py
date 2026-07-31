@@ -108,10 +108,11 @@ POSTGRESQL_USER = NUTRITION
 POSTGRESQL_PASSWORD = ENV("POSTGRESQL_PASSWORD", default="")
 POSTGRESQL_HOST = ENV("POSTGRESQL_HOST", default="localhost")
 DB_CONFIG = ENV.db(
+    "DATABASE_URL",
     default=(
         f"postgres://{POSTGRESQL_USER}:{POSTGRESQL_PASSWORD}@"
         f"{POSTGRESQL_HOST}:5432/{POSTGRESQL_DB}"
-    )
+    ),
 )
 
 # Django requires a "default" DB, then

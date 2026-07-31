@@ -9,6 +9,7 @@ from typing import cast
 import strawberry
 from django.conf import settings
 from django.db import models, router, transaction
+from django.db.models import Prefetch
 from strawberry.types import Info
 
 from apps.libs.graphql import (
@@ -149,9 +150,9 @@ class DayType:
         Returns:
             list[IntakeType]: list of intakes.
         """
-        # We need to access the django instance.
-        # But `self` is a DayType wrapper.
-        # We handle this by querying the intakes for this ID.
+        model = getattr(self, "_model", None)
+        if model is not None:
+            return [IntakeType.from_model(i) for i in model.intakes.all()]
         return [
             IntakeType.from_model(i)
             for i in Intake.objects.filter(day_id=self.id).order_by(
@@ -172,7 +173,7 @@ class DayType:
         Returns:
             DayType: GraphQL type.
         """
-        return DayType(
+        wrapped = DayType(
             id=strawberry.ID(str(obj.id)),
             plan_id=obj.plan_id,
             day=obj.day.isoformat(),
@@ -194,6 +195,8 @@ class DayType:
             carbs_g=float(obj.carbs_g),
             tdee=float(obj.tdee) if obj.tdee else 0.0,
         )
+        wrapped._model = obj  # type: ignore[attr-defined]
+        return wrapped
 
 
 @strawberry.type
@@ -217,6 +220,9 @@ class WeekPlanType:
         Returns:
             list[DayType]: list of days.
         """
+        model = getattr(self, "_model", None)
+        if model is not None:
+            return [DayType.from_model(d) for d in model.days.all()]
         return [
             DayType.from_model(d)
             for d in Day.objects.filter(plan_id=int(str(self.id))).order_by(
@@ -234,7 +240,7 @@ class WeekPlanType:
         Returns:
             WeekPlanType: GraphQL type.
         """
-        return WeekPlanType(
+        wrapped = WeekPlanType(
             id=strawberry.ID(str(obj.id)),
             start_date=obj.start_date.isoformat(),
             protein_g_kg=float(obj.protein_g_kg),
@@ -245,6 +251,8 @@ class WeekPlanType:
             energy_kcal_goal=float(obj.energy_kcal_goal),
             energy_kcal=float(obj.energy_kcal),
         )
+        wrapped._model = obj  # type: ignore[attr-defined]
+        return wrapped
 
 
 @strawberry.type
@@ -267,7 +275,21 @@ class PlanQuery:
 
         return [
             WeekPlanType.from_model(p)
-            for p in WeekPlan.objects.filter(user=user).order_by("-start_date")
+            for p in WeekPlan.objects.filter(user=user)
+            .prefetch_related(
+                Prefetch(
+                    "days",
+                    queryset=Day.objects.prefetch_related(
+                        Prefetch(
+                            "intakes",
+                            queryset=Intake.objects.order_by(
+                                "meal_order", "created_at"
+                            ),
+                        )
+                    ).order_by("day"),
+                )
+            )
+            .order_by("-start_date")
         ]
 
     @strawberry.field
@@ -286,7 +308,19 @@ class PlanQuery:
             return None
 
         try:
-            obj = WeekPlan.objects.get(pk=id, user=user)
+            obj = WeekPlan.objects.prefetch_related(
+                Prefetch(
+                    "days",
+                    queryset=Day.objects.prefetch_related(
+                        Prefetch(
+                            "intakes",
+                            queryset=Intake.objects.order_by(
+                                "meal_order", "created_at"
+                            ),
+                        )
+                    ).order_by("day"),
+                )
+            ).get(pk=id, user=user)
         except WeekPlan.DoesNotExist:
             return None
         return WeekPlanType.from_model(obj)
@@ -307,7 +341,14 @@ class PlanQuery:
             return None
 
         try:
-            obj = Day.objects.get(pk=id, plan__user=user)
+            obj = Day.objects.prefetch_related(
+                Prefetch(
+                    "intakes",
+                    queryset=Intake.objects.order_by(
+                        "meal_order", "created_at"
+                    ),
+                )
+            ).get(pk=id, plan__user=user)
         except Day.DoesNotExist:
             return None
         return DayType.from_model(obj)
@@ -558,6 +599,7 @@ class PlanMutation:
             "numServings",
             Intake._meta.get_field("num_servings"),
         )
+        validated_meal = Intake.validate_meal(meal)
 
         try:
             day = Day.objects.get(pk=day_id, plan__user=user)
@@ -568,7 +610,7 @@ class PlanMutation:
         # This mirrors the flexibility of Django admin for Intakes.
         kwargs = {
             "day": day,
-            "meal": meal,
+            "meal": validated_meal,
             "num_servings": validated_num_servings,
         }
 
@@ -665,7 +707,7 @@ class PlanMutation:
                         )
                     )
 
-        obj.meal = meal
+        obj.meal = Intake.validate_meal(meal)
         obj.num_servings = validated_num_servings
 
         # Food-backed nutrients are derived and cannot be directly modified.
