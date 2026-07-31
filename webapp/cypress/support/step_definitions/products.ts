@@ -28,11 +28,8 @@ When("I fill in the product energy with {string}", (value: string) => {
 });
 
 Then("I should be redirected to the products list", () => {
-    cy.get('[data-testid="save-btn"]', { timeout: 10000 }).should('not.be.disabled');
-    cy.get('body').then($body => {
-        if ($body.find('.toast-error').length > 0) {
-            throw new Error('API SAVE ERROR: ' + $body.find('.toast-error').text());
-        }
-    });
     cy.url({ timeout: 10000 }).should("match", /\/products$/);
+    cy.get('[data-testid="products-title"]', { timeout: 10000 })
+        .should("be.visible")
+        .and("contain.text", "Food Products");
 });
