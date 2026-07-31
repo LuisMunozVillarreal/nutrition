@@ -9,7 +9,9 @@ from sanitise_branch import sanitise_branch_name
 
 
 def _not_found_output() -> CompletedProcess:
-    return CompletedProcess(args=["kubectl"], returncode=1, stdout="", stderr="not found")
+    return CompletedProcess(
+        args=["kubectl"], returncode=1, stdout="", stderr="not found"
+    )
 
 
 def _success_output() -> CompletedProcess:
@@ -103,7 +105,9 @@ def test_main_retries_until_gone(mock_run, monkeypatch):
     mock_run.side_effect = outputs
 
     # Keep test execution fast even when waiting for transient existence.
-    monkeypatch.setattr("cleanup_flux_preview.time.sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "cleanup_flux_preview.time.sleep", lambda *_args, **_kwargs: None
+    )
     result = runner.invoke(main, ["feature/test"])
 
     assert result.exit_code == 0
@@ -134,6 +138,39 @@ def test_main_verification_failure(mock_run):
 
     assert result.exit_code == 1
     assert "Unable to verify deletion of" in result.output
+    assert "Cleanup sequence failed." in result.output
+
+
+def test_main_already_absent_resources_succeed(mock_run):
+    """Test cleanup succeeds when everything is already absent."""
+    runner = CliRunner()
+    mock_run.side_effect = [
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _success_output(),
+        _not_found_output(),
+        _not_found_output(),
+        _not_found_output(),
+        _not_found_output(),
+    ]
+
+    result = runner.invoke(main, ["feature/test"])
+
+    assert result.exit_code == 0
+    assert "Cleanup sequence completed." in result.output
+    assert mock_run.call_count == 8
+
+
+def test_main_delete_oserror_fails(mock_run):
+    """Test cleanup fails when kubectl delete command raises a system error."""
+    runner = CliRunner()
+    mock_run.side_effect = [OSError("kaboom")]
+
+    result = runner.invoke(main, ["feature/test"])
+
+    assert result.exit_code == 1
+    assert "Error deleting kustomization" in result.output
     assert "Cleanup sequence failed." in result.output
 
 
