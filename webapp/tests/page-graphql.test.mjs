@@ -399,3 +399,21 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
   assert.match(exerciseSteps, /data-testid="form-error"/)
   assert.match(exerciseSteps, /should\('equal', '\/exercises'\)/)
 })
+
+test('Cypress redirect assertions observe destination pages instead of departed forms', async () => {
+  const cases = [
+    ['../cypress/support/step_definitions/products.ts', 'products-title'],
+    ['../cypress/support/step_definitions/recipes.ts', 'recipes-title'],
+    ['../cypress/support/step_definitions/cupboard.ts', 'cupboard-title'],
+  ]
+
+  for (const [path, destinationTitle] of cases) {
+    const source = await readFile(new URL(path, import.meta.url), 'utf8')
+    const redirectStep = source.match(
+      /Then\("I should be redirected to the [^"]+ list", \(\) => \{([\s\S]*?)\n\}\);/,
+    )
+    assert.ok(redirectStep, `redirect step missing from ${path}`)
+    assert.doesNotMatch(redirectStep[1], /save-btn/)
+    assert.match(redirectStep[1], new RegExp(destinationTitle))
+  }
+})
