@@ -13,6 +13,7 @@ from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
+from apps.foods import deletion as food_deletion
 from apps.foods.models import (
     CupboardItem,
     CupboardItemConsumption,
@@ -73,6 +74,7 @@ class CupboardManualLinkedConcurrencyTests(TransactionTestCase):
         original_lock = (
             cupboard_handlers._lock_cupboard_item  # pylint: disable=protected-access
         )
+        original_deletion_lock = food_deletion.lock_nutrition_deletion
 
         def pause_manual_after_lock(authoritative_item):
             manual_locked.set()
@@ -83,6 +85,10 @@ class CupboardManualLinkedConcurrencyTests(TransactionTestCase):
         def observe_linked_lock(instance, using):
             linked_lock_attempted.set()
             return original_lock(instance, using)
+
+        def observe_deletion_lock(targets, using):
+            linked_lock_attempted.set()
+            return original_deletion_lock(targets, using)
 
         def update_manual():
             close_old_connections()
@@ -132,6 +138,10 @@ class CupboardManualLinkedConcurrencyTests(TransactionTestCase):
             patch(
                 "apps.foods.signals.handlers.cupboard._lock_cupboard_item",
                 side_effect=observe_linked_lock,
+            ),
+            patch(
+                "apps.foods.deletion.lock_nutrition_deletion",
+                side_effect=observe_deletion_lock,
             ),
             ThreadPoolExecutor(max_workers=2) as executor,
         ):
