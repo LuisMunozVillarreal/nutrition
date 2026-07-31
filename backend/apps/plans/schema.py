@@ -4,10 +4,11 @@
 
 import datetime
 from decimal import Decimal
+from typing import cast
 
 import strawberry
 from django.conf import settings
-from django.db import router, transaction
+from django.db import models, router, transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import (
@@ -31,9 +32,15 @@ def _validated_week_plan_parameters(
 ) -> tuple[Decimal, Decimal, int]:
     """Validate plan inputs and every resulting daily nutrition goal."""
     validated_protein_g_kg = validated_positive_decimal(
-        protein_g_kg, "proteinGKg"
+        protein_g_kg,
+        "proteinGKg",
+        WeekPlan._meta.get_field("protein_g_kg"),
     )
-    validated_fat_perc = validated_percentage_decimal(fat_perc, "fatPerc")
+    validated_fat_perc = validated_percentage_decimal(
+        fat_perc,
+        "fatPerc",
+        WeekPlan._meta.get_field("fat_perc"),
+    )
     validated_deficit = validated_non_negative_decimal(deficit, "deficit")
     protein_g_goal = validated_protein_g_kg * measurement.weight
     daily_tdee_values = tdee_values or [
@@ -547,7 +554,9 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
         validated_num_servings = validated_positive_decimal(
-            num_servings, "numServings"
+            num_servings,
+            "numServings",
+            Intake._meta.get_field("num_servings"),
         )
 
         try:
@@ -567,16 +576,24 @@ class PlanMutation:
             kwargs["food_id"] = int(food_id)
         else:
             kwargs["energy_kcal"] = validated_non_negative_decimal(
-                energy_kcal if energy_kcal is not None else 0, "energyKcal"
+                energy_kcal if energy_kcal is not None else 0,
+                "energyKcal",
+                Intake._meta.get_field("energy_kcal"),
             )
             kwargs["protein_g"] = validated_non_negative_decimal(
-                protein_g if protein_g is not None else 0, "proteinG"
+                protein_g if protein_g is not None else 0,
+                "proteinG",
+                Intake._meta.get_field("protein_g"),
             )
             kwargs["fat_g"] = validated_non_negative_decimal(
-                fat_g if fat_g is not None else 0, "fatG"
+                fat_g if fat_g is not None else 0,
+                "fatG",
+                Intake._meta.get_field("fat_g"),
             )
             kwargs["carbs_g"] = validated_non_negative_decimal(
-                carbs_g if carbs_g is not None else 0, "carbsG"
+                carbs_g if carbs_g is not None else 0,
+                "carbsG",
+                Intake._meta.get_field("carbs_g"),
             )
 
         obj = Intake.objects.create(**kwargs)
@@ -624,7 +641,9 @@ class PlanMutation:
             raise ValueError("Intake not found") from e
 
         validated_num_servings = validated_positive_decimal(
-            num_servings, "numServings"
+            num_servings,
+            "numServings",
+            Intake._meta.get_field("num_servings"),
         )
         validated_nutrients = {}
         if not obj.food_id:
@@ -636,7 +655,14 @@ class PlanMutation:
             ):
                 if value is not None:
                     validated_nutrients[model_field] = (
-                        validated_non_negative_decimal(value, field_name)
+                        validated_non_negative_decimal(
+                            value,
+                            field_name,
+                            cast(
+                                models.DecimalField,
+                                Intake._meta.get_field(model_field),
+                            ),
+                        )
                     )
 
         obj.meal = meal

@@ -3,10 +3,10 @@
 import datetime
 import math
 from decimal import Decimal
+from typing import cast
 
 import strawberry
-from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
 from strawberry.types import Info
 
 from apps.foods.models import (
@@ -29,6 +29,7 @@ from apps.foods.signals.handlers.cupboard import (
 )
 from apps.libs.graphql import (
     get_request_user,
+    validated_decimal_field,
     validated_non_negative_decimal,
     validated_positive_decimal,
 )
@@ -86,15 +87,16 @@ def _validate_serving_unit_compatibility(
 
 
 def _validated_optional_nutrient(
-    value: float | None, field_name: str
+    value: float | None, field_name: str, model_field: models.DecimalField
 ) -> Decimal | None:
     """Validate an optional finite, non-negative nutrient value."""
     if value is None:
         return None
-    return validated_non_negative_decimal(value, field_name)
+    return validated_non_negative_decimal(value, field_name, model_field)
 
 
 def _validated_nutrients(
+    destination_model: type[Food],
     *,
     energy_kcal: float,
     protein_g: float,
@@ -105,20 +107,45 @@ def _validated_nutrients(
     fibre_g: float | None,
     salt_g: float | None,
 ) -> dict[str, Decimal | None]:
-    """Validate every nutrient exposed by product and recipe mutations."""
+    """Validate every nutrient against its destination model field."""
+
+    def field(field_name: str) -> models.DecimalField:
+        """Return a decimal destination field with a precise static type.
+
+        Args:
+            field_name: Model field name to resolve.
+
+        Returns:
+            The destination decimal field.
+        """
+        return cast(
+            models.DecimalField,
+            destination_model._meta.get_field(field_name),
+        )
+
     return {
         "energy_kcal": validated_non_negative_decimal(
-            energy_kcal, "energyKcal"
+            energy_kcal, "energyKcal", field("energy_kcal")
         ),
-        "protein_g": validated_non_negative_decimal(protein_g, "proteinG"),
-        "fat_g": validated_non_negative_decimal(fat_g, "fatG"),
-        "carbs_g": validated_non_negative_decimal(carbs_g, "carbsG"),
+        "protein_g": validated_non_negative_decimal(
+            protein_g, "proteinG", field("protein_g")
+        ),
+        "fat_g": validated_non_negative_decimal(fat_g, "fatG", field("fat_g")),
+        "carbs_g": validated_non_negative_decimal(
+            carbs_g, "carbsG", field("carbs_g")
+        ),
         "saturated_fat_g": _validated_optional_nutrient(
-            saturated_fat_g, "saturatedFatG"
+            saturated_fat_g, "saturatedFatG", field("saturated_fat_g")
         ),
-        "sugar_carbs_g": _validated_optional_nutrient(sugars_g, "sugarsG"),
-        "fibre_carbs_g": _validated_optional_nutrient(fibre_g, "fibreG"),
-        "salt_g": _validated_optional_nutrient(salt_g, "saltG"),
+        "sugar_carbs_g": _validated_optional_nutrient(
+            sugars_g, "sugarsG", field("sugar_carbs_g")
+        ),
+        "fibre_carbs_g": _validated_optional_nutrient(
+            fibre_g, "fibreG", field("fibre_carbs_g")
+        ),
+        "salt_g": _validated_optional_nutrient(
+            salt_g, "saltG", field("salt_g")
+        ),
     }
 
 
@@ -290,18 +317,22 @@ class FoodQuery:
 
 def _validated_product_num_servings(num_servings: float) -> Decimal:
     """Return a finite positive product serving count."""
-    if not math.isfinite(num_servings) or num_servings <= 0:
-        raise ValueError("numServings must be greater than 0")
-    return Decimal(str(num_servings))
+    return validated_positive_decimal(
+        num_servings,
+        "numServings",
+        FoodProduct._meta.get_field("num_servings"),
+    )
 
 
 def _validated_product_nutritional_info_size(
     nutritional_info_size: float,
 ) -> Decimal:
     """Return a finite positive product nutritional information size."""
-    if not math.isfinite(nutritional_info_size) or nutritional_info_size <= 0:
-        raise ValueError("nutritionalInfoSize must be greater than 0")
-    return Decimal(str(nutritional_info_size))
+    return validated_positive_decimal(
+        nutritional_info_size,
+        "nutritionalInfoSize",
+        FoodProduct._meta.get_field("nutritional_info_size"),
+    )
 
 
 @strawberry.type
@@ -363,6 +394,7 @@ class FoodMutation:
         """
         _require_staff_user(info)
         nutrients = _validated_nutrients(
+            FoodProduct,
             energy_kcal=energy_kcal,
             protein_g=protein_g,
             fat_g=fat_g,
@@ -379,7 +411,9 @@ class FoodMutation:
         validated_nutritional_info_unit = _validated_unit(
             nutritional_info_unit, "nutritionalInfoUnit"
         )
-        validated_size = validated_positive_decimal(size, "size")
+        validated_size = validated_positive_decimal(
+            size, "size", FoodProduct._meta.get_field("size")
+        )
         validated_size_unit = _validated_unit(size_unit, "sizeUnit")
         validated_num_servings = _validated_product_num_servings(num_servings)
         _validate_product_unit_compatibility(
@@ -461,7 +495,9 @@ class FoodMutation:
         validated_nutritional_info_size = (
             _validated_product_nutritional_info_size(nutritional_info_size)
         )
-        validated_size = validated_positive_decimal(size, "size")
+        validated_size = validated_positive_decimal(
+            size, "size", FoodProduct._meta.get_field("size")
+        )
         validated_nutritional_info_unit = _validated_unit(
             nutritional_info_unit, "nutritionalInfoUnit"
         )
@@ -471,6 +507,7 @@ class FoodMutation:
             validated_size_unit, validated_nutritional_info_unit
         )
         nutrients = _validated_nutrients(
+            FoodProduct,
             energy_kcal=energy_kcal,
             protein_g=protein_g,
             fat_g=fat_g,
@@ -561,7 +598,9 @@ class FoodMutation:
         """
         _require_staff_user(info)
         validated_serving_size = validated_positive_decimal(
-            serving_size, "servingSize"
+            serving_size,
+            "servingSize",
+            Serving._meta.get_field("serving_size"),
         )
         validated_serving_unit = _validated_unit(serving_unit, "servingUnit")
         try:
@@ -607,7 +646,9 @@ class FoodMutation:
         """
         _require_staff_user(info)
         validated_serving_size = validated_positive_decimal(
-            serving_size, "servingSize"
+            serving_size,
+            "servingSize",
+            Serving._meta.get_field("serving_size"),
         )
         validated_serving_unit = _validated_unit(serving_unit, "servingUnit")
 
@@ -806,20 +847,20 @@ class RecipeQuery:
 
 def _validated_recipe_num_servings(num_servings: float) -> Decimal:
     """Return a valid positive recipe serving count."""
-    if not math.isfinite(num_servings) or num_servings <= 0:
-        raise ValueError("numServings must be greater than 0")
-    return Decimal(str(num_servings))
+    return validated_positive_decimal(
+        num_servings,
+        "numServings",
+        Recipe._meta.get_field("num_servings"),
+    )
 
 
 def _validated_ingredient_num_servings(num_servings: float) -> Decimal:
     """Validate positivity and the model field's persisted decimal precision."""
-    value = validated_positive_decimal(num_servings, "numServings")
-    field = RecipeIngredient._meta.get_field("num_servings")
-    try:
-        field.clean(value, None)
-    except ValidationError as exc:
-        raise ValueError("numServings exceeds supported precision") from exc
-    return value
+    return validated_positive_decimal(
+        num_servings,
+        "numServings",
+        RecipeIngredient._meta.get_field("num_servings"),
+    )
 
 
 @strawberry.type
@@ -873,6 +914,7 @@ class RecipeMutation:
         """
         _require_staff_user(info)
         nutrients = _validated_nutrients(
+            Recipe,
             energy_kcal=energy_kcal,
             protein_g=protein_g,
             fat_g=fat_g,
@@ -882,13 +924,17 @@ class RecipeMutation:
             fibre_g=fibre_g,
             salt_g=salt_g,
         )
+        validated_size_unit = _validated_unit(size_unit, "sizeUnit")
 
         obj = Recipe.objects.create(
             name=name,
             brand=brand,
             description=description,
-            size=validated_positive_decimal(size, "size"),
-            size_unit=_validated_unit(size_unit, "sizeUnit"),
+            size=validated_positive_decimal(
+                size, "size", Recipe._meta.get_field("size")
+            ),
+            size_unit=validated_size_unit,
+            nutritional_info_unit=validated_size_unit,
             num_servings=_validated_recipe_num_servings(num_servings),
             **nutrients,
         )
@@ -943,10 +989,13 @@ class RecipeMutation:
             ValueError: if recipe not found.
         """
         _require_staff_user(info)
-        validated_size = validated_positive_decimal(size, "size")
+        validated_size = validated_positive_decimal(
+            size, "size", Recipe._meta.get_field("size")
+        )
         validated_size_unit = _validated_unit(size_unit, "sizeUnit")
         validated_num_servings = _validated_recipe_num_servings(num_servings)
         nutrients = _validated_nutrients(
+            Recipe,
             energy_kcal=energy_kcal,
             protein_g=protein_g,
             fat_g=fat_g,
@@ -967,6 +1016,7 @@ class RecipeMutation:
         obj.description = description
         obj.size = validated_size
         obj.size_unit = validated_size_unit
+        obj.nutritional_info_unit = validated_size_unit
         obj.num_servings = validated_num_servings
         for nutrient_name, nutrient_value in nutrients.items():
             setattr(obj, nutrient_name, nutrient_value)
@@ -1143,7 +1193,11 @@ def _validated_consumed_perc(consumed_perc: float) -> Decimal:
     """
     if not math.isfinite(consumed_perc) or not 0 <= consumed_perc <= 100:
         raise ValueError("consumedPerc must be between 0 and 100")
-    return Decimal(str(consumed_perc))
+    return validated_decimal_field(
+        Decimal(str(consumed_perc)),
+        "consumedPerc",
+        CupboardItem._meta.get_field("consumed_perc"),
+    )
 
 
 @strawberry.type

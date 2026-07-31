@@ -131,9 +131,13 @@ class MeasurementMutation:
         obj = Measurement.objects.create(
             user=user,
             body_fat_perc=validated_percentage_decimal(
-                body_fat_perc, "bodyFatPerc"
+                body_fat_perc,
+                "bodyFatPerc",
+                Measurement._meta.get_field("body_fat_perc"),
             ),
-            weight=validated_positive_decimal(weight, "weight"),
+            weight=validated_positive_decimal(
+                weight, "weight", Measurement._meta.get_field("weight")
+            ),
         )
         return MeasurementType.from_model(obj)
 
@@ -166,9 +170,13 @@ class MeasurementMutation:
             raise PermissionError("Authentication required")
 
         validated_body_fat_perc = validated_percentage_decimal(
-            body_fat_perc, "bodyFatPerc"
+            body_fat_perc,
+            "bodyFatPerc",
+            Measurement._meta.get_field("body_fat_perc"),
         )
-        validated_weight = validated_positive_decimal(weight, "weight")
+        validated_weight = validated_positive_decimal(
+            weight, "weight", Measurement._meta.get_field("weight")
+        )
         try:
             obj = Measurement.objects.select_for_update().get(pk=id, user=user)
         except Measurement.DoesNotExist as e:

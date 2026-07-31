@@ -106,6 +106,67 @@ class TestCupboardSchema:
         item = CupboardItem.objects.get(food=fp)
         assert item.owner == user
 
+    @pytest.mark.parametrize(
+        ("operation", "consumed_perc"), [("create", 0.01), ("update", 99.99)]
+    )
+    def test_cupboard_item_accepts_two_decimal_boundaries(
+        self, mocker, operation, consumed_perc
+    ):
+        """Cupboard create and update preserve supported two-decimal values."""
+        user = _create_user(f"cupboard-boundary-{operation}@test.com")
+        product = FoodProduct.objects.create(name=f"Boundary {operation}")
+        item = CupboardItem.objects.create(
+            owner=user,
+            food=product,
+            purchased_at=timezone.now(),
+            consumed_perc=Decimal("0.01"),
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        if operation == "create":
+            item.delete()
+            mutation = """
+                mutation Boundary(
+                    $foodId: ID!, $purchasedAt: String!, $consumedPerc: Float!
+                ) {
+                    createCupboardItem(
+                        foodId: $foodId, purchasedAt: $purchasedAt,
+                        consumedPerc: $consumedPerc
+                    ) { id }
+                }
+            """
+            variables = {
+                "foodId": str(product.id),
+                "purchasedAt": timezone.now().isoformat(),
+                "consumedPerc": consumed_perc,
+            }
+        else:
+            mutation = """
+                mutation Boundary($id: ID!, $consumedPerc: Float!) {
+                    updateCupboardItem(
+                        id: $id, consumedPerc: $consumedPerc
+                    ) { id }
+                }
+            """
+            variables = {"id": str(item.id), "consumedPerc": consumed_perc}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        persisted = CupboardItem.objects.get(
+            pk=result.data[
+                (
+                    "createCupboardItem"
+                    if operation == "create"
+                    else "updateCupboardItem"
+                )
+            ]["id"]
+        )
+        assert persisted.consumed_perc == Decimal(str(consumed_perc))
+        assert persisted.manual_consumed_perc == Decimal(str(consumed_perc))
+
     def test_cupboard_item_detail_hides_another_users_item(self, mocker):
         """A user cannot read another user's cupboard item detail."""
         user = _create_user("detail@test.com")
@@ -540,7 +601,15 @@ class TestCupboardSchema:
 
     @pytest.mark.parametrize(
         "consumed_perc",
-        [-0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+        [
+            -0.1,
+            0.001,
+            99.999,
+            100.1,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_create_cupboard_item_rejects_out_of_range_consumption(
         self, mocker, consumed_perc
@@ -582,7 +651,15 @@ class TestCupboardSchema:
 
     @pytest.mark.parametrize(
         "consumed_perc",
-        [-0.1, 100.1, float("nan"), float("inf"), -float("inf")],
+        [
+            -0.1,
+            0.001,
+            99.999,
+            100.1,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_update_cupboard_item_rejects_out_of_range_consumption(
         self, mocker, consumed_perc

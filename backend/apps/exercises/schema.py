@@ -10,7 +10,11 @@ import strawberry
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
-from apps.libs.graphql import get_request_user, validated_non_negative_decimal
+from apps.libs.graphql import (
+    get_request_user,
+    validated_decimal_field,
+    validated_non_negative_decimal,
+)
 
 MAX_DISTANCE = Decimal("99999999.99")
 MAX_DURATION_SECONDS = (2**63 - 1) // 1_000_000
@@ -82,6 +86,11 @@ def _validated_exercise_values(
             raise ValueError(
                 f"distance must be less than or equal to {MAX_DISTANCE}"
             )
+        validated_distance = validated_decimal_field(
+            validated_distance,
+            "distance",
+            Exercise._meta.get_field("distance"),
+        )
     return exercise_type, validated_kcals, validated_distance
 
 

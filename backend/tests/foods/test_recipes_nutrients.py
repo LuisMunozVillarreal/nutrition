@@ -23,6 +23,7 @@ def test_calculate_recipe_nutrients(db, recipe_ingredient):
 
     # Then
     assert recipe.protein_g == 25
+    assert recipe.servings.get().protein_g == Decimal("12.5")
 
 
 def test_do_not_calculate_recipe_nutrients(db, recipe_ingredient):

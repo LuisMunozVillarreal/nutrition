@@ -4,6 +4,8 @@
 # exposed field in both create and update paths.
 # pylint: disable=too-many-lines
 
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -130,6 +132,75 @@ class TestFoodProductSchema:
         assert result.data["createFoodProduct"]["name"] == "Oats"
         assert result.data["createFoodProduct"]["brand"] == "Quaker"
 
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_food_product_accepts_representable_decimal_boundaries(
+        self, mocker, operation
+    ):
+        """Both product write paths preserve supported one/two-decimal values."""
+        user = _create_user(f"fp-boundary-{operation}@test.com", is_staff=True)
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(name="Original")
+        arguments = """
+            name: "Boundary", nutritionalInfoSize: 0.1,
+            nutritionalInfoUnit: "g", size: 99.9, sizeUnit: "g",
+            numServings: 0.1, energyKcal: 12.34, proteinG: 23.45,
+            fatG: 34.56, carbsG: 45.67, saturatedFatG: 1.23,
+            sugarsG: 2.34, fibreG: 3.45, saltG: null
+        """
+        if operation == "create":
+            mutation = (
+                f"mutation {{ createFoodProduct({arguments}) {{ id }} }}"
+            )
+        else:
+            mutation = f"""
+                mutation UpdateBoundary($id: ID!) {{
+                    updateFoodProduct(id: $id, {arguments}) {{ id }}
+                }}
+            """
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"id": str(product.id)},
+            context_value=context,
+        )
+
+        assert result.errors is None
+        persisted = FoodProduct.objects.get(
+            pk=result.data[
+                (
+                    "createFoodProduct"
+                    if operation == "create"
+                    else "updateFoodProduct"
+                )
+            ]["id"]
+        )
+        assert (
+            persisted.nutritional_info_size,
+            persisted.size,
+            persisted.num_servings,
+            persisted.energy_kcal,
+            persisted.protein_g,
+            persisted.fat_g,
+            persisted.carbs_g,
+            persisted.saturated_fat_g,
+            persisted.sugar_carbs_g,
+            persisted.fibre_carbs_g,
+            persisted.salt_g,
+        ) == (
+            Decimal("0.1"),
+            Decimal("99.9"),
+            Decimal("0.1"),
+            Decimal("12.34"),
+            Decimal("23.45"),
+            Decimal("34.56"),
+            Decimal("45.67"),
+            Decimal("1.23"),
+            Decimal("2.34"),
+            Decimal("3.45"),
+            None,
+        )
+
     def test_create_food_product_rejects_non_staff_user(self, mocker):
         """A regular user cannot create a shared food product."""
         user = _create_user("fpcreate-regular@test.com")
@@ -164,7 +235,15 @@ class TestFoodProductSchema:
 
     @pytest.mark.parametrize(
         "nutritional_info_size",
-        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_create_food_product_rejects_invalid_nutritional_info_size(
         self, mocker, nutritional_info_size
@@ -293,8 +372,60 @@ class TestFoodProductSchema:
         assert product.name == "Valid"
         assert product.num_servings == 4
 
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize("num_servings", [0.01, 1000000000.0])
+    def test_food_product_rejects_unrepresentable_num_servings(
+        self, mocker, operation, num_servings
+    ):
+        """Serving counts must fit the destination field without rounding."""
+        user = _create_user(
+            f"fp-precision-{operation}-{num_servings}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(name="Original", num_servings=4)
+        if operation == "create":
+            mutation = """
+                mutation InvalidCount($numServings: Float!) {
+                    createFoodProduct(
+                        name: "Invalid count", numServings: $numServings
+                    ) { id }
+                }
+            """
+            variables = {"numServings": num_servings}
+        else:
+            mutation = """
+                mutation InvalidCount($id: ID!, $numServings: Float!) {
+                    updateFoodProduct(
+                        id: $id, name: "Changed", numServings: $numServings
+                    ) { id }
+                }
+            """
+            variables = {"id": str(product.id), "numServings": num_servings}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is not None
+        assert "numServings exceeds supported precision" in str(
+            result.errors[0]
+        )
+        assert not FoodProduct.objects.filter(name="Invalid count").exists()
+        product.refresh_from_db()
+        assert (product.name, product.num_servings) == ("Original", 4)
+
     @pytest.mark.parametrize(
-        "size", [0.0, -1.0, float("nan"), float("inf"), -float("inf")]
+        "size",
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     @pytest.mark.parametrize("operation", ["create", "update"])
     def test_food_product_rejects_invalid_size_without_partial_writes(
@@ -410,7 +541,15 @@ class TestFoodProductSchema:
 
     @pytest.mark.parametrize(
         "nutritional_info_size",
-        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     def test_update_food_product_rejects_invalid_nutritional_info_size(
         self, mocker, nutritional_info_size
@@ -509,7 +648,9 @@ class TestFoodProductSchema:
             "saltG",
         ],
     )
-    @pytest.mark.parametrize("value", [-0.1, float("nan"), float("inf")])
+    @pytest.mark.parametrize(
+        "value", [-0.1, 0.001, 100000000.0, float("nan"), float("inf")]
+    )
     def test_food_product_rejects_invalid_nutrients_without_partial_writes(
         self, mocker, operation, field_name, value
     ):
@@ -772,6 +913,55 @@ class TestServingSchema:
         # 100g = 600kcal -> 15g = 90kcal
         assert result.data["createServing"]["energyKcal"] == 90.0
 
+    @pytest.mark.parametrize(
+        ("operation", "serving_size"), [("create", 0.1), ("update", 99.9)]
+    )
+    def test_serving_accepts_one_decimal_boundaries(
+        self, mocker, operation, serving_size
+    ):
+        """Serving create and update preserve supported one-decimal boundaries."""
+        user = _create_user(
+            f"serving-boundary-{operation}@test.com", is_staff=True
+        )
+        product = FoodProduct.objects.create(name=f"Boundary {operation}")
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+        context = mocker.Mock()
+        context.request.user = user
+        if operation == "create":
+            mutation = """
+                mutation Boundary($foodId: ID!, $servingSize: Float!) {
+                    createServing(
+                        foodId: $foodId, servingSize: $servingSize,
+                        servingUnit: "g"
+                    ) { id }
+                }
+            """
+            variables = {
+                "foodId": str(product.id),
+                "servingSize": serving_size,
+            }
+        else:
+            mutation = """
+                mutation Boundary($id: ID!, $servingSize: Float!) {
+                    updateServing(
+                        id: $id, servingSize: $servingSize, servingUnit: "g"
+                    ) { id }
+                }
+            """
+            variables = {"id": str(serving.id), "servingSize": serving_size}
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        persisted = Serving.objects.get(
+            pk=result.data[
+                "createServing" if operation == "create" else "updateServing"
+            ]["id"]
+        )
+        assert persisted.serving_size == Decimal(str(serving_size))
+
     def test_create_serving_rejects_non_staff_user(self, mocker):
         """A regular user cannot create a shared serving."""
         user = _create_user("srvcreate-regular@test.com")
@@ -854,7 +1044,15 @@ class TestServingSchema:
 
     @pytest.mark.parametrize(
         "serving_size",
-        [0.0, -1.0, float("nan"), float("inf"), -float("inf")],
+        [
+            0.0,
+            0.01,
+            1000000000.0,
+            -1.0,
+            float("nan"),
+            float("inf"),
+            -float("inf"),
+        ],
     )
     @pytest.mark.parametrize("operation", ["create", "update"])
     def test_serving_rejects_invalid_size_without_partial_writes(

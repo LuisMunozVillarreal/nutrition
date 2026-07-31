@@ -37,6 +37,9 @@ def _add_linked_consumption(
 ):
     """Accumulate one historical link without retaining unbounded fan-out."""
     item = items[consumption.item_id]
+    if item.food.size is None or item.food.size <= 0:
+        ambiguous_items.add(item.pk)
+        return
     amount, unit = _serving_amount(consumption)
     stock_unit = item.food.size_unit
     if unit in CONTEXTUAL_UNITS or stock_unit in CONTEXTUAL_UNITS:
