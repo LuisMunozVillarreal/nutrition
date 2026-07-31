@@ -158,6 +158,57 @@ class IntakeAggregateConcurrencyTests(TransactionTestCase):
         self.assertFalse(Intake.objects.filter(pk=intake.pk).exists())
         self._assert_stored_totals_match_rows()
 
+    def test_concurrent_moves_recompute_the_intermediate_day(self):
+        """D1-to-D2/D3 races restart after observing a newer current owner."""
+        destinations = list(
+            self.plan.days.exclude(pk=self.day.pk).order_by("pk")[:2]
+        )
+        intake = Intake.objects.create(
+            day=self.day,
+            food=None,
+            meal=Intake.MEAL_LUNCH,
+            energy_kcal=Decimal("100"),
+        )
+        stale_moves = [Intake.objects.get(pk=intake.pk) for _ in range(2)]
+        first_lock_attempt = threading.Barrier(2)
+        seen_threads = set()
+        seen_guard = threading.Lock()
+        from apps.plans.models import intake as intake_module
+
+        original_lock = intake_module.lock_plan_aggregate_rows
+
+        def synchronize_after_stale_owner_sample(*args, **kwargs):
+            thread_id = threading.get_ident()
+            with seen_guard:
+                first_attempt = thread_id not in seen_threads
+                seen_threads.add(thread_id)
+            if first_attempt:
+                first_lock_attempt.wait(timeout=10)
+            return original_lock(*args, **kwargs)
+
+        def move(stale, destination):
+            stale.day_id = destination.pk
+            stale.save(update_fields=["day"])
+
+        with patch.object(
+            intake_module,
+            "lock_plan_aggregate_rows",
+            new=synchronize_after_stale_owner_sample,
+        ):
+            self._run_competing(
+                lambda: move(stale_moves[0], destinations[0]),
+                lambda: move(stale_moves[1], destinations[1]),
+            )
+
+        intake.refresh_from_db()
+        for day in (self.day, *destinations):
+            expected = Intake.objects.filter(day=day).aggregate(
+                total=Sum("energy_kcal", default=Decimal("0"))
+            )["total"]
+            day.refresh_from_db()
+            self.assertEqual(day.energy_kcal, expected)
+        self.assertIn(intake.day_id, [day.pk for day in destinations])
+
     def test_opposing_bulk_deletes_with_interleaved_ids_do_not_deadlock(self):
         """Bulk collectors globally lock opposing plan/day sets before signals."""
         second_plan = WeekPlan.objects.create(

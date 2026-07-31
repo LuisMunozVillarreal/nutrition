@@ -149,7 +149,7 @@ class CupboardItem(models.Model):
             else:
                 previous = (
                     type(self)
-                    .objects.select_for_update()
+                    .objects.select_for_update(of=("self",))
                     .using(using)
                     .select_related("food")
                     .get(pk=self.pk)

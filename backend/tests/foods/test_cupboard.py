@@ -593,7 +593,7 @@ def test_linked_consumption_locks_cupboard_item_before_write(
 
     CupboardItemConsumption.objects.create(item=cupboard_item, serving=serving)
 
-    lock.assert_called_once_with()
+    lock.assert_called_once_with(of=("self",))
 
 
 def test_linked_consumption_update_locks_cupboard_item_before_write(
@@ -608,7 +608,7 @@ def test_linked_consumption_update_locks_cupboard_item_before_write(
     consumption.num_servings = Decimal("2")
     consumption.save()
 
-    lock.assert_called_once_with()
+    lock.assert_called_once_with(of=("self",))
 
 
 def test_linked_consumption_delete_locks_cupboard_item_before_write(
