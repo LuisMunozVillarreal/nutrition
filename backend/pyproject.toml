@@ -19,6 +19,7 @@ dependencies = [
     "django-storages[google]>=1.14.4",
     "django-taggit>=6.1.0",
     "django>=5.1.6",
+    "cryptography>=44.0.2",
     "google-genai>=0.3.0",
     "gunicorn>=23.0.0",
     "pillow>=11.1.0",
