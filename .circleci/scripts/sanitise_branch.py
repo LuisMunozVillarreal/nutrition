@@ -1,13 +1,40 @@
 """Common utilities for CircleCI scripts."""
 
 import hashlib
+import re
 import sys
 
-# Max length for the branch part is 34 characters to strictly fit
-# within the 64 char SSL CN limit. The CN format is:
-# staging--<sanitized_branch>.<BASE_DOMAIN>
-# 64 - 9 (staging--) - 1 (.) - 20 (~BASE_DOMAIN) = 34
 MAX_LENGTH = 34
+HASH_LENGTH = 7
+DNS_LABEL_RE = re.compile(r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
+
+
+def _normalize_branch_name(branch_name: str) -> str:
+    """
+    Normalize Git branch names to lowercase DNS-label safe characters.
+
+    Replaces invalid characters with '-' and collapses consecutive separators.
+    """
+    normalized = re.sub(r"[^a-z0-9-]", "-", branch_name.lower())
+    normalized = re.sub(r"-+", "-", normalized).strip("-")
+    if not normalized:
+        normalized = "branch"
+    return normalized
+
+
+def _append_stable_hash(normalized_branch: str, branch_name: str) -> str:
+    """Append a stable hash to a normalized branch identifier."""
+    branch_hash = hashlib.sha1(
+        branch_name.encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:HASH_LENGTH]
+    suffix = f"-{branch_hash}"
+    max_base_length = MAX_LENGTH - len(suffix)
+
+    base = normalized_branch[:max_base_length].strip("-")
+    if not base:
+        base = "branch"
+
+    return f"{base}{suffix}"
 
 
 def sanitise_branch_name(branch_name: str) -> str:
@@ -19,23 +46,13 @@ def sanitise_branch_name(branch_name: str) -> str:
     Returns:
         str: A sanitized string safe for K8s resource names.
     """
-    s = branch_name.lower()
-    s = s.replace("/", "-")
-    s = s.replace("_", "-")
-    s = s.replace(".", "-")
+    normalised = _normalize_branch_name(branch_name)
+    sanitized = _append_stable_hash(normalised, branch_name)
 
-    if len(s) > MAX_LENGTH:
-        # Create a hash of the original branch name for uniqueness
-        hasher = hashlib.sha1(
-            branch_name.encode("utf-8"), usedforsecurity=False
-        )
-        branch_hash = hasher.hexdigest()[:7]
+    if not DNS_LABEL_RE.fullmatch(sanitized):
+        raise ValueError(f"Could not normalise branch name: {branch_name}")
 
-        # Truncate to 26 chars to leave room for the hash (26 + 1 + 7 = 34)
-        s = s[:26].rstrip("-")
-        s = f"{s}-{branch_hash}"
-
-    return s
+    return sanitized
 
 
 if __name__ == "__main__":
