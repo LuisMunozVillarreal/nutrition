@@ -11,14 +11,19 @@ from apps.foods.models.nutrients import Nutrients
 from apps.libs.admin import progress_bar
 from apps.libs.utils import round_no_trailing_zeros
 
-from .intake import Intake
+from .intake import (
+    Intake,
+    IntakeCascadeDeletionMixin,
+    IntakeCascadeManager,
+)
 
 
-class Day(Nutrients):
+class Day(IntakeCascadeDeletionMixin, Nutrients):
     """Day model class."""
 
     # pylint: disable=too-many-instance-attributes
 
+    objects = IntakeCascadeManager()
     _plan_aggregate_locks: Any = None
 
     class Meta:

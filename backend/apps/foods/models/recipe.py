@@ -12,6 +12,36 @@ from .nutrients import NUTRIENT_LIST, Nutrients
 from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_SERVING
 
 
+class RecipeIngredientQuerySet(models.QuerySet):
+    """QuerySet that globally prelocks recipe hierarchies before collection."""
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        """Delete ingredients under one Recipe-to-RecipeIngredient lock pass.
+
+        Returns:
+            tuple[int, dict[str, int]]: Total and per-model deletion counts.
+        """
+        using = self.db
+        recipe_ids = tuple(
+            self.order_by().values_list("recipe_id", flat=True).distinct()
+        )
+        from apps.foods.recipe_locks import (
+            activate_recipe_aggregate_locks,
+            lock_recipe_aggregate_rows,
+        )
+
+        with transaction.atomic(using=using):
+            locks = lock_recipe_aggregate_rows(recipe_ids, using)
+            with activate_recipe_aggregate_locks(locks):
+                return super().delete()
+
+
+class RecipeIngredientManager(
+    models.Manager.from_queryset(RecipeIngredientQuerySet)  # type: ignore[misc]
+):
+    """Manager exposing deletion-safe RecipeIngredient querysets."""
+
+
 class Recipe(Food):
     """Recipe models class."""
 
@@ -34,21 +64,40 @@ class Recipe(Food):
         return self.ingredients.count()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Persist recalculated aggregates when ingredient mode is enabled.
+        """Serialize recipe writes with ingredients and preserve derived totals.
 
         Args:
             args (Any): positional model save arguments.
             kwargs (Any): keyword model save arguments.
         """
-        if (
-            self.pk is not None
-            and self.nutrients_from_ingredients
-            and kwargs.get("update_fields") is not None
-        ):
-            kwargs["update_fields"] = set(kwargs["update_fields"]) | set(
-                NUTRIENT_LIST + ["size"]
-            )
-        super().save(*args, **kwargs)
+        skip_aggregate_lock = kwargs.pop("_skip_aggregate_lock", False)
+        if self.pk is None or skip_aggregate_lock:
+            super().save(*args, **kwargs)
+            return
+
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
+        )
+        from apps.foods.recipe_locks import lock_recipe_ingredients
+        from apps.foods.signals.handlers.recipe_nutrients import (
+            apply_recipe_ingredient_totals,
+        )
+
+        with transaction.atomic(using=using):
+            recipes, ingredients = lock_recipe_ingredients([self.pk], using)
+            if self.pk not in recipes:
+                raise type(self).DoesNotExist(
+                    "Recipe was deleted before this write acquired its locks"
+                )
+            apply_recipe_ingredient_totals(self, ingredients)
+            if (
+                self.nutrients_from_ingredients
+                and kwargs.get("update_fields") is not None
+            ):
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | set(
+                    NUTRIENT_LIST + ["size"]
+                )
+            super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         """Get string representation of the object.
@@ -61,6 +110,8 @@ class Recipe(Food):
 
 class RecipeIngredient(Nutrients):
     """RecipeIngredient models class."""
+
+    objects = RecipeIngredientManager()
 
     recipe = models.ForeignKey(
         "foods.Recipe",
@@ -137,6 +188,10 @@ class RecipeIngredient(Nutrients):
         update_fields: set[str] | None,
     ) -> set[str] | None:
         """Prepare immutable amount, unit, and nutrient snapshot fields."""
+        from apps.foods.signals.handlers.recipe_nutrients import (
+            validate_derived_decimal,
+        )
+
         serving_changed = previous is None or (
             previous.food_id != self.food_id
             or previous.num_servings != self.num_servings
@@ -149,7 +204,12 @@ class RecipeIngredient(Nutrients):
             else self.food.serving_unit
         )
         if serving_changed or self.size_snapshot is None:
-            self.size_snapshot = current_size
+            self.size_snapshot = validate_derived_decimal(
+                current_size,
+                type(self),
+                "size_snapshot",
+                "Recipe ingredient",
+            )
             snapshot_fields.add("size_snapshot")
         if serving_changed or self.size_snapshot_unit is None:
             self.size_snapshot_unit = current_unit
@@ -157,7 +217,16 @@ class RecipeIngredient(Nutrients):
         if serving_changed:
             for nutrient in NUTRIENT_LIST:
                 value = getattr(self.food, nutrient) or 0
-                setattr(self, nutrient, value * self.num_servings)
+                setattr(
+                    self,
+                    nutrient,
+                    validate_derived_decimal(
+                        value * self.num_servings,
+                        type(self),
+                        nutrient,
+                        "Recipe ingredient",
+                    ),
+                )
             snapshot_fields.update(NUTRIENT_LIST)
         return (
             None if update_fields is None else update_fields | snapshot_fields
@@ -189,8 +258,8 @@ class RecipeIngredient(Nutrients):
         if previous_recipe_id is not None:
             recipe_ids.add(previous_recipe_id)
 
+        from apps.foods.recipe_locks import lock_recipe_ingredients
         from apps.foods.signals.handlers.recipe_nutrients import (
-            lock_recipe_ingredients,
             recompute_recipe_nutrients,
             synchronize_recipe_aggregates,
             validate_recipe_ingredient_size,

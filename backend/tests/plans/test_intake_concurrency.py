@@ -1,6 +1,7 @@
 """PostgreSQL concurrency tests for intake/day aggregate integrity."""
 
 # pylint: disable=missing-return-doc,missing-return-type-doc
+# pylint: disable=too-many-locals,import-outside-toplevel
 
 import datetime
 import threading
@@ -11,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections, connection
+from django.db import close_old_connections, connection, transaction
 from django.db.models import Sum
 from django.db.models.query import QuerySet
 from django.test import TransactionTestCase
@@ -156,6 +157,81 @@ class IntakeAggregateConcurrencyTests(TransactionTestCase):
         self.assertEqual(results[1], "deleted")
         self.assertFalse(Intake.objects.filter(pk=intake.pk).exists())
         self._assert_stored_totals_match_rows()
+
+    def test_opposing_bulk_deletes_with_interleaved_ids_do_not_deadlock(self):
+        """Bulk collectors globally lock opposing plan/day sets before signals."""
+        second_plan = WeekPlan.objects.create(
+            user=self.user,
+            measurement=self.measurement,
+            start_date=datetime.date(2026, 1, 12),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=100,
+        )
+        days = sorted(
+            (self.day, second_plan.days.get(day_num=1)), key=lambda row: row.pk
+        )
+
+        def create(day, energy):
+            return Intake.objects.create(
+                day=day,
+                food=None,
+                meal=Intake.MEAL_LUNCH,
+                energy_kcal=Decimal(energy),
+            )
+
+        sentinels = [create(day, "10") for day in days]
+        # Ascending IDs make A visit low/high days and B visit high/low days.
+        first_a = create(days[0], "100")
+        first_b = create(days[1], "200")
+        second_b = create(days[0], "300")
+        second_a = create(days[1], "400")
+        delete_ids = (
+            (first_a.pk, second_a.pk),
+            (first_b.pk, second_b.pk),
+        )
+        lock_attempt = threading.Barrier(2)
+        from apps.plans.models import intake as intake_module
+
+        original_lock = intake_module.lock_plan_aggregate_rows
+
+        def interleave_before_global_lock(*args, **kwargs):
+            lock_attempt.wait(timeout=10)
+            return original_lock(*args, **kwargs)
+
+        def bulk_delete(ids):
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '5s'")
+                    cursor.execute("SET LOCAL statement_timeout = '15s'")
+                Intake.objects.filter(pk__in=ids).delete()
+            return "deleted"
+
+        with patch.object(
+            intake_module,
+            "lock_plan_aggregate_rows",
+            new=interleave_before_global_lock,
+        ):
+            results = self._run_competing(
+                lambda: bulk_delete(delete_ids[0]),
+                lambda: bulk_delete(delete_ids[1]),
+            )
+
+        self.assertEqual(results, ["deleted", "deleted"])
+        self.assertFalse(
+            Intake.objects.filter(
+                pk__in=[pk for ids in delete_ids for pk in ids]
+            ).exists()
+        )
+        self.assertEqual(
+            set(Intake.objects.values_list("pk", flat=True)),
+            {row.pk for row in sentinels},
+        )
+        for day in days:
+            day.refresh_from_db()
+            day.plan.refresh_from_db()
+            self.assertEqual(day.energy_kcal, Decimal("10.00"))
+            self.assertEqual(day.plan.energy_kcal, Decimal("10.00"))
 
     def test_measurement_update_and_intake_create_do_not_deadlock(self):
         """Cross-feature writes serialize plan-before-day and keep fresh totals."""

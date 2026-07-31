@@ -80,6 +80,52 @@ class RecipeIngredientConcurrencyTests(TransactionTestCase):
         self.assertEqual(recipe.ingredients.count(), 2)
         self.assertEqual(recipe.size, Decimal("1100"))
 
+    def test_recipe_update_loaded_before_ingredient_write_recomputes_latest_state(
+        self,
+    ):
+        """A stale recipe update cannot overwrite a later ingredient contribution."""
+        recipe = self._recipe()
+        serving = self._serving("100", "g")
+        serving.energy_kcal = Decimal("50")
+        serving.save()
+        ingredient = RecipeIngredient.objects.create(
+            recipe=recipe, food=serving
+        )
+        update_loaded = threading.Event()
+        ingredient_done = threading.Event()
+
+        def update_recipe():
+            stale = Recipe.objects.get(pk=recipe.pk)
+            stale.name = "Concurrent rename"
+            stale.size = Decimal("1")
+            stale.size_unit = "kg"
+            stale.nutritional_info_unit = "kg"
+            stale.num_servings = Decimal("4")
+            stale.energy_kcal = Decimal("1")
+            update_loaded.set()
+            if not ingredient_done.wait(timeout=10):
+                raise RuntimeError("ingredient update did not finish")
+            stale.save()
+
+        def update_ingredient():
+            if not update_loaded.wait(timeout=10):
+                raise RuntimeError("recipe update did not load")
+            current = RecipeIngredient.objects.get(pk=ingredient.pk)
+            current.num_servings = Decimal("2")
+            current.save(update_fields=["num_servings"])
+            ingredient_done.set()
+
+        self._run_concurrently(update_recipe, update_ingredient)
+
+        recipe.refresh_from_db()
+        self.assertEqual(recipe.name, "Concurrent rename")
+        self.assertEqual(recipe.size_unit, "kg")
+        self.assertEqual(recipe.num_servings, Decimal("4.0"))
+        self.assertEqual(recipe.size, Decimal("0.2"))
+        self.assertEqual(recipe.energy_kcal, Decimal("100.00"))
+        generated_serving = recipe.servings.get()
+        self.assertEqual(generated_serving.energy_kcal, Decimal("25.00"))
+
     def test_concurrent_updates_recompute_every_committed_contribution(self):
         """Independent ingredient updates cannot lose either new quantity."""
         recipe = self._recipe()
