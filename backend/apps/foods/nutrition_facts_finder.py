@@ -17,6 +17,9 @@ REQUEST_TIMEOUT = (4, 10)
 MAX_REDIRECTS = 3
 STREAM_CHUNK_SIZE = 64 * 1024
 ALLOWED_CONTENT_TYPES: Set[str] = {"text/html", "application/xhtml+xml"}
+_ALLOWED_SCRAPER_HOSTS = {
+    host.strip().lower() for host in settings.NUTRITION_SCRAPER_ALLOWED_HOSTS
+}
 
 
 class NutritionFactsFetchError(ValueError):
@@ -32,6 +35,20 @@ def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         and not ip.is_reserved
         and not ip.is_link_local
     )
+
+
+def _normalize_host(hostname: str) -> str:
+    """Normalize hostname for comparison and dictionary lookups."""
+    return hostname.strip("[]").rstrip(".").lower()
+
+
+def _validate_host_allowlist(hostname: str) -> None:
+    """Reject hosts that are not explicitly configured for scraping."""
+    normalized = _normalize_host(hostname)
+    if normalized not in _ALLOWED_SCRAPER_HOSTS:
+        raise NutritionFactsFetchError(
+            f"Host not in scraper allowlist: {hostname}"
+        )
 
 
 def _validate_host(hostname: str) -> None:
@@ -79,6 +96,7 @@ def _validate_url(url: str) -> str:
     if parsed.hostname is None:
         raise NutritionFactsFetchError("URL must include a valid host")
 
+    _validate_host_allowlist(parsed.hostname)
     _validate_host(parsed.hostname)
     return url
 
