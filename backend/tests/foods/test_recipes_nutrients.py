@@ -84,6 +84,114 @@ def test_full_stale_recipe_save_preserves_concurrent_protected_state(
     assert stale.protein_g == Decimal("100")
 
 
+def test_full_refresh_resets_protected_baseline_for_later_full_save(
+    db, recipe_factory
+):
+    """A refresh followed by an unrelated save cannot restore refreshed data."""
+    recipe = recipe_factory(num_servings=Decimal("1"))
+    stale = Recipe.objects.get(pk=recipe.pk)
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("2"))
+    stale.refresh_from_db()
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("3"))
+
+    stale.name = "Refreshed rename"
+    stale.save()
+
+    assert Recipe.objects.get(pk=recipe.pk).num_servings == Decimal("3")
+
+
+def test_partial_refresh_resets_refreshed_protected_baseline(
+    db, recipe_factory
+):
+    """A field-limited refresh updates that protected field's baseline."""
+    recipe = recipe_factory(num_servings=Decimal("1"))
+    stale = Recipe.objects.get(pk=recipe.pk)
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("2"))
+    stale.refresh_from_db(fields=["num_servings"])
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("3"))
+
+    stale.name = "Partially refreshed rename"
+    stale.save()
+
+    assert Recipe.objects.get(pk=recipe.pk).num_servings == Decimal("3")
+
+
+def test_partial_refresh_preserves_unrequested_protected_change(
+    db, recipe_factory
+):
+    """A partial refresh does not claim another protected field's value."""
+    recipe = recipe_factory(size_unit="g", num_servings=Decimal("1"))
+    stale = Recipe.objects.get(pk=recipe.pk)
+    stale.size_unit = "kg"
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("2"))
+
+    stale.refresh_from_db(fields=["num_servings"])
+    stale.save()
+
+    refreshed = Recipe.objects.get(pk=recipe.pk)
+    assert refreshed.size_unit == "kg"
+    assert refreshed.num_servings == Decimal("2")
+
+
+def test_deferred_protected_field_refresh_resets_its_baseline(
+    db, recipe_factory
+):
+    """Lazy loading a protected field synchronizes only that field's baseline."""
+    recipe = recipe_factory(num_servings=Decimal("1"))
+    stale = Recipe.objects.only("name").get(pk=recipe.pk)
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("2"))
+
+    assert stale.num_servings == Decimal("2")
+    Recipe.objects.filter(pk=recipe.pk).update(num_servings=Decimal("3"))
+    stale.name = "Deferred rename"
+    stale.save()
+
+    assert Recipe.objects.get(pk=recipe.pk).num_servings == Decimal("3")
+
+
+def test_refresh_with_restricted_queryset_does_not_capture_unloaded_fields(
+    db, recipe_factory
+):
+    """A restricted refresh preserves changes outside its loaded columns."""
+    recipe = recipe_factory(name="Original", size_unit="g")
+    stale = Recipe.objects.get(pk=recipe.pk)
+    stale.size_unit = "kg"
+    Recipe.objects.filter(pk=recipe.pk).update(name="Database rename")
+
+    stale.refresh_from_db(from_queryset=Recipe.objects.only("name"))
+    stale.save()
+
+    refreshed = Recipe.objects.get(pk=recipe.pk)
+    assert refreshed.name == "Database rename"
+    assert refreshed.size_unit == "kg"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_async_refresh_resets_protected_baseline_for_later_full_save():
+    """Django's async refresh delegates through Recipe baseline handling."""
+    recipe = await Recipe.objects.acreate(
+        name="Async refreshed recipe",
+        size=Decimal("0"),
+        size_unit="g",
+        num_servings=Decimal("1"),
+    )
+    stale = await Recipe.objects.aget(pk=recipe.pk)
+    await Recipe.objects.filter(pk=recipe.pk).aupdate(
+        num_servings=Decimal("2")
+    )
+    await stale.arefresh_from_db()
+    await Recipe.objects.filter(pk=recipe.pk).aupdate(
+        num_servings=Decimal("3")
+    )
+
+    stale.name = "Async refreshed rename"
+    await stale.asave()
+
+    refreshed = await Recipe.objects.aget(pk=recipe.pk)
+    assert refreshed.num_servings == Decimal("3")
+
+
 def test_stale_recipe_save_can_explicitly_override_a_protected_field(
     db, recipe_factory
 ):

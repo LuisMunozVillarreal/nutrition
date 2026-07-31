@@ -213,6 +213,47 @@ test('serving edit query has no unused GraphQL variables', async () => {
   assert.deepEqual(errors.map((error) => error.message), [])
 })
 
+test('serving edit displays zero macros and reserves placeholders for nullish values', async () => {
+  const { servingMacroDisplayValues } = await import(
+    '../src/app/servings/[id]/servingMacroDisplay.ts'
+  )
+  const macroFields = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
+  const allFields = (value) => Object.fromEntries(
+    macroFields.map((field) => [field, value]),
+  )
+
+  assert.deepEqual(servingMacroDisplayValues(allFields(0)), allFields(0))
+  assert.deepEqual(servingMacroDisplayValues(allFields(null)), allFields('—'))
+  assert.deepEqual(servingMacroDisplayValues(allFields(undefined)), allFields('—'))
+  assert.deepEqual(
+    servingMacroDisplayValues({
+      energyKcal: 12.4,
+      proteinG: 12.5,
+      fatG: 0.4,
+      carbsG: 0.5,
+    }),
+    {
+      energyKcal: 12,
+      proteinG: 13,
+      fatG: 0,
+      carbsG: 1,
+    },
+  )
+
+  const page = await readFile(
+    new URL('../src/app/servings/[id]/page.tsx', import.meta.url),
+    'utf8',
+  )
+  assert.match(page, /import \{ servingMacroDisplayValues \} from ['"]\.\/servingMacroDisplay['"]/)
+  for (const field of macroFields) {
+    assert.match(
+      page,
+      new RegExp(`<ReadonlyField[^>]*value=\\{displayMacros\\.${field}\\}[^>]*/>`),
+      `${field} does not use the nullish-safe serving macro display values`,
+    )
+  }
+})
+
 test('positive quantity forms declare native minimum constraints', async () => {
   const constrainedFields = [
     ['../src/app/intakes/new/page.tsx', 'numServings'],

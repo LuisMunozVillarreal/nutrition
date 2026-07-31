@@ -3,7 +3,7 @@
 # pylint: disable=cyclic-import
 
 from decimal import Decimal
-from typing import Any, Collection, cast
+from typing import Any, Collection, Iterable, cast
 
 from django.db import models, router, transaction
 
@@ -94,13 +94,86 @@ class Recipe(Food):
         instance._capture_protected_write_values()
         return instance
 
-    def _capture_protected_write_values(self) -> None:
-        """Record the protected values represented by this caller instance."""
-        self._loaded_protected_write_values = {
-            field: getattr(self, field)
-            for field in self._PROTECTED_WRITE_FIELDS
-            if field not in self.get_deferred_fields()
+    def refresh_from_db(
+        self,
+        using: str | None = None,
+        fields: Iterable[str] | None = None,
+        from_queryset: models.QuerySet[Any] | None = None,
+    ) -> None:
+        """Reload values and synchronize refreshed protected baselines.
+
+        Args:
+            using: Database alias from which to reload.
+            fields: Optional concrete fields to reload.
+            from_queryset: Optional queryset used for the reload.
+        """
+        normalized_fields = None if fields is None else tuple(fields)
+        refreshed_fields = self._refreshed_protected_write_fields(
+            normalized_fields, from_queryset
+        )
+        super().refresh_from_db(
+            using=using,
+            fields=normalized_fields,
+            from_queryset=from_queryset,
+        )
+        self._capture_protected_write_values(refreshed_fields)
+
+    def _refreshed_protected_write_fields(
+        self,
+        fields: Collection[str] | None,
+        from_queryset: models.QuerySet[Any] | None,
+    ) -> set[str]:
+        """Return protected fields the refresh queryset will actually load."""
+        deferred_fields = self.get_deferred_fields()
+        refreshed_fields = set(self._PROTECTED_WRITE_FIELDS)
+        if fields is not None:
+            refreshed_fields.intersection_update(fields)
+        else:
+            refreshed_fields.difference_update(deferred_fields)
+        if from_queryset is None:
+            return refreshed_fields
+
+        reload_queryset = from_queryset
+        if fields is not None:
+            reload_queryset = reload_queryset.only(*fields)
+        elif deferred_fields:
+            reload_queryset = reload_queryset.only(
+                *{
+                    field.attname
+                    for field in self._meta.concrete_fields
+                    if field.attname not in deferred_fields
+                }
+            )
+        selected_fields, defer = reload_queryset.query.deferred_loading
+        if not selected_fields:
+            return refreshed_fields
+        selected_field_names = {
+            field.split("__", maxsplit=1)[0] for field in selected_fields
         }
+        if defer:
+            return refreshed_fields - selected_field_names
+        return refreshed_fields & selected_field_names
+
+    def _capture_protected_write_values(
+        self, fields: Collection[str] | None = None
+    ) -> None:
+        """Record protected values represented by this caller instance."""
+        loaded = (
+            {}
+            if fields is None
+            else dict(getattr(self, "_loaded_protected_write_values", {}))
+        )
+        captured_fields = self._PROTECTED_WRITE_FIELDS
+        if fields is not None:
+            captured_fields = captured_fields & set(fields)
+        loaded.update(
+            {
+                field: getattr(self, field)
+                for field in captured_fields
+                if field not in self.get_deferred_fields()
+            }
+        )
+        self._loaded_protected_write_values = loaded
 
     def _reconcile_protected_write_values(
         self,
