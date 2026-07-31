@@ -1,0 +1,3 @@
+# Temporary vulnerability waivers (frontend, production audit gate).
+# Add one vulnerability ID per line (GHSA-xxxx-... or CVE-xxxx-xxxx)
+# Include owner and removal date in the PR description before merging.

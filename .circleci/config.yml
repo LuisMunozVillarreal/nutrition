@@ -195,6 +195,56 @@ jobs:
           name: Run Frontend Lint
           command: npm run lint
 
+  backend-dependency-audit:
+    working_directory: ~/project/backend
+    executor: python
+    steps:
+      - python-dependencies
+      - run:
+          name: Export Production Backend Lockfile
+          command: |
+            uv export --format requirements-txt --no-hashes --no-dev > /tmp/backend-production-requirements.txt
+      - run:
+          name: Run Backend Production Dependency Audit
+          command: |
+            IGNORE_ARGS=""
+            if [ -f ../.circleci/dependency-audit-pip-allowlist.txt ]; then
+              while IFS= read -r vuln_id; do
+                case "$vuln_id" in
+                  ""|\#*)
+                    continue
+                    ;;
+                esac
+                IGNORE_ARGS="$IGNORE_ARGS --ignore-vuln $vuln_id"
+              done < ../.circleci/dependency-audit-pip-allowlist.txt
+            fi
+
+            uvx --from pip-audit pip-audit \
+              -r /tmp/backend-production-requirements.txt \
+              --no-deps \
+              --disable-pip \
+              $IGNORE_ARGS
+
+  webapp-dependency-audit:
+    working_directory: ~/project/webapp
+    docker:
+      - image: cimg/node:22.12.0
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Install Frontend Dependencies
+          command: npm ci
+      - run:
+          name: Run Frontend Production Dependency Audit
+          command: |
+            npm audit --omit=dev --audit-level=high --json > /tmp/npm-audit-report.json
+            AUDIT_EXIT_CODE=$?
+            python3 .circleci/scripts/check_frontend_dependency_audit.py \
+              --audit-report /tmp/npm-audit-report.json \
+              --allowlist ../.circleci/dependency-audit-npm-allowlist.txt \
+              --exit-code "$AUDIT_EXIT_CODE"
+
   backend-docker-build-tag-push:
     working_directory: ~/project/backend
     docker:
@@ -419,6 +469,8 @@ workflows:
       - pylint-tests
       - pydocstyle
       - pydocstyle-tests
+      - backend-dependency-audit
+      - webapp-dependency-audit
       - webapp-checks
       - backend-docker-build-tag-push:
           context:
@@ -433,11 +485,13 @@ workflows:
             - pylint-tests
             - pydocstyle
             - pydocstyle-tests
+            - backend-dependency-audit
       - webapp-docker-build-tag-push:
           context:
             - Docker
           requires:
             - webapp-checks
+            - webapp-dependency-audit
       - deploy-preview:
           context:
             - kubeconfig
