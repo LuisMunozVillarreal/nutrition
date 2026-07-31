@@ -8,14 +8,17 @@ from django.db import models
 
 from apps.libs.utils import round_no_trailing_zeros
 
+from ..deletion import NutritionDeletionManager, NutritionDeletionMixin
 from .food import Food
 from .nutrients import NUTRIENT_LIST, Nutrients
 from .product import FoodProduct
 from .units import UNIT_CHOICES, UNIT_CONTAINER, UNIT_GRAM, UNIT_SERVING, UREG
 
 
-class Serving(Nutrients):
+class Serving(NutritionDeletionMixin, Nutrients):
     """Serving model class."""
+
+    objects = NutritionDeletionManager()
 
     food = models.ForeignKey(
         "foods.Food",

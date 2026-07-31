@@ -6,6 +6,7 @@ import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
+import { compatibleUnits, isCompatibleUnitPair, UNIT_CHOICES } from '@/lib/units'
 
 const PRODUCT_QUERY = gql`
   query GetFoodProduct($id: ID!) {
@@ -45,15 +46,6 @@ const DELETE_MUTATION = gql`
     deleteFoodProduct(id: $id)
   }
 `
-
-const UNIT_CHOICES = [
-  { value: 'g', label: 'g' },
-  { value: 'ml', label: 'ml' },
-  { value: 'floz', label: 'fl oz' },
-  { value: 'oz', label: 'oz' },
-  { value: 'container', label: 'container' },
-  { value: 'serving', label: 'serving' },
-]
 
 interface ServingRow {
   id: string
@@ -105,7 +97,14 @@ export default function EditProductPage() {
     fetchData()
   }, [id])
 
-  const handleChange = (name: string, value: string) => { setForm(prev => ({ ...prev, [name]: value })) }
+  const handleChange = (name: string, value: string) => {
+    setForm(prev => {
+      if (name === 'sizeUnit' && !isCompatibleUnitPair(value, prev.nutritionalInfoUnit)) {
+        return { ...prev, sizeUnit: value, nutritionalInfoUnit: value }
+      }
+      return { ...prev, [name]: value }
+    })
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -157,7 +156,7 @@ export default function EditProductPage() {
             content: (
               <div className="grid grid-cols-2 gap-4">
                 <FormField label="Info Size Base" name="nutritionalInfoSize" type="number" step="0.1" value={form.nutritionalInfoSize} onChange={handleChange} required helpText="e.g. 100" />
-                <SelectField label="Info Unit Base" name="nutritionalInfoUnit" value={form.nutritionalInfoUnit} onChange={handleChange} options={UNIT_CHOICES} required helpText="e.g. g" />
+                <SelectField label="Info Unit Base" name="nutritionalInfoUnit" value={form.nutritionalInfoUnit} onChange={handleChange} options={compatibleUnits(form.sizeUnit)} required helpText="e.g. g" />
               </div>
             ),
           },

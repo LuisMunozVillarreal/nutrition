@@ -17,7 +17,12 @@ from apps.foods.models import (
     RecipeIngredient,
     Serving,
 )
-from apps.foods.models.units import UNIT_CHOICES
+from apps.foods.models.units import (
+    UNIT_CHOICES,
+    UNIT_CONTAINER,
+    UNIT_SERVING,
+    units_are_compatible,
+)
 from apps.foods.signals.handlers.cupboard import (
     get_linked_consumed_perc,
     recalculate_consumed_perc,
@@ -45,6 +50,39 @@ def _validated_unit(value: str, field_name: str) -> str:
     if value not in {unit for unit, _label in UNIT_CHOICES}:
         raise ValueError(f"{field_name} must be a supported unit")
     return value
+
+
+def _validate_product_unit_compatibility(
+    size_unit: str, nutritional_info_unit: str
+) -> None:
+    """Require package and nutrition bases to share a usable dimension."""
+    if not units_are_compatible(size_unit, nutritional_info_unit):
+        raise ValueError(
+            "sizeUnit must be compatible with nutritionalInfoUnit"
+        )
+
+
+def _resolved_serving_unit(serving_unit: str, size_unit: str) -> str:
+    """Resolve container-relative serving units to the package unit."""
+    if serving_unit in {UNIT_CONTAINER, UNIT_SERVING}:
+        return size_unit
+    return serving_unit
+
+
+def _validate_serving_unit_compatibility(
+    serving_unit: str,
+    size_unit: str,
+    nutritional_info_unit: str,
+    *,
+    field_name: str = "servingUnit",
+) -> None:
+    """Require a serving to convert to package and nutrition dimensions."""
+    resolved_unit = _resolved_serving_unit(serving_unit, size_unit)
+    if not (
+        units_are_compatible(resolved_unit, size_unit)
+        and units_are_compatible(resolved_unit, nutritional_info_unit)
+    ):
+        raise ValueError(f"{field_name} must be compatible with product units")
 
 
 def _validated_optional_nutrient(
@@ -335,21 +373,30 @@ class FoodMutation:
             salt_g=salt_g,
         )
 
+        validated_nutritional_info_size = (
+            _validated_product_nutritional_info_size(nutritional_info_size)
+        )
+        validated_nutritional_info_unit = _validated_unit(
+            nutritional_info_unit, "nutritionalInfoUnit"
+        )
+        validated_size = validated_positive_decimal(size, "size")
+        validated_size_unit = _validated_unit(size_unit, "sizeUnit")
+        validated_num_servings = _validated_product_num_servings(num_servings)
+        _validate_product_unit_compatibility(
+            validated_size_unit, validated_nutritional_info_unit
+        )
+
         obj = FoodProduct.objects.create(
             name=name,
             brand=brand,
             url=url or "",
             barcode=barcode,
             notes=notes,
-            nutritional_info_size=_validated_product_nutritional_info_size(
-                nutritional_info_size
-            ),
-            nutritional_info_unit=_validated_unit(
-                nutritional_info_unit, "nutritionalInfoUnit"
-            ),
-            size=validated_positive_decimal(size, "size"),
-            size_unit=_validated_unit(size_unit, "sizeUnit"),
-            num_servings=_validated_product_num_servings(num_servings),
+            nutritional_info_size=validated_nutritional_info_size,
+            nutritional_info_unit=validated_nutritional_info_unit,
+            size=validated_size,
+            size_unit=validated_size_unit,
+            num_servings=validated_num_servings,
             **nutrients,
         )
         return FoodProductType.from_model(obj)
@@ -420,6 +467,9 @@ class FoodMutation:
         )
         validated_size_unit = _validated_unit(size_unit, "sizeUnit")
         validated_num_servings = _validated_product_num_servings(num_servings)
+        _validate_product_unit_compatibility(
+            validated_size_unit, validated_nutritional_info_unit
+        )
         nutrients = _validated_nutrients(
             energy_kcal=energy_kcal,
             protein_g=protein_g,
@@ -435,6 +485,16 @@ class FoodMutation:
             obj = FoodProduct.objects.get(pk=id)
         except FoodProduct.DoesNotExist as e:
             raise ValueError("FoodProduct not found") from e
+
+        for existing_serving_unit in obj.servings.values_list(
+            "serving_unit", flat=True
+        ):
+            _validate_serving_unit_compatibility(
+                existing_serving_unit,
+                validated_size_unit,
+                validated_nutritional_info_unit,
+                field_name="Existing servingUnit",
+            )
 
         obj.name = name
         obj.brand = brand
@@ -497,15 +557,27 @@ class FoodMutation:
 
         Raises:
             PermissionError: if user is not authenticated.
+            ValueError: if the food is missing or units are incompatible.
         """
         _require_staff_user(info)
+        validated_serving_size = validated_positive_decimal(
+            serving_size, "servingSize"
+        )
+        validated_serving_unit = _validated_unit(serving_unit, "servingUnit")
+        try:
+            food = Food.objects.get(pk=food_id)
+        except Food.DoesNotExist as e:
+            raise ValueError("Food not found") from e
+        _validate_serving_unit_compatibility(
+            validated_serving_unit,
+            food.size_unit,
+            food.nutritional_info_unit,
+        )
 
         obj = Serving.objects.create(
-            food_id=int(food_id),
-            serving_size=validated_positive_decimal(
-                serving_size, "servingSize"
-            ),
-            serving_unit=_validated_unit(serving_unit, "servingUnit"),
+            food=food,
+            serving_size=validated_serving_size,
+            serving_unit=validated_serving_unit,
         )
         return ServingType.from_model(obj)
 
@@ -540,13 +612,19 @@ class FoodMutation:
         validated_serving_unit = _validated_unit(serving_unit, "servingUnit")
 
         try:
-            obj = Serving.objects.get(pk=id)
-            obj.serving_size = validated_serving_size
-            obj.serving_unit = validated_serving_unit
-            obj.save()
-            return ServingType.from_model(obj)
+            obj = Serving.objects.select_related("food").get(pk=id)
         except Serving.DoesNotExist as e:
             raise ValueError("Serving not found") from e
+
+        _validate_serving_unit_compatibility(
+            validated_serving_unit,
+            obj.food.size_unit,
+            obj.food.nutritional_info_unit,
+        )
+        obj.serving_size = validated_serving_size
+        obj.serving_unit = validated_serving_unit
+        obj.save()
+        return ServingType.from_model(obj)
 
     @strawberry.mutation
     def delete_serving(self, info: Info, id: strawberry.ID) -> bool:
