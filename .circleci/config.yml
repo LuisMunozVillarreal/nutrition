@@ -344,20 +344,82 @@ jobs:
             python3 .circleci/scripts/clone_preview_secrets.py "$CIRCLE_BRANCH"
       - run:
           name: Wait for Deployment Readiness
-          no_output_timeout: 10m
+          no_output_timeout: 1m
           command: |
             SANITIZED_BRANCH=$(python3 .circleci/scripts/sanitise_branch.py "$CIRCLE_BRANCH")
             TARGET_NAMESPACE="nutrition-staging--${SANITIZED_BRANCH}"
             KUSTOMIZATION_NAME="nutrition-preview-${SANITIZED_BRANCH}"
-            
+            TIMEOUT_SECONDS=600
+            CHECK_INTERVAL_SECONDS=10
+            DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
+            set -euo pipefail
+
+            log_deploy_diagnostics() {
+              local deployment="$1"
+
+              echo "Deployment diagnostics for ${deployment}:"
+              kubectl describe deployment "${deployment}" -n "${TARGET_NAMESPACE}" || true
+              kubectl get deployment "${deployment}" -n "${TARGET_NAMESPACE}" -o wide || true
+            }
+
+            log_kustomization_diagnostics() {
+              echo "Kustomization diagnostics:"
+              kubectl describe kustomization "${KUSTOMIZATION_NAME}" -n flux-system || true
+              kubectl get kustomization "${KUSTOMIZATION_NAME}" -n flux-system -o wide || true
+              kubectl get pods -n "${TARGET_NAMESPACE}" -o wide || true
+              kubectl describe pods -n "${TARGET_NAMESPACE}" --all-containers=true || true
+            }
+
+            echo "Triggering reconciliation for ${KUSTOMIZATION_NAME}..."
+            kubectl annotate kustomization "${KUSTOMIZATION_NAME}" -n flux-system \
+              reconcile.fluxcd.io/requestedAt="$(date +%s)" --overwrite
+
             echo "Waiting for Flux Kustomization..."
-            kubectl wait --for=condition=ready kustomization/${KUSTOMIZATION_NAME} -n flux-system --timeout=600s
-            
-            echo "Checking backend rollout status..."
-            kubectl rollout status deployment/nutrition-backend -n ${TARGET_NAMESPACE} --timeout=600s
-            
-            echo "Checking webapp rollout status..."
-            kubectl rollout status deployment/nutrition-webapp -n ${TARGET_NAMESPACE} --timeout=600s
+            while :; do
+              remaining=$((DEADLINE - $(date +%s)))
+              if [ "$remaining" -le 0 ]; then
+                echo "Timed out waiting for Flux Kustomization ${KUSTOMIZATION_NAME}."
+                log_kustomization_diagnostics
+                exit 1
+              fi
+
+              ready_status="$(kubectl get kustomization "${KUSTOMIZATION_NAME}" -n flux-system \
+                -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' || true)"
+              echo "Kustomization ready status: ${ready_status:-<unknown>}; remaining=${remaining}s"
+
+              if [ "$ready_status" = "True" ]; then
+                echo "Flux Kustomization is ready."
+                break
+              fi
+
+              kubectl get deployment nutrition-backend nutrition-webapp -n "${TARGET_NAMESPACE}" -o wide || true
+              sleep "$CHECK_INTERVAL_SECONDS"
+            done
+
+            for deployment in nutrition-backend nutrition-webapp; do
+              echo "Checking ${deployment} rollout status..."
+              while :; do
+                remaining=$((DEADLINE - $(date +%s)))
+                if [ "$remaining" -le 0 ]; then
+                  echo "Timed out waiting for rollout of ${deployment} in ${TARGET_NAMESPACE}."
+                  log_kustomization_diagnostics
+                  log_deploy_diagnostics "${deployment}"
+                  kubectl get events -n "${TARGET_NAMESPACE}" \
+                    --field-selector involvedObject.name="${deployment}",involvedObject.kind=Deployment \
+                    --sort-by=.metadata.creationTimestamp | tail -n 25 || true
+                  exit 1
+                fi
+
+                if kubectl rollout status "deployment/${deployment}" -n "${TARGET_NAMESPACE}" --timeout=15s; then
+                  echo "${deployment} rollout complete."
+                  break
+                fi
+
+                echo "Waiting for ${deployment} rollout... remaining=${remaining}s"
+                kubectl get pods -n "${TARGET_NAMESPACE}" -l "app.kubernetes.io/name=${deployment#nutrition-}" -o wide || true
+                sleep "$CHECK_INTERVAL_SECONDS"
+              done
+            done
 
   deploy-staging:
     working_directory: ~/project
