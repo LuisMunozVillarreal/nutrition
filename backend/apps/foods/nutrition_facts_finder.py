@@ -122,7 +122,11 @@ def _response_bytes(response: requests.Response) -> bytes:
 
 def _follow_redirects(url: str) -> bytes:
     """Follow redirects with validation and return response bytes."""
-    current_url = url
+    current_url = _validate_url(url)
+    initial_host = urlsplit(current_url).hostname
+    if initial_host is None:
+        raise NutritionFactsFetchError("URL must include a valid host")
+
     for _ in range(MAX_REDIRECTS + 1):
         _validate_url(current_url)
         with requests.get(
@@ -141,9 +145,18 @@ def _follow_redirects(url: str) -> bytes:
                 300 <= response.status_code < 400
                 and response.headers.get("Location") is not None
             ):
-                current_url = urljoin(
-                    response.url, response.headers["Location"]
-                )
+                location = response.headers["Location"]
+                current_url = urljoin(response.url, location)
+                _validate_url(current_url)
+                redirect_host = urlsplit(current_url).hostname
+                if redirect_host is None:
+                    raise NutritionFactsFetchError(
+                        "Invalid redirect target"
+                    )
+                if redirect_host.lower() != initial_host.lower():
+                    raise NutritionFactsFetchError(
+                        "Redirect host mismatch in follow-up request"
+                    )
                 continue
             if 300 <= response.status_code < 400:
                 raise NutritionFactsFetchError(

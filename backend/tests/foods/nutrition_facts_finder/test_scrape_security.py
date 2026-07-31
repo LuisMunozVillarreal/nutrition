@@ -135,6 +135,25 @@ def test_scrape_rejects_private_ipv6_redirect_target(
     assert requests_mock.call_count == 1
 
 
+def test_scrape_rejects_redirect_to_different_host(monkeypatch, requests_mock):
+    """Redirects that change hostname are rejected."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+
+    requests_mock.get(
+        "https://good.example.com/page",
+        status_code=302,
+        headers={"Location": "https://other.example.com/"},
+    )
+
+    with pytest.raises(ValueError, match="Redirect host mismatch"):
+        get_product_nutritional_info_from_url("https://good.example.com/page")
+
+    assert requests_mock.call_count == 1
+
+
 def test_scrape_rejects_redirect_chain_too_long(monkeypatch, requests_mock):
     """Chains that exceed the redirect limit are rejected."""
     monkeypatch.setattr(
