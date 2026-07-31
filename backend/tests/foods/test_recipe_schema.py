@@ -7,6 +7,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from apps.foods.models import FoodProduct, Recipe, RecipeIngredient
 from config.schema import schema
@@ -27,6 +29,44 @@ def _create_user(email, *, is_staff=False):
 @pytest.mark.django_db
 class TestRecipeQuery:
     """Tests for recipe queries."""
+
+    def _count_recipes_with_ingredient_query(
+        self, mocker, recipe_count: int
+    ) -> int:
+        """Create recipes and count SQL queries for nested ingredients."""
+        user = _create_user(f"rq-query-{recipe_count}-bounded@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        product = FoodProduct.objects.create(
+            name="Ingredient",
+            size=100,
+            size_unit="g",
+            num_servings=1,
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+
+        for index in range(recipe_count):
+            recipe = Recipe.objects.create(
+                name=f"Recipe {index}",
+                size=100,
+                size_unit="g",
+                num_servings=1,
+            )
+            RecipeIngredient.objects.create(
+                recipe=recipe,
+                food=serving,
+                num_servings=1,
+            )
+
+        query = "{ recipes { id name ingredients { id } } }"
+        with CaptureQueriesContext(connection) as captured:
+            result = schema.execute_sync(query, context_value=mock_context)
+
+        assert result.errors is None
+        return len(captured)
 
     def test_recipes_query(self, mocker):
         """Test listing recipes."""
@@ -52,6 +92,15 @@ class TestRecipeQuery:
         assert len(result.data["recipes"]) == 2
         assert result.data["recipes"][0]["name"] == "Omelette"
         assert result.data["recipes"][1]["name"] == "Smoothie"
+
+    def test_recipes_query_with_ingredients_has_bounded_query_growth(
+        self, mocker
+    ):
+        """Nested ingredient queries stop increasing with more recipes."""
+        base_queries = self._count_recipes_with_ingredient_query(mocker, 2)
+        growth_queries = self._count_recipes_with_ingredient_query(mocker, 10)
+
+        assert growth_queries == base_queries
 
     def test_recipe_detail_query(self, mocker):
         """Test getting a single recipe."""

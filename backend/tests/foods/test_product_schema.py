@@ -8,6 +8,8 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from apps.foods.models import FoodProduct, Serving
 from apps.foods.schema import (
@@ -67,6 +69,31 @@ def _create_user(email: str, *, is_staff: bool = False):
 class TestFoodProductSchema:
     """Tests for FoodProduct mutations and queries."""
 
+    def _count_food_products_with_servings_query(
+        self, mocker, product_count: int
+    ) -> int:
+        """Create products and count SQL queries for nested servings query."""
+        user = _create_user(f"fp-query-{product_count}-count@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        for index in range(product_count):
+            FoodProduct.objects.create(
+                name=f"Product {index}",
+                size=100,
+                size_unit="g",
+                num_servings=1,
+                nutritional_info_size=100,
+                nutritional_info_unit="g",
+            )
+
+        query = "{ foodProducts { id name servings { id energyKcal } } }"
+        with CaptureQueriesContext(connection) as captured:
+            result = schema.execute_sync(query, context_value=mock_context)
+
+        assert result.errors is None
+        return len(captured)
+
     def test_food_products_query(self, mocker):
         """Test listing food products."""
         user = _create_user("fp1@test.com")
@@ -88,6 +115,17 @@ class TestFoodProductSchema:
         # ordered by name
         assert result.data["foodProducts"][0]["name"] == "Apple"
         assert result.data["foodProducts"][1]["name"] == "Banana"
+
+    def test_food_products_query_with_servings_has_bounded_query_growth(
+        self, mocker
+    ):
+        """Nested servings queries stop increasing with more products."""
+        base_queries = self._count_food_products_with_servings_query(mocker, 2)
+        growth_queries = self._count_food_products_with_servings_query(
+            mocker, 10
+        )
+
+        assert growth_queries == base_queries
 
     def test_create_food_product(self, mocker):
         """Test creating a food product."""

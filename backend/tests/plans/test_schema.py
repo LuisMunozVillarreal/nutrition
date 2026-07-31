@@ -6,10 +6,12 @@
 
 import datetime
 from decimal import Decimal
+from typing import cast
 
 import pytest
-from django.contrib.auth import get_user_model
+from django.db import connection
 from django.db.models.query import QuerySet
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from apps.foods.models import CupboardItem, FoodProduct
@@ -17,10 +19,9 @@ from apps.foods.signals.handlers.cupboard import (
     CupboardItemConsumptionTooBigError,
 )
 from apps.measurements.models import Measurement
+from apps.users.models import User
 from apps.plans.models import Day, Intake, WeekPlan
 from config.schema import schema
-
-User = get_user_model()
 
 
 def _create_user_and_plan(email: str) -> tuple:
@@ -32,11 +33,14 @@ def _create_user_and_plan(email: str) -> tuple:
     Returns:
         tuple: (user, plan) tuple.
     """
-    user = User.objects.create_user(
-        email=email,
-        password="password123",
-        date_of_birth="2000-01-01",
-        height=170.0,
+    user = cast(
+        User,
+        User.objects.create_user(
+            email=email,
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        ),
     )
     measurement = Measurement.objects.create(
         user=user, body_fat_perc=Decimal("20.0"), weight=Decimal("80.0")
@@ -50,6 +54,56 @@ def _create_user_and_plan(email: str) -> tuple:
         deficit=Decimal("500.0"),
     )
     return user, plan
+
+
+def _count_week_plan_nested_queries(
+    mocker,
+    *,
+    user_email: str,
+    plan_count: int,
+    query: str,
+    include_intakes: bool = False,
+) -> int:
+    """Create many plans and return SQL query count for one GraphQL query."""
+    user = cast(
+        User,
+        User.objects.create_user(
+            email=user_email,
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        ),
+    )
+    measurement = Measurement.objects.create(
+        user=user,
+        body_fat_perc=Decimal("20.0"),
+        weight=Decimal("80.0"),
+    )
+    for day_offset in range(plan_count):
+        plan = WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today()
+            - datetime.timedelta(days=day_offset),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25.0"),
+            deficit=Decimal("500.0"),
+        )
+        if include_intakes:
+            for day in Day.objects.filter(plan=plan):
+                Intake.objects.create(day=day, meal=Intake.MEAL_LUNCH)
+
+    mock_context = mocker.Mock()
+    mock_context.request.user = user
+
+    with CaptureQueriesContext(connection) as captured:
+        result = schema.execute_sync(
+            query,
+            context_value=mock_context,
+        )
+    if result.errors is not None:
+        raise AssertionError(result.errors[0])
+    return len(captured)
 
 
 @pytest.mark.django_db
@@ -67,6 +121,51 @@ class TestWeekPlanSchema:
 
         assert len(result.data["weekPlans"]) == 1
         assert result.data["weekPlans"][0]["proteinGKg"] == 1.8
+
+
+@pytest.mark.django_db
+class TestPlanGraphQLBudget:
+    """Regression coverage for nested plan queries."""
+
+    def test_week_plans_and_days_query_has_bounded_budget(self, mocker):
+        """Day nesting no longer adds query growth per plan."""
+        base_query = "{ weekPlans { id days { id dayNum } } }"
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-days-budget-small@test.com",
+            plan_count=1,
+            query=base_query,
+            include_intakes=False,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-days-budget-large@test.com",
+            plan_count=4,
+            query=base_query,
+            include_intakes=False,
+        )
+
+        assert small_count == large_count
+
+    def test_days_and_intakes_query_has_bounded_budget(self, mocker):
+        """Intake nesting no longer adds query growth per day."""
+        nested_query = "{ weekPlans { id days { id intakes { id meal } } } }"
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-day-intake-budget-small@test.com",
+            plan_count=1,
+            query=nested_query,
+            include_intakes=True,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-day-intake-budget-large@test.com",
+            plan_count=4,
+            query=nested_query,
+            include_intakes=True,
+        )
+
+        assert small_count == large_count
 
     def test_create_week_plan(self, mocker):
         """Test creating a week plan."""
@@ -460,6 +559,98 @@ class TestDaySchema:
 @pytest.mark.django_db
 class TestIntakeSchema:
     """Tests for Intake mutations."""
+
+    @pytest.mark.parametrize("meal", ["", "   ", "brunch", "Lunch", "dinner!"])
+    def test_create_intake_rejects_invalid_meal(self, mocker, meal):
+        """Only supported meal names are accepted for createIntake."""
+        user, plan = _create_user_and_plan(
+            f"intake-invalid-meal-create-{meal.replace(' ', '-') or 'space'}@test.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        result = schema.execute_sync(
+            """
+                mutation CreateIntake(
+                    $dayId: Int!, $meal: String!, $numServings: Float!
+                ) {
+                    createIntake(
+                        dayId: $dayId, meal: $meal, numServings: $numServings,
+                        energyKcal: 100
+                    ) { id }
+                }
+            """,
+            variable_values={
+                "dayId": day.id,
+                "meal": meal,
+                "numServings": 1,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "meal must be one of: breakfast, lunch, snack, dinner" in str(
+            result.errors[0]
+        )
+        assert not Intake.objects.filter(day=day).exists()
+
+    @pytest.mark.parametrize("meal", ["", "   ", "brunch", "Lunch", "snacK"])
+    def test_update_intake_rejects_invalid_meal(self, mocker, meal):
+        """Only supported meal names are accepted for updateIntake."""
+        user, plan = _create_user_and_plan(
+            f"intake-invalid-meal-update-{meal.replace(' ', '-') or 'space'}@test.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        intake = Intake.objects.create(
+            day=day,
+            meal="lunch",
+            num_servings=1,
+            energy_kcal=200,
+            protein_g=15,
+        )
+        original_intake_state = (
+            intake.meal,
+            intake.num_servings,
+            intake.energy_kcal,
+            intake.protein_g,
+            intake.fat_g,
+            intake.carbs_g,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateIntake(
+                    $id: ID!, $meal: String!, $numServings: Float!
+                ) {
+                    updateIntake(
+                        id: $id, meal: $meal, numServings: $numServings,
+                        energyKcal: 300
+                    ) { id }
+                }
+            """,
+            variable_values={
+                "id": str(intake.id),
+                "meal": meal,
+                "numServings": 2,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors is not None
+        assert "meal must be one of: breakfast, lunch, snack, dinner" in str(
+            result.errors[0]
+        )
+        intake.refresh_from_db()
+        assert (
+            intake.meal,
+            intake.num_servings,
+            intake.energy_kcal,
+            intake.protein_g,
+            intake.fat_g,
+            intake.carbs_g,
+        ) == original_intake_state
 
     def test_create_intake_custom(self, mocker):
         """Test creating a custom intake with direct macros."""
