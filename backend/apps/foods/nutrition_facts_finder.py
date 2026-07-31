@@ -92,13 +92,16 @@ def _validate_url(url: str) -> str:
         raise NutritionFactsFetchError("URL must use the https scheme")
     if parsed.username or parsed.password:
         raise NutritionFactsFetchError("Credentials in URL are not allowed")
+    if parsed.port is not None:
+        raise NutritionFactsFetchError("Ports are not supported for scraping URLs")
 
     if parsed.hostname is None:
         raise NutritionFactsFetchError("URL must include a valid host")
 
     _validate_host_allowlist(parsed.hostname)
     _validate_host(parsed.hostname)
-    return url
+    path = parsed.path or "/"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
 
 
 def _response_bytes(response: requests.Response) -> bytes:
