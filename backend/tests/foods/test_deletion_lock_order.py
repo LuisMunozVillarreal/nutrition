@@ -2,6 +2,7 @@
 
 # QuerySet internals are intentionally instrumented to verify SQL lock order.
 # pylint: disable=protected-access,too-many-arguments,too-many-positional-arguments
+# pylint: disable=too-many-locals,import-outside-toplevel
 
 from decimal import Decimal
 
@@ -13,8 +14,10 @@ from apps.foods.models import (
     CupboardItemConsumption,
     Food,
     FoodProduct,
+    Recipe,
+    RecipeIngredient,
 )
-from apps.plans.models import Day, WeekPlan
+from apps.plans.models import Day, Intake, WeekPlan
 
 
 def test_serving_delete_locks_day_before_cupboard(
@@ -51,6 +54,9 @@ def test_serving_delete_locks_day_before_cupboard(
     serving.delete()
 
     assert locked_models.index(Day) < locked_models.index(CupboardItem)
+    assert locked_models.count(WeekPlan) == 1
+    assert locked_models.count(Day) == 1
+    assert locked_models.count(Intake) == 1
 
 
 @pytest.mark.parametrize(
@@ -89,6 +95,9 @@ def test_product_and_food_delete_lock_day_before_cupboard(
         Food.objects.filter(pk=product.pk).delete()
 
     assert locked_models.index(Day) < locked_models.index(CupboardItem)
+    assert locked_models.count(WeekPlan) == 1
+    assert locked_models.count(Day) == 1
+    assert locked_models.count(Intake) == 1
 
 
 def test_direct_consumption_delete_locks_day_before_cupboard(
@@ -140,8 +149,10 @@ def test_bulk_serving_delete_locks_all_rows_in_stable_pk_order(
         cupboard_item_factory(owner=day.plan.user, food=product)
         for day in days
     ]
-    for day, serving in zip(days, servings, strict=True):
+    intakes = [
         intake_factory(day=day, food=serving)
+        for day, serving in zip(days, servings, strict=True)
+    ]
     locked_rows = []
     original_fetch_all = QuerySet._fetch_all
 
@@ -159,11 +170,77 @@ def test_bulk_serving_delete_locks_all_rows_in_stable_pk_order(
         pk__in=[row.pk for row in servings]
     ).order_by("-pk").delete()
 
-    assert locked_rows[:3] == [
+    assert locked_rows[:4] == [
         (WeekPlan, sorted(row.plan_id for row in days)),
         (Day, sorted(row.pk for row in days)),
+        (Intake, sorted(row.pk for row in intakes)),
         (CupboardItem, sorted(row.pk for row in items)),
     ]
+
+
+def test_serving_cascade_reuses_every_global_lock_bundle_once(
+    mocker,
+    day_factory,
+    food_product_factory,
+    serving_factory,
+    cupboard_item_factory,
+    intake_factory,
+    recipe_factory,
+    recipe_ingredient_factory,
+):
+    """Recipe and intake bundles precede the canonical cupboard prelock."""
+    day = day_factory()
+    product = food_product_factory(size=100)
+    serving = serving_factory(food=product, serving_size=10, serving_unit="g")
+    item = cupboard_item_factory(owner=day.plan.user, food=product)
+    intake = intake_factory(day=day, food=serving)
+    recipes = [
+        recipe_factory(nutrients_from_ingredients=True, size=0)
+        for _ in range(2)
+    ]
+    ingredients = [
+        recipe_ingredient_factory(recipe=recipe, food=serving)
+        for recipe in reversed(recipes)
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    serving.delete()
+
+    assert locked_rows[:6] == [
+        (Recipe, sorted(recipe.pk for recipe in recipes)),
+        (
+            RecipeIngredient,
+            [
+                ingredient.pk
+                for ingredient in sorted(
+                    ingredients, key=lambda row: (row.recipe_id, row.pk)
+                )
+            ],
+        ),
+        (WeekPlan, [day.plan_id]),
+        (Day, [day.pk]),
+        (Intake, [intake.pk]),
+        (CupboardItem, [item.pk]),
+    ]
+    assert [model for model, _rows in locked_rows].count(WeekPlan) == 1
+    assert [model for model, _rows in locked_rows].count(Day) == 1
+    assert [model for model, _rows in locked_rows].count(Intake) == 1
+    from apps.foods.recipe_locks import get_recipe_aggregate_locks
+    from apps.plans.models.intake import get_intake_deletion_locks
+
+    assert get_recipe_aggregate_locks() is None
+    assert get_intake_deletion_locks() is None
 
 
 def test_bulk_null_intake_consumption_delete_locks_items_by_pk(

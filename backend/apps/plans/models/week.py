@@ -7,9 +7,13 @@ from django.db import models
 
 from apps.libs.basemodel import BaseModel
 
+from .intake import IntakeCascadeDeletionMixin, IntakeCascadeManager
 
-class WeekPlan(BaseModel):
+
+class WeekPlan(IntakeCascadeDeletionMixin, BaseModel):
     """WeekPlan model class."""
+
+    objects = IntakeCascadeManager()
 
     PLAN_LENGTH_DAYS = 7
     # The following represent percentages. They should all sum 700

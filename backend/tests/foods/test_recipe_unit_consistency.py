@@ -1,9 +1,11 @@
 """Recipe GraphQL unit-consistency regression tests."""
 
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 
-from apps.foods.models import Recipe, Serving
+from apps.foods.models import FoodProduct, Recipe, RecipeIngredient, Serving
 from config.schema import schema
 
 User = get_user_model()
@@ -110,6 +112,74 @@ def test_update_recipe_supports_every_advertised_size_unit(mocker, size_unit):
     serving = recipe.servings.get()
     assert serving.energy_kcal == 100
     assert serving.protein_g == 10
+
+
+@pytest.mark.django_db
+def test_same_unit_graphql_update_preserves_ingredient_derived_aggregates(
+    mocker,
+):
+    """Client totals cannot overwrite authoritative ingredient-derived values."""
+    context = _staff_context(mocker, "recipe-derived-update@test.com")
+    recipe = Recipe.objects.create(
+        name="Derived recipe",
+        size=0,
+        size_unit="g",
+        nutritional_info_unit="g",
+        num_servings=2,
+        nutrients_from_ingredients=True,
+    )
+    product = FoodProduct.objects.create(
+        name="Derived ingredient",
+        size=Decimal("100"),
+        size_unit="g",
+        nutritional_info_unit="g",
+        energy_kcal=Decimal("240"),
+        protein_g=Decimal("12"),
+    )
+    RecipeIngredient.objects.create(
+        recipe=recipe,
+        food=product.servings.get(serving_size=100, serving_unit="g"),
+        num_servings=Decimal("2"),
+    )
+    recipe.refresh_from_db()
+    assert (recipe.size, recipe.energy_kcal, recipe.protein_g) == (
+        Decimal("200.0"),
+        Decimal("480.00"),
+        Decimal("24.00"),
+    )
+
+    result = schema.execute_sync(
+        """
+        mutation UpdateDerived($id: ID!) {
+            updateRecipe(
+                id: $id,
+                name: "Renamed derived recipe",
+                size: 1,
+                sizeUnit: "g",
+                numServings: 4,
+                energyKcal: 1,
+                proteinG: 1
+            ) { id size energyKcal proteinG numServings }
+        }
+        """,
+        variable_values={"id": str(recipe.pk)},
+        context_value=context,
+    )
+
+    assert result.errors is None
+    recipe.refresh_from_db()
+    assert recipe.name == "Renamed derived recipe"
+    assert recipe.num_servings == Decimal("4.0")
+    assert (recipe.size, recipe.energy_kcal, recipe.protein_g) == (
+        Decimal("200.0"),
+        Decimal("480.00"),
+        Decimal("24.00"),
+    )
+    serving = recipe.servings.get()
+    assert (serving.energy_kcal, serving.protein_g) == (
+        Decimal("120.00"),
+        Decimal("6.00"),
+    )
 
 
 @pytest.mark.django_db

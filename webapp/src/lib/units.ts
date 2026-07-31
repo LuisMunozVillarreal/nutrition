@@ -6,6 +6,14 @@ export interface UnitChoice {
 const MASS_UNITS = new Set(['mg', 'g', 'kg', 'oz', 'lb'])
 const VOLUME_UNITS = new Set(['ml', 'cl', 'l', 'c', 'floz', 'tbsp', 'tsp', 'pt'])
 const CONTEXTUAL_UNITS = new Set(['unit', 'serving', 'container'])
+const MANUAL_RECIPE_UNIT_VALUES = [
+  'g',
+  'ml',
+  'floz',
+  'oz',
+  'container',
+  'serving',
+]
 
 export const UNIT_CHOICES: UnitChoice[] = [
   { value: 'mg', label: 'mg' },
@@ -36,6 +44,22 @@ export function isCompatibleUnitPair(first: string, second: string): boolean {
 
 export function compatibleUnits(reference: string): UnitChoice[] {
   return UNIT_CHOICES.filter(({ value }) => isCompatibleUnitPair(value, reference))
+}
+
+export function recipeUnitChoices(
+  nutrientsFromIngredients: boolean,
+  reference: string,
+): UnitChoice[] {
+  if (!nutrientsFromIngredients) {
+    return MANUAL_RECIPE_UNIT_VALUES.map((value) => {
+      const choice = UNIT_CHOICES.find((candidate) => candidate.value === value)
+      if (!choice) throw new Error(`Unknown recipe unit: ${value}`)
+      return choice
+    })
+  }
+  return compatibleUnits(reference).filter(
+    ({ value }) => !CONTEXTUAL_UNITS.has(value),
+  )
 }
 
 export function servingUnitChoices(

@@ -7,6 +7,7 @@ import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
 import { compatibleUnits, isCompatibleUnitPair, UNIT_CHOICES } from '@/lib/units'
+import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
 
 const PRODUCT_QUERY = gql`
   query GetFoodProduct($id: ID!) {
@@ -86,8 +87,8 @@ export default function EditProductPage() {
             nutritionalInfoSize: String(p.nutritionalInfoSize), nutritionalInfoUnit: p.nutritionalInfoUnit,
             size: String(p.size), sizeUnit: p.sizeUnit, numServings: String(p.numServings),
             energyKcal: String(p.energyKcal), proteinG: String(p.proteinG), fatG: String(p.fatG), carbsG: String(p.carbsG),
-            saturatedFatG: p.saturatedFatG ? String(p.saturatedFatG) : '', sugarsG: p.sugarsG ? String(p.sugarsG) : '',
-            fibreG: p.fibreG ? String(p.fibreG) : '', saltG: p.saltG ? String(p.saltG) : ''
+            saturatedFatG: optionalNumberInput(p.saturatedFatG), sugarsG: optionalNumberInput(p.sugarsG),
+            fibreG: optionalNumberInput(p.fibreG), saltG: optionalNumberInput(p.saltG)
           })
           setServings(p.servings || [])
         }
@@ -114,10 +115,10 @@ export default function EditProductPage() {
         nutritionalInfoSize: parseFloat(form.nutritionalInfoSize), nutritionalInfoUnit: form.nutritionalInfoUnit,
         size: parseFloat(form.size), sizeUnit: form.sizeUnit, numServings: parseFloat(form.numServings),
         energyKcal: parseFloat(form.energyKcal), proteinG: parseFloat(form.proteinG), fatG: parseFloat(form.fatG), carbsG: parseFloat(form.carbsG),
-        saturatedFatG: form.saturatedFatG ? parseFloat(form.saturatedFatG) : null,
-        sugarsG: form.sugarsG ? parseFloat(form.sugarsG) : null,
-        fibreG: form.fibreG ? parseFloat(form.fibreG) : null,
-        saltG: form.saltG ? parseFloat(form.saltG) : null,
+        saturatedFatG: optionalNumberVariable(form.saturatedFatG),
+        sugarsG: optionalNumberVariable(form.sugarsG),
+        fibreG: optionalNumberVariable(form.fibreG),
+        saltG: optionalNumberVariable(form.saltG),
       })
     } finally { setSaving(false) }
   }

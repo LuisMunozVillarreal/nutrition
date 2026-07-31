@@ -17,10 +17,12 @@ When("I navigate to the new measurement page", () => {
 });
 
 When("I fill in the body fat percentage with {string}", (value: string) => {
+    cy.wrap(String(Number.parseFloat(value))).as('createdBodyFatPerc');
     replaceInputValue('[data-testid="field-bodyFatPerc"]', value);
 });
 
 When("I fill in the weight with {string}", (value: string) => {
+    cy.wrap(String(Number.parseFloat(value))).as('createdWeight');
     replaceInputValue('[data-testid="field-weight"]', value);
     cy.wait(100); // Give React concurrent mode time to update state
 });
@@ -30,17 +32,14 @@ When("I click the save button", () => {
 });
 
 Then("I should be redirected to the measurements list", () => {
-    // Assert there's NO error toast, and wait a bit for it
-    cy.get('body').then($body => {
-        if ($body.find('[data-testid="form-error"]').length > 0) {
-            throw new Error("Form Error: " + $body.find('[data-testid="form-error"]').text().trim());
-        }
-    });
-    cy.url({ timeout: 10000 }).should("not.include", "/new").then(() => {
-        cy.get('body').then($body => {
-            if ($body.find('[data-testid="form-error"]').length > 0) {
-                throw new Error("Form Error: " + $body.find('[data-testid="form-error"]').text().trim());
-            }
+    cy.location('pathname', { timeout: 20000 }).should('equal', '/measurements');
+    cy.get('[data-testid="measurements-title"]', { timeout: 10000 })
+        .should('be.visible')
+        .and('contain.text', 'Measurements');
+    cy.get('@createdBodyFatPerc').then((bodyFatPerc) => {
+        cy.get('@createdWeight').then((weight) => {
+            cy.contains('tr', String(bodyFatPerc), { timeout: 10000 })
+                .should('contain.text', String(weight));
         });
     });
 });
