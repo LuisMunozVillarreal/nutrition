@@ -19,8 +19,8 @@ from apps.foods.signals.handlers.cupboard import (
     CupboardItemConsumptionTooBigError,
 )
 from apps.measurements.models import Measurement
-from apps.users.models import User
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.users.models import User
 from config.schema import schema
 
 
