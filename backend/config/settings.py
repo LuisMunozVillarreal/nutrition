@@ -1,5 +1,6 @@
 """Django settings for nutrition project."""
 
+import logging
 from pathlib import Path
 from warnings import filterwarnings
 
@@ -260,9 +261,14 @@ GS_CREDENTIALS_FILE_NAME = "nutrition-gcp-db-backup-credentials.json"
 
 GS_CREDENTIALS = None
 if Path(GS_CREDENTIALS_FILE_NAME).exists():  # pragma: no cover
-    GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
-        GS_CREDENTIALS_FILE_NAME
-    )
+    try:
+        GS_CREDENTIALS = service_account.Credentials.from_service_account_file(
+            GS_CREDENTIALS_FILE_NAME
+        )
+    except Exception as exc:  # pragma: no cover
+        logging.debug(
+            "Ignoring invalid GCP credentials file: %s", exc, exc_info=True
+        )
 
 # DB Backup
 DBBACKUP_FILENAME_TEMPLATE = (
