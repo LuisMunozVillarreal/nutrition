@@ -269,7 +269,9 @@ spec:
 """
 
     # 4. Combine Manifests
-    full_manifest = f"{rbac_content}---\n{git_repo_manifest}---\n{kustomization_content}"
+    full_manifest = (
+        f"{rbac_content}---\n{git_repo_manifest}---\n{kustomization_content}"
+    )
 
     if dry_run:
         click.echo("--- Dry Run: Applying the following to cluster ---")
