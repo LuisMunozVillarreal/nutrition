@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db.models.query import QuerySet
 
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, WeekPlan
@@ -404,6 +405,58 @@ class TestUpdateMeasurement:
                 expected_fat,
                 expected_carbs,
             )
+
+    def test_update_measurement_locks_each_aggregate_level_once(self, mocker):
+        """Measurement updates lock measurement, plans, then days only once."""
+        user = User.objects.create_user(
+            email="measurement-lock-order@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=user, body_fat_perc=20, weight=80
+        )
+        WeekPlan.objects.create(
+            user=user,
+            measurement=measurement,
+            start_date=datetime.date.today(),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=100,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        locked_models = []
+        seen_querysets = []
+        original_fetch_all = (
+            QuerySet._fetch_all  # pylint: disable=protected-access
+        )
+
+        def record_locked_queryset(queryset):
+            if queryset.query.select_for_update and not any(
+                queryset is seen for seen in seen_querysets
+            ):
+                seen_querysets.append(queryset)
+                locked_models.append(queryset.model)
+            return original_fetch_all(queryset)
+
+        mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateMeasurement($id: ID!) {
+                    updateMeasurement(
+                        id: $id, bodyFatPerc: 18, weight: 82
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(measurement.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert locked_models == [Measurement, WeekPlan, Day]
 
     @pytest.mark.parametrize(
         ("field", "value"),

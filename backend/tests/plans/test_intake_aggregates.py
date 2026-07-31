@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from django.db.models.query import QuerySet
 
-from apps.plans.models import Day, Intake
+from apps.plans.models import Day, Intake, WeekPlan
 
 
 def _create_custom_intake(day, energy: str, protein: str = "0") -> Intake:
@@ -67,8 +67,8 @@ def test_delete_recomputes_day_nutrients_from_remaining_intakes(day):
     assert day.plan.energy_kcal == Decimal("200.00")
 
 
-def test_update_locks_day_before_intake(mocker, day):
-    """Existing writes evaluate row locks in the documented global order."""
+def test_update_locks_plan_then_day_then_intake_once(mocker, day):
+    """Existing writes lock each aggregate row once in canonical order."""
     intake = _create_custom_intake(day, "100")
     locked_models = []
     original_fetch_all = QuerySet._fetch_all
@@ -83,7 +83,94 @@ def test_update_locks_day_before_intake(mocker, day):
 
     intake.save()
 
-    assert locked_models[:2] == [Day, Intake]
+    assert locked_models == [WeekPlan, Day, Intake]
+
+
+def test_day_update_locks_plan_before_day_once(mocker, day):
+    """Direct day writes cannot invert the plan/day aggregate lock order."""
+    locked_models = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        if queryset.query.select_for_update:
+            locked_models.append(queryset.model)
+        return original_fetch_all(queryset)
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+    day.tracked = False
+
+    day.save()
+
+    assert locked_models == [WeekPlan, Day]
+
+
+def test_create_locks_plan_then_day_once(mocker, day):
+    """An intake create locks its plan before its day."""
+    locked_models = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        if queryset.query.select_for_update:
+            locked_models.append(queryset.model)
+        return original_fetch_all(queryset)
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    _create_custom_intake(day, "100")
+
+    assert locked_models == [WeekPlan, Day]
+
+
+def test_cascade_delete_locks_plan_then_day_then_intake_once(mocker, day):
+    """QuerySet/cascade deletion uses the same canonical lock order."""
+    intake = _create_custom_intake(day, "100")
+    locked_models = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        if queryset.query.select_for_update:
+            locked_models.append(queryset.model)
+        return original_fetch_all(queryset)
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    Intake.objects.filter(pk=intake.pk).delete()
+
+    assert locked_models == [WeekPlan, Day, Intake]
+
+
+def test_move_locks_both_days_by_pk_and_recomputes_both(mocker, day):
+    """Moving an intake locks sorted affected days and refreshes both totals."""
+    intake = _create_custom_intake(day, "100")
+    destination = day.plan.days.exclude(pk=day.pk).order_by("pk").first()
+    assert destination is not None
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update:
+            locked_rows.append(
+                (
+                    queryset.model,
+                    tuple(row.pk for row in queryset._result_cache or ()),
+                )
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+    intake.day = destination
+
+    intake.save()
+
+    assert locked_rows == [
+        (WeekPlan, (day.plan_id,)),
+        (Day, tuple(sorted((day.pk, destination.pk)))),
+        (Intake, (intake.pk,)),
+    ]
+    day.refresh_from_db()
+    destination.refresh_from_db()
+    assert day.energy_kcal == Decimal("0.00")
+    assert destination.energy_kcal == Decimal("100.00")
 
 
 def test_stale_update_cannot_resurrect_a_deleted_intake(day):

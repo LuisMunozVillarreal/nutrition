@@ -9,6 +9,8 @@ const servingSchema = buildSchema(`
   }
 
   type FoodProduct {
+    sizeUnit: String!
+    nutritionalInfoUnit: String!
     servings: [Serving!]!
   }
 
@@ -329,8 +331,15 @@ test('all product, recipe, and serving forms use the canonical fluid-ounce value
     '../src/app/servings/[id]/page.tsx',
   ]
 
+  const sharedUnitChoices = await readFile(
+    new URL('../src/lib/units.ts', import.meta.url),
+    'utf8',
+  )
   for (const path of formPaths) {
-    const source = await readFile(new URL(path, import.meta.url), 'utf8')
+    const pageSource = await readFile(new URL(path, import.meta.url), 'utf8')
+    const source = pageSource.includes("from '@/lib/units'")
+      ? sharedUnitChoices
+      : pageSource
     assert.match(
       source,
       /\{\s*value:\s*'floz',\s*label:\s*'fl oz'\s*\}/,

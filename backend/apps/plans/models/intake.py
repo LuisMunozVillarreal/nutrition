@@ -12,6 +12,7 @@ class Intake(Nutrients):
 
     _caller_day: models.Model | None = None
     _nutrition_day_ids: tuple[int, ...] = ()
+    _nutrition_locks: Any = None
 
     day = models.ForeignKey(
         "plans.Day",
@@ -88,8 +89,8 @@ class Intake(Nutrients):
     def _lock_write_rows(self, using: str) -> "Intake | None":
         """Lock aggregate owners before an existing intake, in that order.
 
-        Every intake write uses the global lock order ``Day`` (ascending primary
-        key when a move touches two days), then ``Intake``. The day lock
+        Every intake write uses the global lock order ``WeekPlan`` then ``Day``
+        (ascending primary key within each model), then ``Intake``. The day lock
         serializes creates, for which no intake row exists yet, and remains held
         while signals update cupboard state and recompute day/plan state.
 
@@ -113,19 +114,16 @@ class Intake(Nutrients):
         day_ids = {self.day_id}
         if previous_day_id is not None:
             day_ids.add(previous_day_id)
-        day_model = intake_model._meta.get_field("day").remote_field.model
-        day_manager: models.Manager[Any] = getattr(day_model, "objects")
-        locked_days = {
-            day.pk: day
-            for day in day_manager.select_for_update(of=("self",))
-            .using(using)
-            .select_related("plan__measurement")
-            .filter(pk__in=day_ids)
-            .order_by("pk")
-        }
+        from apps.plans.locks import lock_plan_aggregate_rows
+
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=using, day_ids=day_ids
+        )
+        locked_days = aggregate_locks.days_by_pk
         self._caller_day = self._state.fields_cache.get("day")
         self.day = locked_days[self.day_id]
         self._nutrition_day_ids = tuple(sorted(day_ids))
+        self._nutrition_locks = aggregate_locks
 
         if previous_day_id is None:
             if not was_adding:
@@ -150,33 +148,38 @@ class Intake(Nutrients):
             type(self), instance=self
         )
         with transaction.atomic(using=using):
-            previous = self._lock_write_rows(using)
-            self.meal_order = self.MEAL_ORDER[self.meal]
+            try:
+                previous = self._lock_write_rows(using)
+                self.meal_order = self.MEAL_ORDER[self.meal]
 
-            if previous is not None and self.food is None:
-                removed_food_without_macro_edits = (
-                    previous.food_id is not None
-                    and all(
-                        (getattr(self, nutrient) or 0)
-                        == (getattr(previous, nutrient) or 0)
-                        for nutrient in NUTRIENT_LIST
+                if previous is not None and self.food is None:
+                    removed_food_without_macro_edits = (
+                        previous.food_id is not None
+                        and all(
+                            (getattr(self, nutrient) or 0)
+                            == (getattr(previous, nutrient) or 0)
+                            for nutrient in NUTRIENT_LIST
+                        )
                     )
+                    if removed_food_without_macro_edits:
+                        for nutrient in NUTRIENT_LIST:
+                            setattr(self, nutrient, 0)
+
+                self.processed = self.food is not None or any(
+                    (getattr(self, nutrient) or 0) != 0
+                    for nutrient in NUTRIENT_LIST
                 )
-                if removed_food_without_macro_edits:
+
+                if self.food:
                     for nutrient in NUTRIENT_LIST:
-                        setattr(self, nutrient, 0)
+                        value = getattr(self.food, nutrient) or 0
+                        setattr(self, nutrient, value * self.num_servings)
 
-            self.processed = self.food is not None or any(
-                (getattr(self, nutrient) or 0) != 0
-                for nutrient in NUTRIENT_LIST
-            )
-
-            if self.food:
-                for nutrient in NUTRIENT_LIST:
-                    value = getattr(self.food, nutrient) or 0
-                    setattr(self, nutrient, value * self.num_servings)
-
-            super().save(*args, **kwargs)
+                super().save(*args, **kwargs)
+            finally:
+                if self._nutrition_locks is not None:
+                    self._nutrition_locks.clear_markers()
+                self._nutrition_locks = None
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         """Delete an intake and its aggregate/cupboard effects atomically.
@@ -192,8 +195,13 @@ class Intake(Nutrients):
             type(self), instance=self
         )
         with transaction.atomic(using=using):
-            self._lock_write_rows(using)
-            return super().delete(*args, **kwargs)
+            try:
+                self._lock_write_rows(using)
+                return super().delete(*args, **kwargs)
+            finally:
+                if self._nutrition_locks is not None:
+                    self._nutrition_locks.clear_markers()
+                self._nutrition_locks = None
 
 
 class IntakePicture(models.Model):

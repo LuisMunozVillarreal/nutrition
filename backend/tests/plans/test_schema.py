@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db.models.query import QuerySet
 from django.utils import timezone
 
 from apps.foods.models import CupboardItem, FoodProduct
@@ -164,6 +165,42 @@ class TestWeekPlanSchema:
                 Decimal("0.01")
             )
         # pylint: enable=protected-access
+
+    def test_update_week_plan_locks_plan_and_all_days_once(self, mocker):
+        """A plan aggregate update acquires canonical lock levels once."""
+        user, plan = _create_user_and_plan("wp-lock-order@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        locked_models = []
+        seen_querysets = []
+        original_fetch_all = (
+            QuerySet._fetch_all  # pylint: disable=protected-access
+        )
+
+        def record_locked_queryset(queryset):
+            if queryset.query.select_for_update and not any(
+                queryset is seen for seen in seen_querysets
+            ):
+                seen_querysets.append(queryset)
+                locked_models.append(queryset.model)
+            return original_fetch_all(queryset)
+
+        mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+        result = schema.execute_sync(
+            """
+                mutation UpdatePlan($id: ID!) {
+                    updateWeekPlan(
+                        id: $id, proteinGKg: 2.0, fatPerc: 25, deficit: 100
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(plan.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert locked_models == [WeekPlan, Day]
 
     @pytest.mark.parametrize("operation", ["create", "update"])
     @pytest.mark.parametrize(

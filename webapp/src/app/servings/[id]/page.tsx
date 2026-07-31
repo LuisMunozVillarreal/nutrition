@@ -5,10 +5,12 @@ import { useParams, useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { servingUnitChoices } from '@/lib/units'
 
 const SERVING_QUERY = gql`
   query GetServing($foodId: ID!) {
     foodProduct(id: $foodId) {
+      sizeUnit nutritionalInfoUnit
       servings {
         id servingSize servingUnit energyKcal proteinG fatG carbsG
       }
@@ -28,15 +30,6 @@ const DELETE_MUTATION = gql`
   }
 `
 
-const UNIT_CHOICES = [
-  { value: 'g', label: 'g' },
-  { value: 'ml', label: 'ml' },
-  { value: 'floz', label: 'fl oz' },
-  { value: 'oz', label: 'oz' },
-  { value: 'container', label: 'container' },
-  { value: 'serving', label: 'serving' },
-]
-
 function EditServingForm() {
   const params = useParams()
   const id = params.id as string
@@ -44,6 +37,9 @@ function EditServingForm() {
   const foodId = searchParams.get('foodId')
 
   const [form, setForm] = useState({ servingSize: '', servingUnit: '' })
+  const [productUnits, setProductUnits] = useState({
+    sizeUnit: '', nutritionalInfoUnit: ''
+  })
   const [readOnly, setReadOnly] = useState<any>({})
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -55,8 +51,14 @@ function EditServingForm() {
         return
       }
       try {
-        const res = await graphqlRequest<{ foodProduct: { servings: any[] } }>(SERVING_QUERY, { foodId })
+        const res = await graphqlRequest<{ foodProduct: { sizeUnit: string, nutritionalInfoUnit: string, servings: any[] } }>(SERVING_QUERY, { foodId })
         const serving = res.foodProduct?.servings?.find(s => s.id === id)
+        if (res.foodProduct) {
+          setProductUnits({
+            sizeUnit: res.foodProduct.sizeUnit,
+            nutritionalInfoUnit: res.foodProduct.nutritionalInfoUnit,
+          })
+        }
         if (serving) {
           setForm({
             servingSize: String(serving.servingSize),
@@ -100,7 +102,7 @@ function EditServingForm() {
           content: (
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Size" name="servingSize" type="number" step="0.1" min="0.1" value={form.servingSize} onChange={handleChange} required />
-              <SelectField label="Unit" name="servingUnit" value={form.servingUnit} onChange={handleChange} options={UNIT_CHOICES} required />
+              <SelectField label="Unit" name="servingUnit" value={form.servingUnit} onChange={handleChange} options={servingUnitChoices(productUnits.sizeUnit, productUnits.nutritionalInfoUnit)} required />
             </div>
           ),
         },

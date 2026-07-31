@@ -1,5 +1,6 @@
 """PostgreSQL concurrency tests for manual and linked cupboard writes."""
 
+import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
@@ -18,6 +19,9 @@ from apps.foods.models import (
     FoodProduct,
 )
 from apps.foods.signals.handlers import cupboard as cupboard_handlers
+from apps.measurements.models import Measurement
+from apps.plans import locks as plan_locks
+from apps.plans.models import Intake, WeekPlan
 from config.schema import schema
 
 User = get_user_model()
@@ -210,3 +214,140 @@ class CupboardManualLinkedConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.item.manual_consumed_perc, Decimal("40"))
         self.assertEqual(self.item.consumed_perc, Decimal("40"))
         self.assertFalse(self.item.consumptions.exists())
+
+
+@skipUnless(
+    connection.vendor == "postgresql"
+    and connection.features.has_select_for_update,
+    "PostgreSQL row locks are required",
+)
+class ServingCascadeConcurrencyTests(TransactionTestCase):
+    """Prove serving collection uses intake-compatible aggregate locks."""
+
+    reset_sequences = True
+
+    def setUp(self):
+        """Create one intake linked to stock and a plan aggregate."""
+        self.user = User.objects.create_user(
+            email="serving-cascade@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        measurement = Measurement.objects.create(
+            user=self.user,
+            body_fat_perc=Decimal("20"),
+            weight=Decimal("80"),
+        )
+        self.plan = WeekPlan.objects.create(
+            user=self.user,
+            measurement=measurement,
+            start_date=datetime.date(2026, 1, 5),
+            protein_g_kg=Decimal("1.8"),
+            fat_perc=Decimal("25"),
+            deficit=100,
+        )
+        self.day = self.plan.days.get(day_num=1)
+        self.product = FoodProduct.objects.create(
+            name="Cascade stock",
+            size=Decimal("100"),
+            size_unit="g",
+            nutritional_info_size=Decimal("100"),
+            energy_kcal=Decimal("100"),
+            num_servings=1,
+        )
+        self.serving = self.product.servings.create(
+            serving_size=Decimal("10"),
+            serving_unit="g",
+        )
+        self.item = CupboardItem.objects.create(
+            owner=self.user,
+            food=self.product,
+            purchased_at=timezone.now(),
+            consumed_perc=Decimal("20"),
+        )
+        self.intake = Intake.objects.create(
+            day=self.day,
+            food=self.serving,
+            meal=Intake.MEAL_LUNCH,
+            num_servings=Decimal("1"),
+        )
+
+    def test_intake_write_and_serving_delete_do_not_deadlock(self):
+        """Deletion waits on plan/day before touching the shared cupboard row."""
+        writer_before_cupboard = threading.Event()
+        deletion_plan_lock_attempted = threading.Event()
+        release_writer = threading.Event()
+        original_cupboard_lock = CupboardItem.objects.select_for_update
+        original_plan_locks = plan_locks.lock_plan_aggregate_rows
+
+        def pause_writer_before_cupboard(*args, **kwargs):
+            if (
+                threading.current_thread().name == "intake-write"
+                and not writer_before_cupboard.is_set()
+            ):
+                writer_before_cupboard.set()
+                if not release_writer.wait(timeout=10):
+                    raise RuntimeError("timed out releasing intake writer")
+            return original_cupboard_lock(*args, **kwargs)
+
+        def observe_deletion_plan_lock(*args, **kwargs):
+            if threading.current_thread().name == "serving-delete":
+                deletion_plan_lock_attempted.set()
+            return original_plan_locks(*args, **kwargs)
+
+        def update_intake():
+            threading.current_thread().name = "intake-write"
+            close_old_connections()
+            try:
+                stale = Intake.objects.get(pk=self.intake.pk)
+                stale.num_servings = Decimal("2")
+                stale.save()
+                return id(connection.connection)
+            finally:
+                close_old_connections()
+
+        def delete_serving():
+            threading.current_thread().name = "serving-delete"
+            close_old_connections()
+            try:
+                if not writer_before_cupboard.wait(timeout=10):
+                    raise RuntimeError("intake writer did not reach cupboard")
+                stale = type(self.serving).objects.get(pk=self.serving.pk)
+                stale.delete()
+                return id(connection.connection)
+            finally:
+                close_old_connections()
+
+        with (
+            patch.object(
+                CupboardItem.objects,
+                "select_for_update",
+                side_effect=pause_writer_before_cupboard,
+            ),
+            patch.object(
+                plan_locks,
+                "lock_plan_aggregate_rows",
+                side_effect=observe_deletion_plan_lock,
+            ),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            writer_future = executor.submit(update_intake)
+            deletion_future = executor.submit(delete_serving)
+            self.assertTrue(deletion_plan_lock_attempted.wait(timeout=10))
+            release_writer.set()
+            writer_connection = writer_future.result(timeout=20)
+            deletion_connection = deletion_future.result(timeout=20)
+
+        self.assertNotEqual(writer_connection, deletion_connection)
+        self.assertFalse(
+            type(self.serving).objects.filter(pk=self.serving.pk).exists()
+        )
+        self.assertFalse(Intake.objects.filter(pk=self.intake.pk).exists())
+        self.item.refresh_from_db()
+        self.day.refresh_from_db()
+        self.plan.refresh_from_db()
+        self.assertEqual(self.item.manual_consumed_perc, Decimal("20"))
+        self.assertEqual(self.item.consumed_perc, Decimal("20"))
+        self.assertEqual(self.day.energy_kcal, Decimal("0"))
+        self.assertEqual(self.plan.energy_kcal, Decimal("0"))

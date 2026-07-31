@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import strawberry
 from django.conf import settings
-from django.db import transaction
+from django.db import router, transaction
 from strawberry.types import Info
 
 from apps.libs.graphql import (
@@ -17,6 +17,7 @@ from apps.libs.graphql import (
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
+from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
 
 
@@ -418,24 +419,33 @@ class PlanMutation:
         except WeekPlan.DoesNotExist as e:
             raise ValueError("WeekPlan not found") from e
 
-        validated_protein, validated_fat, validated_deficit = (
-            _validated_week_plan_parameters(
-                obj.measurement,
-                protein_g_kg,
-                fat_perc,
-                deficit,
-                [day.tdee for day in obj.days.order_by("day_num")],
-            )
+        day_ids = tuple(obj.days.order_by("pk").values_list("pk", flat=True))
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=router.db_for_write(WeekPlan, instance=obj),
+            plan_ids=(obj.pk,),
+            day_ids=day_ids,
         )
-        obj.protein_g_kg = validated_protein
-        obj.fat_perc = validated_fat
-        obj.deficit = validated_deficit
-        obj.save()
-        for day, deficit_perc in zip(
-            obj.days.order_by("day_num"), obj.DEFICIT_DISTRIBUTION
-        ):
-            day.deficit = obj.deficit * deficit_perc / 100
-            day.save()
+        obj = aggregate_locks.plans_by_pk[obj.pk]
+        days = sorted(aggregate_locks.days, key=lambda day: day.day_num)
+        try:
+            validated_protein, validated_fat, validated_deficit = (
+                _validated_week_plan_parameters(
+                    obj.measurement,
+                    protein_g_kg,
+                    fat_perc,
+                    deficit,
+                    [day.tdee for day in days],
+                )
+            )
+            obj.protein_g_kg = validated_protein
+            obj.fat_perc = validated_fat
+            obj.deficit = validated_deficit
+            obj.save()
+            for day, deficit_perc in zip(days, obj.DEFICIT_DISTRIBUTION):
+                day.deficit = obj.deficit * deficit_perc / 100
+                day.save()
+        finally:
+            aggregate_locks.clear_markers()
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation

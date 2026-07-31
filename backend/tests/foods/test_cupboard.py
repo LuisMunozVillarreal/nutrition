@@ -622,7 +622,7 @@ def test_linked_consumption_delete_locks_cupboard_item_before_write(
 
     consumption.delete()
 
-    lock.assert_called_once_with()
+    assert lock.call_args_list[0] == mocker.call(of=("self",))
 
 
 def test_linked_consumption_rolls_back_when_recalculation_fails(

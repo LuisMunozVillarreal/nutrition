@@ -15,6 +15,7 @@ from django.dispatch import receiver
 
 from apps.exercises.models import DaySteps, Exercise
 from apps.foods.models.nutrients import NUTRIENT_LIST
+from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
 
 
@@ -60,13 +61,16 @@ def _recalculate_intake_days(instance: Intake, using: str) -> None:
         using (str): database alias used by the write.
     """
     day_ids = getattr(instance, "_nutrition_day_ids", (instance.day_id,))
-    days = list(
-        Day.objects.select_for_update(of=("self",))
-        .using(using)
-        .select_related("plan__measurement")
-        .filter(pk__in=day_ids)
-        .order_by("pk")
-    )
+    aggregate_locks = getattr(instance, "_nutrition_locks", None)
+    if aggregate_locks is None or not aggregate_locks.covers_days(
+        day_ids, using
+    ):
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=using, day_ids=day_ids
+        )
+        setattr(instance, "_nutrition_locks", aggregate_locks)
+    days_by_pk = aggregate_locks.days_by_pk
+    days = [days_by_pk[day_id] for day_id in sorted(day_ids)]
     aggregate_fields = {
         nutrient: Sum(nutrient, default=Decimal("0"))
         for nutrient in NUTRIENT_LIST
@@ -96,7 +100,7 @@ def lock_day_and_intake_before_delete(
     instance: Intake,
     **kwargs: Any,
 ) -> None:
-    """Lock Day then Intake before bulk/cascaded deletion signals run.
+    """Lock WeekPlan, then Day, then Intake for bulk/cascade deletion.
 
     Args:
         sender (Intake): signal sender.
@@ -105,13 +109,16 @@ def lock_day_and_intake_before_delete(
     """
     using = kwargs["using"]
     with transaction.atomic(using=using):
-        day = (
-            Day.objects.select_for_update(of=("self",))
-            .using(using)
-            .select_related("plan__measurement")
-            .get(pk=instance.day_id)
-        )
-        Intake.objects.select_for_update().using(using).get(pk=instance.pk)
+        aggregate_locks = getattr(instance, "_nutrition_locks", None)
+        if aggregate_locks is None or not aggregate_locks.covers_days(
+            (instance.day_id,), using
+        ):
+            aggregate_locks = lock_plan_aggregate_rows(
+                using=using, day_ids=(instance.day_id,)
+            )
+            Intake.objects.select_for_update().using(using).get(pk=instance.pk)
+            setattr(instance, "_nutrition_locks", aggregate_locks)
+        day = aggregate_locks.days_by_pk[instance.day_id]
         instance.day = day
         setattr(instance, "_nutrition_day_ids", (day.pk,))
 

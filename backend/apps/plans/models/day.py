@@ -5,7 +5,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib import admin
-from django.db import models
+from django.db import models, router, transaction
 
 from apps.foods.models.nutrients import Nutrients
 from apps.libs.admin import progress_bar
@@ -18,6 +18,8 @@ class Day(Nutrients):
     """Day model class."""
 
     # pylint: disable=too-many-instance-attributes
+
+    _plan_aggregate_locks: Any = None
 
     class Meta:
         ordering = ["-plan", "-day"]
@@ -217,12 +219,41 @@ class Day(Nutrients):
         return self.intakes.count()
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Save instance.
+        """Save with the canonical WeekPlan-then-Day aggregate locks.
 
         Args:
             args (list): arguments.
             kwargs (Any): keywork arguments.
         """
+        from apps.plans.locks import lock_plan_aggregate_rows
+
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
+        )
+        day_ids = (self.pk,) if self.pk is not None else ()
+        aggregate_locks = self._plan_aggregate_locks
+        owns_locks = (
+            aggregate_locks is None
+            or not aggregate_locks.covers_plans((self.plan_id,), using)
+            or not aggregate_locks.covers_days(day_ids, using)
+        )
+        with transaction.atomic(using=using):
+            if owns_locks:
+                aggregate_locks = lock_plan_aggregate_rows(
+                    using=using,
+                    plan_ids=(self.plan_id,),
+                    day_ids=day_ids,
+                )
+                self.plan = aggregate_locks.plans_by_pk[self.plan_id]
+            try:
+                kwargs["using"] = using
+                self._save_derived_fields(*args, **kwargs)
+            finally:
+                if owns_locks and aggregate_locks is not None:
+                    aggregate_locks.clear_markers()
+
+    def _save_derived_fields(self, *args: Any, **kwargs: Any) -> None:
+        """Calculate derived fields and persist while aggregate locks are held."""
         # Goals
         self.energy_kcal_goal = self._energy_kcal_goal
         self.protein_g_goal = (
