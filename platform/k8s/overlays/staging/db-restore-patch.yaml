@@ -38,6 +38,18 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
+              if [ "${SKIP_DB_RESTORE:-false}" = "true" ]; then
+                echo "SKIP_DB_RESTORE=true. Applying schema migrations only."
+                /srv/www/backend/.venv/bin/python manage.py migrate --noinput
+                exit 0
+              fi
+
+              if [ ! -f "/mnt/secret/nutrition-gcp-db-backup-credentials.json" ]; then
+                echo "No backup credentials available. Skipping restore and running migrations."
+                /srv/www/backend/.venv/bin/python manage.py migrate --noinput
+                exit 0
+              fi
+
               echo "Waiting for database to be ready...";
               until pg_isready -h "$POSTGRESQL_HOST" -U "nutrition"; do
                 echo "Database not ready, waiting 2 seconds...";
