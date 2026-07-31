@@ -1,14 +1,212 @@
 """Intake models module."""
 
-from typing import Any
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any, Iterator, cast
 
+from django.apps import apps
 from django.db import models, router, transaction
 
 from apps.foods.models.nutrients import NUTRIENT_LIST, Nutrients
+from apps.plans.locks import PlanAggregateLocks, lock_plan_aggregate_rows
+
+
+@dataclass
+class IntakeDeletionLocks:
+    """Rows locked before Django collects a bulk intake deletion."""
+
+    using: str
+    aggregate_locks: PlanAggregateLocks
+    intakes: tuple[models.Model, ...]
+
+    def covers(self, intake_id: int, day_id: int, using: str) -> bool:
+        """Return whether this bundle owns the intake and its day locks.
+
+        Args:
+            intake_id (int): Intake primary key that must be covered.
+            day_id (int): Parent day primary key that must be covered.
+            using (str): Database alias on which locks must be held.
+
+        Returns:
+            bool: Whether this bundle covers the requested hierarchy.
+        """
+        return (
+            self.using == using
+            and any(intake.pk == intake_id for intake in self.intakes)
+            and self.aggregate_locks.covers_days((day_id,), using)
+        )
+
+
+_active_intake_deletion_locks: ContextVar[IntakeDeletionLocks | None] = (
+    ContextVar("active_intake_deletion_locks", default=None)
+)
+
+
+def get_intake_deletion_locks() -> IntakeDeletionLocks | None:
+    """Return the deletion lock bundle active in the current execution context.
+
+    Returns:
+        IntakeDeletionLocks | None: Active lock bundle, if any.
+    """
+    return _active_intake_deletion_locks.get()
+
+
+@contextmanager
+def activate_intake_deletion_locks(
+    locks: IntakeDeletionLocks,
+) -> Iterator[None]:
+    """Expose pre-collector locks to intake deletion signal handlers.
+
+    Args:
+        locks (IntakeDeletionLocks): Bundle held by the outer transaction.
+    """
+    token = _active_intake_deletion_locks.set(locks)
+    try:
+        yield
+    finally:
+        _active_intake_deletion_locks.reset(token)
+
+
+def lock_intake_deletion_rows(
+    targets: models.QuerySet, using: str
+) -> IntakeDeletionLocks:
+    """Lock all target plans, days, and intakes in canonical PK order.
+
+    Args:
+        targets (models.QuerySet): Complete affected intake selection.
+        using (str): Database alias used by the deletion.
+
+    Returns:
+        IntakeDeletionLocks: Locked hierarchy exposed to collector signals.
+    """
+    target_rows = list(targets.order_by().values_list("pk", "day_id"))
+    intake_ids = tuple(sorted(row[0] for row in target_rows))
+    day_ids = tuple(sorted({row[1] for row in target_rows}))
+    aggregate_locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
+    intakes = tuple(
+        intake
+        for intake in targets.model.objects.select_for_update(of=("self",))
+        .using(using)
+        .filter(pk__in=intake_ids)
+        .order_by("pk")
+    )
+    return IntakeDeletionLocks(using, aggregate_locks, intakes)
+
+
+class IntakeQuerySet(models.QuerySet):
+    """QuerySet that locks the complete intake hierarchy before collection."""
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        """Delete selected intakes under canonical pre-collector locks.
+
+        Returns:
+            tuple[int, dict[str, int]]: Total and per-model deletion counts.
+        """
+        using = self.db
+        with transaction.atomic(using=using):
+            locks = lock_intake_deletion_rows(self, using)
+            try:
+                with activate_intake_deletion_locks(locks):
+                    return super().delete()
+            finally:
+                locks.aggregate_locks.clear_markers()
+
+
+class IntakeManager(
+    models.Manager.from_queryset(IntakeQuerySet)  # type: ignore[misc]
+):
+    """Manager exposing deletion-safe intake querysets."""
+
+
+def intake_targets_for_cascade(
+    targets: models.QuerySet, using: str
+) -> models.QuerySet:
+    """Return intakes cascaded by a Day or WeekPlan deletion target.
+
+    Args:
+        targets (models.QuerySet): Day or WeekPlan roots being deleted.
+        using (str): Database alias used by the deletion.
+
+    Returns:
+        models.QuerySet: Complete cascaded intake selection.
+    """
+    intake_model = apps.get_model("plans", "Intake")
+    if targets.model._meta.label_lower == "plans.day":
+        return intake_model.objects.using(using).filter(
+            day_id__in=targets.order_by().values("pk")
+        )
+    if targets.model._meta.label_lower == "plans.weekplan":
+        return intake_model.objects.using(using).filter(
+            day__plan_id__in=targets.order_by().values("pk")
+        )
+    return intake_model.objects.using(using).none()
+
+
+class IntakeCascadeQuerySet(models.QuerySet):
+    """QuerySet that prelocks intakes reached through plan/day cascades."""
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        """Delete roots after locking every cascaded intake hierarchy.
+
+        Returns:
+            tuple[int, dict[str, int]]: Total and per-model deletion counts.
+        """
+        using = self.db
+        intake_targets = intake_targets_for_cascade(self, using)
+        if not intake_targets.exists():
+            return super().delete()
+        with transaction.atomic(using=using):
+            locks = lock_intake_deletion_rows(intake_targets, using)
+            try:
+                with activate_intake_deletion_locks(locks):
+                    return super().delete()
+            finally:
+                locks.aggregate_locks.clear_markers()
+
+
+class IntakeCascadeManager(
+    models.Manager.from_queryset(IntakeCascadeQuerySet)  # type: ignore[misc]
+):
+    """Manager exposing intake-safe plan/day cascade deletion."""
+
+
+class IntakeCascadeDeletionMixin:
+    """Prelock cascaded intakes for direct plan/day instance deletion."""
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete this root under the same locks as its custom queryset.
+
+        Args:
+            args (Any): Positional arguments forwarded to Django deletion.
+            kwargs (Any): Keyword arguments forwarded to Django deletion.
+
+        Returns:
+            tuple[int, dict[str, int]]: Total and per-model deletion counts.
+        """
+        instance = cast(models.Model, self)
+        model = type(instance)
+        using = kwargs.get("using") or router.db_for_write(
+            model, instance=instance
+        )
+        manager = cast(Any, model).objects
+        targets = manager.using(using).filter(pk=instance.pk)
+        intake_targets = intake_targets_for_cascade(targets, using)
+        if not intake_targets.exists():
+            return models.Model.delete(instance, *args, **kwargs)
+        with transaction.atomic(using=using):
+            locks = lock_intake_deletion_rows(intake_targets, using)
+            try:
+                with activate_intake_deletion_locks(locks):
+                    return models.Model.delete(instance, *args, **kwargs)
+            finally:
+                locks.aggregate_locks.clear_markers()
 
 
 class Intake(Nutrients):
     """Intake models class."""
+
+    objects = IntakeManager()
 
     _caller_day: models.Model | None = None
     _nutrition_day_ids: tuple[int, ...] = ()
@@ -114,7 +312,6 @@ class Intake(Nutrients):
         day_ids = {self.day_id}
         if previous_day_id is not None:
             day_ids.add(previous_day_id)
-        from apps.plans.locks import lock_plan_aggregate_rows
 
         aggregate_locks = lock_plan_aggregate_rows(
             using=using, day_ids=day_ids

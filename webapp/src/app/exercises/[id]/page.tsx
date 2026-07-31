@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
 
 const EXERCISE_QUERY = gql`
   query GetExercise($id: ID!) {
@@ -64,7 +65,7 @@ export default function EditExercisePage() {
             kcals: String(res.exercise.kcals),
             time: res.exercise.time.substring(0, 5),
             duration: res.exercise.duration || '',
-            distance: res.exercise.distance ? String(res.exercise.distance) : '',
+            distance: optionalNumberInput(res.exercise.distance),
           })
         }
       } catch (err) { console.error('Failed to fetch exercise', err) }
@@ -82,7 +83,7 @@ export default function EditExercisePage() {
         id, type: form.type, kcals: parseInt(form.kcals),
         time: form.time || '00:00',
         duration: form.duration || null,
-        distance: form.distance ? parseFloat(form.distance) : null,
+        distance: optionalNumberVariable(form.distance),
       })
     } finally { setSaving(false) }
   }

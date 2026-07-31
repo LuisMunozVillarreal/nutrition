@@ -6,11 +6,13 @@ import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
+import { recipeUnitChoices } from '@/lib/units'
+import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
 
 const RECIPE_QUERY = gql`
   query GetRecipe($id: ID!) {
     recipe(id: $id) {
-      id brand name description
+      id brand name description nutrientsFromIngredients
       size sizeUnit numServings
       energyKcal proteinG fatG carbsG
       saturatedFatG sugarsG fibreG saltG
@@ -44,15 +46,6 @@ const DELETE_MUTATION = gql`
   }
 `
 
-const UNIT_CHOICES = [
-  { value: 'g', label: 'g' },
-  { value: 'ml', label: 'ml' },
-  { value: 'floz', label: 'fl oz' },
-  { value: 'oz', label: 'oz' },
-  { value: 'container', label: 'container' },
-  { value: 'serving', label: 'serving' },
-]
-
 interface IngredientRow {
   id: string
   foodLabel: string
@@ -82,6 +75,7 @@ export default function EditRecipePage() {
     saturatedFatG: '', sugarsG: '', fibreG: '', saltG: ''
   })
   const [ingredients, setIngredients] = useState<IngredientRow[]>([])
+  const [nutrientsFromIngredients, setNutrientsFromIngredients] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -95,12 +89,13 @@ export default function EditRecipePage() {
             name: r.name, brand: r.brand || '', description: r.description || '',
             size: String(r.size), sizeUnit: r.sizeUnit, numServings: String(r.numServings),
             energyKcal: String(r.energyKcal), proteinG: String(r.proteinG), fatG: String(r.fatG), carbsG: String(r.carbsG),
-            saturatedFatG: r.saturatedFatG ? String(r.saturatedFatG) : '',
-            sugarsG: r.sugarsG ? String(r.sugarsG) : '',
-            fibreG: r.fibreG ? String(r.fibreG) : '',
-            saltG: r.saltG ? String(r.saltG) : ''
+            saturatedFatG: optionalNumberInput(r.saturatedFatG),
+            sugarsG: optionalNumberInput(r.sugarsG),
+            fibreG: optionalNumberInput(r.fibreG),
+            saltG: optionalNumberInput(r.saltG)
           })
           setIngredients(r.ingredients || [])
+          setNutrientsFromIngredients(r.nutrientsFromIngredients)
         }
       } catch (err) { console.error('Failed to fetch recipe', err) }
       setLoading(false)
@@ -118,10 +113,10 @@ export default function EditRecipePage() {
         size: parseFloat(form.size), sizeUnit: form.sizeUnit, numServings: parseFloat(form.numServings),
         energyKcal: parseFloat(form.energyKcal), proteinG: parseFloat(form.proteinG),
         fatG: parseFloat(form.fatG), carbsG: parseFloat(form.carbsG),
-        saturatedFatG: form.saturatedFatG ? parseFloat(form.saturatedFatG) : null,
-        sugarsG: form.sugarsG ? parseFloat(form.sugarsG) : null,
-        fibreG: form.fibreG ? parseFloat(form.fibreG) : null,
-        saltG: form.saltG ? parseFloat(form.saltG) : null,
+        saturatedFatG: optionalNumberVariable(form.saturatedFatG),
+        sugarsG: optionalNumberVariable(form.sugarsG),
+        fibreG: optionalNumberVariable(form.fibreG),
+        saltG: optionalNumberVariable(form.saltG),
       })
     } finally { setSaving(false) }
   }
@@ -147,22 +142,35 @@ export default function EditRecipePage() {
                 <FormField label="Name" name="name" value={form.name} onChange={handleChange} required />
                 <TextareaField label="Description" name="description" value={form.description} onChange={handleChange} />
                 <div className="grid grid-cols-2 gap-4 mt-4">
-                  <FormField label="Size" name="size" type="number" step="0.1" min="0.1" value={form.size} onChange={handleChange} required />
-                  <SelectField label="Size Unit" name="sizeUnit" value={form.sizeUnit} onChange={handleChange} options={UNIT_CHOICES} required />
+                  {nutrientsFromIngredients ? (
+                    <ReadonlyField label="Size" value={form.size} />
+                  ) : (
+                    <FormField label="Size" name="size" type="number" step="0.1" min="0.1" value={form.size} onChange={handleChange} required />
+                  )}
+                  <SelectField label="Size Unit" name="sizeUnit" value={form.sizeUnit} onChange={handleChange} options={recipeUnitChoices(nutrientsFromIngredients, form.sizeUnit)} required />
                 </div>
                 <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
               </>
             ),
           },
           {
-            title: 'Main Nutrients',
+            title: nutrientsFromIngredients ? 'Ingredient-derived aggregates (read-only)' : 'Main Nutrients',
             content: (
-              <>
-                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} required />
-                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} required />
-                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} required />
-                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} required />
-              </>
+              nutrientsFromIngredients ? (
+                <>
+                  <ReadonlyField label="Energy (kcal)" value={form.energyKcal} />
+                  <ReadonlyField label="Protein (g)" value={form.proteinG} />
+                  <ReadonlyField label="Fat (g)" value={form.fatG} />
+                  <ReadonlyField label="Carbs (g)" value={form.carbsG} />
+                </>
+              ) : (
+                <>
+                  <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} required />
+                  <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} required />
+                  <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} required />
+                  <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} required />
+                </>
+              )
             ),
           },
           {
@@ -170,12 +178,21 @@ export default function EditRecipePage() {
             collapsible: true,
             defaultCollapsed: true,
             content: (
-              <>
-                <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step="0.1" min="0" value={form.saturatedFatG} onChange={handleChange} />
-                <FormField label="Sugars (g)" name="sugarsG" type="number" step="0.1" min="0" value={form.sugarsG} onChange={handleChange} />
-                <FormField label="Fibre (g)" name="fibreG" type="number" step="0.1" min="0" value={form.fibreG} onChange={handleChange} />
-                <FormField label="Salt (g)" name="saltG" type="number" step="0.1" min="0" value={form.saltG} onChange={handleChange} />
-              </>
+              nutrientsFromIngredients ? (
+                <>
+                  <ReadonlyField label="Saturated Fat (g)" value={form.saturatedFatG} />
+                  <ReadonlyField label="Sugars (g)" value={form.sugarsG} />
+                  <ReadonlyField label="Fibre (g)" value={form.fibreG} />
+                  <ReadonlyField label="Salt (g)" value={form.saltG} />
+                </>
+              ) : (
+                <>
+                  <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step="0.1" min="0" value={form.saturatedFatG} onChange={handleChange} />
+                  <FormField label="Sugars (g)" name="sugarsG" type="number" step="0.1" min="0" value={form.sugarsG} onChange={handleChange} />
+                  <FormField label="Fibre (g)" name="fibreG" type="number" step="0.1" min="0" value={form.fibreG} onChange={handleChange} />
+                  <FormField label="Salt (g)" name="saltG" type="number" step="0.1" min="0" value={form.saltG} onChange={handleChange} />
+                </>
+              )
             ),
           },
         ]}

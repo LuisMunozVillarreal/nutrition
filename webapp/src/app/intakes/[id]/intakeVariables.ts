@@ -26,12 +26,8 @@ export interface CustomIntakeUpdateVariables extends Record<string, unknown> {
   carbsG: number
 }
 
-function perServing(total: number, numServings: number): string {
-  return String(total / numServings)
-}
-
-function macroTotal(value: string, numServings: number): number {
-  return value ? Number.parseFloat(value) * numServings : 0
+function destinationTotal(value: string): number {
+  return value ? Number.parseFloat(value) : 0
 }
 
 export function buildCustomIntakeEditForm(
@@ -40,10 +36,10 @@ export function buildCustomIntakeEditForm(
   return {
     meal: intake.meal,
     numServings: String(intake.numServings),
-    energyKcal: perServing(intake.energyKcal, intake.numServings),
-    proteinG: perServing(intake.proteinG, intake.numServings),
-    fatG: perServing(intake.fatG, intake.numServings),
-    carbsG: perServing(intake.carbsG, intake.numServings),
+    energyKcal: String(intake.energyKcal),
+    proteinG: String(intake.proteinG),
+    fatG: String(intake.fatG),
+    carbsG: String(intake.carbsG),
   }
 }
 
@@ -57,9 +53,9 @@ export function buildCustomIntakeUpdateVariables(
     id,
     meal: form.meal,
     numServings,
-    energyKcal: macroTotal(form.energyKcal, numServings),
-    proteinG: macroTotal(form.proteinG, numServings),
-    fatG: macroTotal(form.fatG, numServings),
-    carbsG: macroTotal(form.carbsG, numServings),
+    energyKcal: destinationTotal(form.energyKcal),
+    proteinG: destinationTotal(form.proteinG),
+    fatG: destinationTotal(form.fatG),
+    carbsG: destinationTotal(form.carbsG),
   }
 }

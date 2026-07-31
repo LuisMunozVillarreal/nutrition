@@ -111,16 +111,16 @@ export default function EditIntakePage() {
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
 
             <div className="mt-6 mb-2">
-              <p className="text-sm font-semibold text-slate-300">Macros</p>
+              <p className="text-sm font-semibold text-slate-300">{isCustom ? 'Custom Macros (total intake)' : 'Macros'}</p>
               {!isCustom && <p className="text-xs text-slate-500">Computed from Food Product (read-only)</p>}
             </div>
 
             {isCustom ? (
               <>
-                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} />
-                <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} />
-                <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} />
-                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} />
+                <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.01" min="0" value={form.energyKcal} onChange={handleChange} />
+                <FormField label="Protein (g)" name="proteinG" type="number" step="0.01" min="0" value={form.proteinG} onChange={handleChange} />
+                <FormField label="Fat (g)" name="fatG" type="number" step="0.01" min="0" value={form.fatG} onChange={handleChange} />
+                <FormField label="Carbs (g)" name="carbsG" type="number" step="0.01" min="0" value={form.carbsG} onChange={handleChange} />
               </>
             ) : (
               <>

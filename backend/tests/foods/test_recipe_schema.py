@@ -996,6 +996,218 @@ class TestRecipeMutation:  # pylint: disable=too-many-public-methods
         )
 
     @pytest.mark.parametrize("operation", ["add", "update"])
+    def test_recipe_ingredient_rejects_derived_nutrient_overflow_atomically(
+        self, mocker, operation
+    ):
+        """Snapshot multiplication is validated before any aggregate write."""
+        user = _create_user(
+            f"ingredient-derived-overflow-{operation}@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Derived overflow parent",
+            nutrients_from_ingredients=True,
+            size=0,
+        )
+        product = FoodProduct.objects.create(
+            name="Derived overflow ingredient",
+            nutritional_info_size=1,
+            size=1,
+            energy_kcal=1,
+        )
+        serving = product.servings.get(
+            serving_size=1, serving_unit="container"
+        )
+        ingredient = None
+        if operation == "update":
+            ingredient = RecipeIngredient.objects.create(
+                recipe=recipe, food=serving, num_servings=1
+            )
+        recipe.refresh_from_db()
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_ingredients = list(
+            recipe.ingredients.values_list(
+                "pk", "num_servings", "size_snapshot", "energy_kcal"
+            )
+        )
+        mutation_name = (
+            "addRecipeIngredient"
+            if operation == "add"
+            else "updateRecipeIngredient"
+        )
+        if operation == "add":
+            identifier = f'recipeId: "{recipe.pk}"'
+        else:
+            assert ingredient is not None
+            identifier = f'id: "{ingredient.pk}"'
+
+        result = schema.execute_sync(
+            f"""
+            mutation {{
+                {mutation_name}(
+                    {identifier}, foodId: "{serving.pk}",
+                    numServings: 100000000
+                ) {{ id }}
+            }}
+            """,
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert (
+            "Recipe ingredient energyKcal exceeds supported precision"
+            in str(result.errors[0])
+        )
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert (
+            list(
+                recipe.ingredients.values_list(
+                    "pk", "num_servings", "size_snapshot", "energy_kcal"
+                )
+            )
+            == original_ingredients
+        )
+
+    def test_recipe_ingredient_rejects_derived_size_overflow_atomically(
+        self, mocker
+    ):
+        """Ingredient size multiplication is checked against its snapshot field."""
+        user = _create_user(
+            "recipe-size-snapshot-overflow@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Size snapshot overflow parent",
+            nutrients_from_ingredients=True,
+            size=0,
+        )
+        product = FoodProduct.objects.create(
+            name="Size snapshot overflow ingredient",
+            size=Decimal("100000000"),
+        )
+        serving = product.servings.get(
+            serving_size=1, serving_unit="container"
+        )
+
+        result = schema.execute_sync(
+            f"""
+            mutation {{
+                addRecipeIngredient(
+                    recipeId: "{recipe.pk}", foodId: "{serving.pk}",
+                    numServings: 100
+                ) {{ id }}
+            }}
+            """,
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert (
+            "Recipe ingredient sizeSnapshot exceeds supported precision"
+            in str(result.errors[0])
+        )
+        assert recipe.ingredients.count() == 0
+        recipe.refresh_from_db()
+        assert recipe.size == Decimal("0.0")
+
+    def test_recipe_ingredient_rejects_recipe_size_overflow_atomically(
+        self, mocker
+    ):
+        """A valid historical snapshot must also fit the Recipe size field."""
+        user = _create_user(
+            "recipe-total-size-overflow@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Recipe size overflow parent",
+            nutrients_from_ingredients=True,
+            size=0,
+        )
+        product = FoodProduct.objects.create(
+            name="Recipe size overflow ingredient",
+            size=Decimal("600000000"),
+        )
+        serving = product.servings.get(
+            serving_size=1, serving_unit="container"
+        )
+
+        result = schema.execute_sync(
+            f"""
+            mutation {{
+                addRecipeIngredient(
+                    recipeId: "{recipe.pk}", foodId: "{serving.pk}",
+                    numServings: 2
+                ) {{ id }}
+            }}
+            """,
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert "Recipe size exceeds supported precision" in str(
+            result.errors[0]
+        )
+        assert recipe.ingredients.count() == 0
+        recipe.refresh_from_db()
+        assert recipe.size == Decimal("0.0")
+
+    def test_recipe_ingredient_rejects_aggregate_sum_overflow_atomically(
+        self, mocker
+    ):
+        """An aggregate sum outside Recipe fields rejects the whole mutation."""
+        user = _create_user(
+            "recipe-aggregate-overflow@test.com", is_staff=True
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        recipe = Recipe.objects.create(
+            name="Aggregate overflow parent",
+            nutrients_from_ingredients=True,
+            size=0,
+        )
+        product = FoodProduct.objects.create(
+            name="Aggregate overflow ingredient",
+            nutritional_info_size=1,
+            size=1,
+            energy_kcal=Decimal("60000000"),
+        )
+        serving = product.servings.get(
+            serving_size=1, serving_unit="container"
+        )
+        RecipeIngredient.objects.create(recipe=recipe, food=serving)
+        recipe.refresh_from_db()
+        original_recipe = (recipe.size, recipe.energy_kcal)
+        original_ingredients = list(
+            recipe.ingredients.values_list("pk", "energy_kcal")
+        )
+
+        result = schema.execute_sync(
+            f"""
+            mutation {{
+                addRecipeIngredient(
+                    recipeId: "{recipe.pk}", foodId: "{serving.pk}"
+                ) {{ id }}
+            }}
+            """,
+            context_value=context,
+        )
+
+        assert result.errors is not None
+        assert "Recipe energyKcal exceeds supported precision" in str(
+            result.errors[0]
+        )
+        recipe.refresh_from_db()
+        assert (recipe.size, recipe.energy_kcal) == original_recipe
+        assert (
+            list(recipe.ingredients.values_list("pk", "energy_kcal"))
+            == original_ingredients
+        )
+
+    @pytest.mark.parametrize("operation", ["add", "update"])
     def test_recipe_ingredient_rejects_decimal_overflow_before_side_effects(
         self, mocker, operation
     ):

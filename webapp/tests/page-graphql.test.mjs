@@ -34,7 +34,7 @@ async function readGraphqlOperation(pagePath, constantName) {
   return match[1]
 }
 
-test('custom intake macros are converted from per-serving values to totals', async () => {
+test('custom intake create submits decimal-safe destination totals', async () => {
   const { buildCustomIntakeVariables } = await import(
     '../src/app/intakes/new/intakeVariables.ts'
   )
@@ -42,8 +42,8 @@ test('custom intake macros are converted from per-serving values to totals', asy
     dayId: '7',
     meal: 'lunch',
     numServings: '2.5',
-    energyKcal: '120',
-    proteinG: '10',
+    energyKcal: '120.25',
+    proteinG: '10.05',
     fatG: '4',
     carbsG: '',
   })
@@ -52,52 +52,97 @@ test('custom intake macros are converted from per-serving values to totals', asy
     dayId: 7,
     meal: 'lunch',
     numServings: 2.5,
-    energyKcal: 300,
-    proteinG: 25,
-    fatG: 10,
+    energyKcal: 120.25,
+    proteinG: 10.05,
+    fatG: 4,
     carbsG: 0,
   })
 })
 
-test('custom intake edit converts totals to per-serving values and recalculates totals', async () => {
+test('custom intake edit preserves destination totals on meal-only and serving edits', async () => {
   const { buildCustomIntakeEditForm, buildCustomIntakeUpdateVariables } = await import(
     '../src/app/intakes/[id]/intakeVariables.ts'
   )
   const form = buildCustomIntakeEditForm({
     meal: 'dinner',
-    numServings: 2,
-    energyKcal: 300,
-    proteinG: 25,
-    fatG: 10,
-    carbsG: 40,
+    numServings: 3,
+    energyKcal: 100,
+    proteinG: 10.05,
+    fatG: 4,
+    carbsG: 0,
   })
 
   assert.deepEqual(form, {
     meal: 'dinner',
-    numServings: '2',
-    energyKcal: '150',
-    proteinG: '12.5',
-    fatG: '5',
-    carbsG: '20',
+    numServings: '3',
+    energyKcal: '100',
+    proteinG: '10.05',
+    fatG: '4',
+    carbsG: '0',
   })
 
-  form.numServings = '3'
+  form.meal = 'lunch'
   assert.deepEqual(buildCustomIntakeUpdateVariables('9', form), {
     id: '9',
-    meal: 'dinner',
+    meal: 'lunch',
     numServings: 3,
-    energyKcal: 450,
-    proteinG: 37.5,
-    fatG: 15,
-    carbsG: 60,
+    energyKcal: 100,
+    proteinG: 10.05,
+    fatG: 4,
+    carbsG: 0,
   })
 
-  const editPage = await readFile(
-    new URL('../src/app/intakes/[id]/page.tsx', import.meta.url),
-    'utf8',
+  form.numServings = '2.5'
+  assert.deepEqual(buildCustomIntakeUpdateVariables('9', form), {
+    id: '9',
+    meal: 'lunch',
+    numServings: 2.5,
+    energyKcal: 100,
+    proteinG: 10.05,
+    fatG: 4,
+    carbsG: 0,
+  })
+
+  for (const pagePath of [
+    '../src/app/intakes/new/page.tsx',
+    '../src/app/intakes/[id]/page.tsx',
+  ]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    assert.match(page, /Custom Macros \(total intake\)/)
+    for (const nutrient of ['energyKcal', 'proteinG', 'fatG', 'carbsG']) {
+      const field = page.match(
+        new RegExp(`<FormField[^>]*name=["']${nutrient}["'][^>]*/>`),
+      )
+      assert.ok(field, `${nutrient} field was not found in ${pagePath}`)
+      assert.match(field[0], /step=["']0\.01["']/)
+    }
+  }
+})
+
+test('optional numeric zeros survive edit hydration and unchanged submission', async () => {
+  const { optionalNumberInput, optionalNumberVariable } = await import(
+    '../src/lib/optionalNumber.ts'
   )
-  assert.match(editPage, /buildCustomIntakeEditForm\(res\.intake\)/)
-  assert.match(editPage, /buildCustomIntakeUpdateVariables\(id, form\)/)
+
+  assert.equal(optionalNumberInput(0), '0')
+  assert.equal(optionalNumberInput(null), '')
+  assert.equal(optionalNumberInput(undefined), '')
+  assert.equal(optionalNumberVariable('0'), 0)
+  assert.equal(optionalNumberVariable(''), null)
+
+  const editPages = [
+    ['../src/app/products/[id]/page.tsx', ['saturatedFatG', 'sugarsG', 'fibreG', 'saltG']],
+    ['../src/app/recipes/[id]/page.tsx', ['saturatedFatG', 'sugarsG', 'fibreG', 'saltG']],
+    ['../src/app/exercises/[id]/page.tsx', ['distance']],
+  ]
+  for (const [pagePath, fields] of editPages) {
+    const source = await readFile(new URL(pagePath, import.meta.url), 'utf8')
+    assert.match(source, /import \{ optionalNumberInput, optionalNumberVariable \} from '@\/lib\/optionalNumber'/)
+    for (const field of fields) {
+      assert.match(source, new RegExp(`${field}: optionalNumberInput\\(`))
+      assert.match(source, new RegExp(`${field}: optionalNumberVariable\\(form\\.${field}\\)`))
+    }
+  }
 })
 
 test('local date inputs preserve the calendar date across positive and negative offsets', async () => {
@@ -398,6 +443,24 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
   assert.match(exerciseSteps, /cy\.location\('pathname', \{ timeout: 20000 \}\)/)
   assert.match(exerciseSteps, /data-testid="form-error"/)
   assert.match(exerciseSteps, /should\('equal', '\/exercises'\)/)
+})
+
+test('measurement Cypress redirect asserts the exact destination and created row', async () => {
+  const source = await readFile(
+    new URL('../cypress/support/step_definitions/measurements.ts', import.meta.url),
+    'utf8',
+  )
+  const redirectStep = source.match(
+    /Then\("I should be redirected to the measurements list", \(\) => \{([\s\S]*?)\n\}\);/,
+  )
+
+  assert.ok(redirectStep, 'measurement redirect step is missing')
+  assert.doesNotMatch(redirectStep[1], /save-btn/)
+  assert.match(redirectStep[1], /cy\.location\('pathname', \{ timeout: 20000 \}\)\.should\('equal', '\/measurements'\)/)
+  assert.match(redirectStep[1], /measurements-title/)
+  assert.match(redirectStep[1], /createdBodyFatPerc/)
+  assert.match(redirectStep[1], /createdWeight/)
+  assert.match(redirectStep[1], /cy\.contains\('tr'/)
 })
 
 test('Cypress redirect assertions observe destination pages instead of departed forms', async () => {

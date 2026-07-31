@@ -6,6 +6,7 @@
 from decimal import Decimal
 
 import pytest
+from django.contrib import admin
 from django.db.models.query import QuerySet
 
 from apps.plans.models import Day, Intake, WeekPlan
@@ -137,6 +138,242 @@ def test_cascade_delete_locks_plan_then_day_then_intake_once(mocker, day):
     Intake.objects.filter(pk=intake.pk).delete()
 
     assert locked_models == [WeekPlan, Day, Intake]
+
+
+def test_intake_instance_delete_locks_complete_hierarchy_once(mocker, day):
+    """Direct model deletion follows the same global lock hierarchy once."""
+    intake = _create_custom_intake(day, "100")
+    locked_models = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        if queryset.query.select_for_update:
+            locked_models.append(queryset.model)
+        return original_fetch_all(queryset)
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    intake.delete()
+
+    assert locked_models == [WeekPlan, Day, Intake]
+
+
+def test_admin_bulk_delete_locks_complete_hierarchy_globally_once(
+    mocker, day_factory
+):
+    """Django admin's delete-selected path delegates to the safe queryset."""
+    days = sorted((day_factory(), day_factory()), key=lambda row: row.pk)
+    intakes = [
+        _create_custom_intake(days[1], "200"),
+        _create_custom_intake(days[0], "100"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+    model_admin = admin.site._registry[
+        Intake
+    ]  # pylint: disable=protected-access
+    queryset = Intake.objects.filter(pk__in=[row.pk for row in intakes])
+
+    model_admin.delete_queryset(None, queryset)
+
+    assert locked_rows == [
+        (WeekPlan, sorted(day.plan_id for day in days)),
+        (Day, [day.pk for day in days]),
+        (Intake, sorted(row.pk for row in intakes)),
+    ]
+
+
+def test_bulk_delete_locks_complete_hierarchy_by_pk_before_signals(
+    mocker, day_factory
+):
+    """Interleaved intake IDs cannot invert plan/day lock acquisition."""
+    days = sorted((day_factory(), day_factory()), key=lambda row: row.pk)
+    remaining = [_create_custom_intake(day, "10") for day in days]
+    # Deliberately assign the lower Intake PK to the higher Day/WeekPlan PK.
+    deleted = [
+        _create_custom_intake(days[1], "200"),
+        _create_custom_intake(days[0], "100"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    Intake.objects.filter(pk__in=[row.pk for row in deleted]).order_by(
+        "-pk"
+    ).delete()
+
+    assert locked_rows == [
+        (WeekPlan, sorted(day.plan_id for day in days)),
+        (Day, [day.pk for day in days]),
+        (Intake, sorted(row.pk for row in deleted)),
+    ]
+    assert list(
+        Intake.objects.filter(pk__in=[row.pk for row in remaining])
+        .order_by("pk")
+        .values_list("energy_kcal", flat=True)
+    ) == [Decimal("10.00"), Decimal("10.00")]
+    for day in days:
+        day.refresh_from_db()
+        assert day.energy_kcal == Decimal("10.00")
+        assert day.plan.energy_kcal == Decimal("10.00")
+
+
+def test_day_queryset_cascade_prelocks_all_intake_hierarchies(
+    mocker, day_factory
+):
+    """Deleting days cannot collect interleaved intakes before global locks."""
+    days = sorted((day_factory(), day_factory()), key=lambda row: row.pk)
+    intakes = [
+        _create_custom_intake(days[1], "200"),
+        _create_custom_intake(days[0], "100"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    Day.objects.filter(pk__in=[row.pk for row in days]).order_by(
+        "-pk"
+    ).delete()
+
+    assert locked_rows == [
+        (WeekPlan, sorted(day.plan_id for day in days)),
+        (Day, [day.pk for day in days]),
+        (Intake, sorted(row.pk for row in intakes)),
+    ]
+    assert not Intake.objects.filter(
+        pk__in=[row.pk for row in intakes]
+    ).exists()
+
+
+def test_day_instance_cascade_prelocks_all_intakes(mocker, day_factory):
+    """A direct Day delete uses the same pre-collector lock coordinator."""
+    day = day_factory()
+    intakes = [
+        _create_custom_intake(day, "100"),
+        _create_custom_intake(day, "200"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    day_id = day.pk
+    plan_id = day.plan_id
+    intake_ids = [row.pk for row in intakes]
+    day.delete()
+
+    assert locked_rows == [
+        (WeekPlan, [plan_id]),
+        (Day, [day_id]),
+        (Intake, intake_ids),
+    ]
+
+
+def test_week_plan_queryset_cascade_prelocks_all_intake_hierarchies(
+    mocker, day_factory
+):
+    """Deleting plans locks all cascaded intake rows before collection."""
+    days = sorted((day_factory(), day_factory()), key=lambda row: row.plan_id)
+    intakes = [
+        _create_custom_intake(days[1], "200"),
+        _create_custom_intake(days[0], "100"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    WeekPlan.objects.filter(pk__in=[row.plan_id for row in days]).order_by(
+        "-pk"
+    ).delete()
+
+    assert locked_rows == [
+        (WeekPlan, sorted(day.plan_id for day in days)),
+        (Day, sorted(day.pk for day in days)),
+        (Intake, sorted(row.pk for row in intakes)),
+    ]
+    assert not Intake.objects.filter(
+        pk__in=[row.pk for row in intakes]
+    ).exists()
+
+
+def test_week_plan_instance_cascade_prelocks_all_intake_hierarchies(
+    mocker, day_factory
+):
+    """Direct WeekPlan deletion uses one global pre-collector lock pass."""
+    day = day_factory()
+    plan = day.plan
+    plan_id = plan.pk
+    other_day = plan.days.exclude(pk=day.pk).order_by("pk").first()
+    assert other_day is not None
+    intakes = [
+        _create_custom_intake(other_day, "200"),
+        _create_custom_intake(day, "100"),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (queryset.model, [row.pk for row in queryset._result_cache])
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    plan.delete()
+
+    assert locked_rows == [
+        (WeekPlan, [plan_id]),
+        (Day, sorted((day.pk, other_day.pk))),
+        (Intake, sorted(row.pk for row in intakes)),
+    ]
 
 
 def test_move_locks_both_days_by_pk_and_recomputes_both(mocker, day):

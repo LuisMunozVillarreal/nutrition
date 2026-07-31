@@ -17,6 +17,7 @@ from apps.exercises.models import DaySteps, Exercise
 from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.plans.models.intake import get_intake_deletion_locks
 
 
 @receiver(post_save, sender=WeekPlan)
@@ -110,6 +111,14 @@ def lock_day_and_intake_before_delete(
     using = kwargs["using"]
     with transaction.atomic(using=using):
         aggregate_locks = getattr(instance, "_nutrition_locks", None)
+        deletion_locks = get_intake_deletion_locks()
+        if (
+            aggregate_locks is None
+            and deletion_locks is not None
+            and deletion_locks.covers(instance.pk, instance.day_id, using)
+        ):
+            aggregate_locks = deletion_locks.aggregate_locks
+            setattr(instance, "_nutrition_locks", aggregate_locks)
         if aggregate_locks is None or not aggregate_locks.covers_days(
             (instance.day_id,), using
         ):

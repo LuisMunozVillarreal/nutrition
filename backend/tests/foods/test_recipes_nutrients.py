@@ -1,11 +1,17 @@
 """food recipes tests modules."""
 
+# QuerySet internals and deferred imports are intentionally instrumented to
+# verify pre-collector lock ordering without changing production behavior.
+# pylint: disable=protected-access,import-outside-toplevel
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+
 from decimal import Decimal
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.db.models.query import QuerySet
 
-from apps.foods.models import RecipeIngredient, Serving
+from apps.foods.models import Recipe, RecipeIngredient, Serving
 
 
 def test_calculate_recipe_nutrients(db, recipe_ingredient):
@@ -349,3 +355,181 @@ def test_recipe_ingredient_create_locks_recipe_and_ingredients_before_write(
 
     recipe_lock.assert_called()
     ingredient_lock.assert_called()
+
+
+def test_bulk_serving_cascade_prelocks_all_affected_recipe_hierarchies(
+    db, mocker, recipe_factory, food_product_factory, recipe_ingredient_factory
+):
+    """Serving cascades precompute every recipe before Collector signals run."""
+    recipes = [
+        recipe_factory(nutrients_from_ingredients=True, size=0)
+        for _ in range(2)
+    ]
+    products = [food_product_factory() for _ in recipes]
+    ingredients = [
+        recipe_ingredient_factory(
+            recipe=recipe,
+            food=product.servings.get(serving_size=100, serving_unit="g"),
+        )
+        for recipe, product in zip(recipes, products, strict=True)
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (
+                    queryset.model,
+                    [row.pk for row in queryset._result_cache or ()],
+                )
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    Serving.objects.filter(
+        pk__in=[ingredient.food_id for ingredient in ingredients]
+    ).delete()
+
+    assert locked_rows == [
+        (Recipe, sorted(recipe.pk for recipe in recipes)),
+        (
+            RecipeIngredient,
+            [
+                ingredient.pk
+                for ingredient in sorted(
+                    ingredients, key=lambda row: (row.recipe_id, row.pk)
+                )
+            ],
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "delete_as",
+    [
+        "serving_instance",
+        "serving_queryset",
+        "food_instance",
+        "food_product_queryset",
+        "food_queryset",
+    ],
+)
+def test_food_and_serving_deletion_paths_reuse_one_global_recipe_lock_bundle(
+    db,
+    mocker,
+    recipe_factory,
+    food_product_factory,
+    recipe_ingredient_factory,
+    delete_as,
+):
+    """Instance, queryset, and parent cascades lock each recipe hierarchy once."""
+    recipes = [
+        recipe_factory(nutrients_from_ingredients=True, size=0)
+        for _ in range(2)
+    ]
+    product = food_product_factory()
+    serving = product.servings.get(serving_size=100, serving_unit="g")
+    ingredients = [
+        recipe_ingredient_factory(recipe=recipe, food=serving)
+        for recipe in reversed(recipes)
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (
+                    queryset.model,
+                    [row.pk for row in queryset._result_cache or ()],
+                    queryset.db,
+                )
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    if delete_as == "serving_instance":
+        serving.delete(using="default")
+    elif delete_as == "serving_queryset":
+        Serving.objects.using("default").filter(pk=serving.pk).delete()
+    elif delete_as == "food_instance":
+        product.delete(using="default")
+    elif delete_as == "food_product_queryset":
+        type(product).objects.using("default").filter(pk=product.pk).delete()
+    else:
+        from apps.foods.models import Food
+
+        Food.objects.using("default").filter(pk=product.pk).delete()
+
+    assert locked_rows == [
+        (Recipe, sorted(recipe.pk for recipe in recipes), "default"),
+        (
+            RecipeIngredient,
+            [
+                ingredient.pk
+                for ingredient in sorted(
+                    ingredients, key=lambda row: (row.recipe_id, row.pk)
+                )
+            ],
+            "default",
+        ),
+    ]
+    assert not RecipeIngredient.objects.filter(
+        pk__in=[ingredient.pk for ingredient in ingredients]
+    ).exists()
+    for recipe in recipes:
+        recipe.refresh_from_db()
+        assert recipe.size == Decimal("0.0")
+
+
+def test_bulk_recipe_ingredient_delete_prelocks_all_rows_globally(
+    db, mocker, recipe_factory, recipe_ingredient_factory
+):
+    """Collector order cannot invert locks across a multi-recipe deletion."""
+    recipes = [
+        recipe_factory(nutrients_from_ingredients=True, size=0)
+        for _ in range(2)
+    ]
+    ingredients = [
+        recipe_ingredient_factory(recipe=recipes[1]),
+        recipe_ingredient_factory(recipe=recipes[0]),
+    ]
+    locked_rows = []
+    original_fetch_all = QuerySet._fetch_all
+
+    def record_locked_queryset(queryset):
+        was_unfetched = queryset._result_cache is None
+        original_fetch_all(queryset)
+        if queryset.query.select_for_update and was_unfetched:
+            locked_rows.append(
+                (
+                    queryset.model,
+                    [row.pk for row in queryset._result_cache or ()],
+                    queryset.db,
+                )
+            )
+
+    mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
+
+    RecipeIngredient.objects.using("default").filter(
+        pk__in=[ingredient.pk for ingredient in ingredients]
+    ).order_by("-pk").delete()
+
+    assert locked_rows == [
+        (Recipe, sorted(recipe.pk for recipe in recipes), "default"),
+        (
+            RecipeIngredient,
+            [
+                ingredient.pk
+                for ingredient in sorted(
+                    ingredients, key=lambda row: (row.recipe_id, row.pk)
+                )
+            ],
+            "default",
+        ),
+    ]

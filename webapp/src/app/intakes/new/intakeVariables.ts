@@ -18,8 +18,8 @@ export interface CustomIntakeVariables extends Record<string, unknown> {
   carbsG: number
 }
 
-function macroTotal(value: string, numServings: number): number {
-  return value ? Number.parseFloat(value) * numServings : 0
+function destinationTotal(value: string): number {
+  return value ? Number.parseFloat(value) : 0
 }
 
 export function buildCustomIntakeVariables(
@@ -31,9 +31,9 @@ export function buildCustomIntakeVariables(
     dayId: Number.parseInt(form.dayId, 10),
     meal: form.meal,
     numServings,
-    energyKcal: macroTotal(form.energyKcal, numServings),
-    proteinG: macroTotal(form.proteinG, numServings),
-    fatG: macroTotal(form.fatG, numServings),
-    carbsG: macroTotal(form.carbsG, numServings),
+    energyKcal: destinationTotal(form.energyKcal),
+    proteinG: destinationTotal(form.proteinG),
+    fatG: destinationTotal(form.fatG),
+    carbsG: destinationTotal(form.carbsG),
   }
 }
