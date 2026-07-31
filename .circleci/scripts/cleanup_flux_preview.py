@@ -19,11 +19,18 @@ VERIFICATION_POLL_SECONDS = 3
 
 @dataclass(frozen=True)
 class DeletableResource:
+    """Represents a Kubernetes resource handled by the cleanup process."""
+
     kind: str
     namespace: str | None
     name: str
 
     def delete_cmd(self) -> list[str]:
+        """Return the kubectl command used to delete this resource.
+
+        Returns:
+            list[str]: kubectl args that delete this resource.
+        """
         cmd = ["kubectl", "delete", self.kind, self.name]
         if self.namespace:
             cmd.extend(["-n", self.namespace])
@@ -31,6 +38,11 @@ class DeletableResource:
         return cmd
 
     def exists_cmd(self) -> list[str]:
+        """Return the kubectl command used to check this resource exists.
+
+        Returns:
+            list[str]: kubectl args that check this resource exists.
+        """
         cmd = ["kubectl", "get", self.kind, self.name]
         if self.namespace:
             cmd.extend(["-n", self.namespace])
@@ -99,7 +111,8 @@ def _delete_resources(resources: list[DeletableResource]) -> tuple[bool, str]:
             return (
                 False,
                 (
-                    f"Failed to delete {resource.kind} '{resource.name}' in "
+                    "Failed to delete "
+                    f"{resource.kind} '{resource.name}' in "
                     f"namespace '{resource.namespace or 'cluster'}': {message}"
                 ),
             )
@@ -121,9 +134,10 @@ def _resource_exists(resource: DeletableResource) -> tuple[bool, str]:
     if "not found" in message:
         return False, ""
 
+    details = (result.stderr or result.stdout or "unknown error").strip()
     return (
         False,
-        f"Unable to verify deletion of {resource.kind} '{resource.name}': {(result.stderr or result.stdout or 'unknown error').strip()}",
+        f"Unable to verify deletion of {resource.kind} '{resource.name}': {details}",
     )
 
 
@@ -158,7 +172,12 @@ def _verify_absent(resources: list[DeletableResource]) -> tuple[bool, str]:
     "--dry-run", is_flag=True, help="Print actions instead of executing"
 )
 def main(branch: str, dry_run: bool) -> None:
-    """Cleanup Flux Preview Environment (Pure Imperative)."""
+    """Cleanup Flux Preview Environment (Pure Imperative).
+
+    Args:
+        branch (str): The branch being deleted.
+        dry_run (bool): Whether to print commands without executing them.
+    """
     if branch == "main":
         click.echo("Branch is main. Skipping cleanup.")
         sys.exit(0)

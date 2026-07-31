@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
-from sanitise_branch import sanitise_branch_name
 from clone_preview_secrets import main
+from sanitise_branch import sanitise_branch_name
 
 
 @pytest.fixture
