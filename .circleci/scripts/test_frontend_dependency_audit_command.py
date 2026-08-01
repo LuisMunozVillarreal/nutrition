@@ -33,7 +33,7 @@ def _extract_frontend_dependency_audit_command() -> list[str]:
     body_indent: int | None = None
     command_lines: list[str] = []
 
-    for raw_line in lines[command_line + 1:]:
+    for raw_line in lines[command_line + 1 :]:
         if raw_line.strip() == "":
             if body_indent is None:
                 continue
@@ -55,7 +55,9 @@ def _extract_frontend_dependency_audit_command() -> list[str]:
     return command_lines
 
 
-def _line_indices_in_order(command_lines: list[str], expected: list[str]) -> None:
+def _line_indices_in_order(
+    command_lines: list[str], expected: list[str]
+) -> None:
     """Assert each expected line appears in the command in order."""
     normalized = [line.strip() for line in command_lines if line.strip()]
     cursor = -1
@@ -66,11 +68,18 @@ def _line_indices_in_order(command_lines: list[str], expected: list[str]) -> Non
                 cursor = index
                 break
         else:
-            raise AssertionError(f"Expected command token not found in order: {token}")
+            raise AssertionError(
+                f"Expected command token not found in order: {token}"
+            )
 
 
 def test_frontend_audit_shell_command_sequence() -> None:
-    """Ensure audit command preserves exit-code capture under CircleCI errexit."""
+    """Ensure audit command preserves exit-code capture under CircleCI errexit.
+
+    Raises:
+        AssertionError: If the parsed command sequence is missing expected tokens
+            or the parser invocation does not propagate AUDIT_EXIT_CODE.
+    """
     command_lines = _extract_frontend_dependency_audit_command()
 
     _line_indices_in_order(
@@ -89,5 +98,9 @@ def test_frontend_audit_shell_command_sequence() -> None:
 
     normalized = [line.strip() for line in command_lines if line.strip()]
 
-    if not any("--exit-code \"$AUDIT_EXIT_CODE\"" in line for line in normalized):
-        raise AssertionError("Expected parser invocation to pass AUDIT_EXIT_CODE")
+    if not any(
+        '--exit-code "$AUDIT_EXIT_CODE"' in line for line in normalized
+    ):
+        raise AssertionError(
+            "Expected parser invocation to pass AUDIT_EXIT_CODE"
+        )
