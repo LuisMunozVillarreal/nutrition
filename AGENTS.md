@@ -14,6 +14,16 @@ This rule is mandatory and has no exceptions.
 
 All contributors, automation, coding agents, and reviewers must enforce this rule.
 
+## Pull-Request Ready Handoff
+
+When reporting that a pull request is ready:
+
+- Do not call it ready until the terminal preview-environment CI job has succeeded.
+- Retrieve and verify the deployed preview URL from the deployment system.
+- Include the pull-request URL, deployed preview URL, and final CI status in the direct handoff to the repository owner so the change can be inspected immediately.
+- Treat the preview URL as sensitive. Share the real value only in the owner's direct handoff; never add it to repository files, commits, pull-request text, review replies, issues, CI logs, screenshots, or public/multi-user channels. If the current channel is not private, ask the owner where to send it.
+- If a preview was not deployed, state that explicitly instead of implying the pull request is ready for visual inspection.
+
 ## Codex Review Trigger
 
 When requesting a Codex review for this repository, post this exact comment:
