@@ -51,9 +51,7 @@ if not CSRF_TRUSTED_ORIGINS and IS_PRODUCTION:
         f"https://{host}" for host in ALLOWED_HOSTS if host
     ]
 
-SECURE_PROXY_SSL_HEADER = (
-    ("HTTP_X_FORWARDED_PROTO", "https") if IS_PRODUCTION else None
-)
+SECURE_PROXY_SSL_HEADER = None
 
 SESSION_COOKIE_SECURE = ENV.bool(
     "SESSION_COOKIE_SECURE",
@@ -76,6 +74,7 @@ SECURE_HSTS_PRELOAD = ENV.bool(
     "SECURE_HSTS_PRELOAD",
     default=False,
 )
+SECURE_REDIRECT_EXEMPT = [r"^healthz/$"]
 NUTRITION_SCRAPER_ALLOWED_HOSTS = ENV.list(
     "NUTRITION_SCRAPER_ALLOWED_HOSTS",
     default=[

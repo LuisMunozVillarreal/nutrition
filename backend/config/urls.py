@@ -2,6 +2,7 @@
 
 import django_sql_dashboard
 from django.conf import settings
+from django.http import HttpResponse
 from django.contrib import admin
 from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
@@ -9,6 +10,12 @@ from django.views.generic.base import RedirectView
 from strawberry.django.views import GraphQLView
 
 from config.schema import schema
+
+
+def healthcheck(_request) -> HttpResponse:
+    """Return a lightweight liveness payload for container probes."""
+    return HttpResponse("ok", status=200)
+
 
 urlpatterns = [
     path("_nested_admin/", include("nested_admin.urls")),
@@ -19,4 +26,5 @@ urlpatterns = [
         RedirectView.as_view(url=settings.STATIC_URL + "favicon.ico"),
     ),
     path("graphql/", csrf_exempt(GraphQLView.as_view(schema=schema))),
+    path("healthz/", healthcheck),
 ]
