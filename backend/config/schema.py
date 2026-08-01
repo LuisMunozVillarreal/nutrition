@@ -105,36 +105,30 @@ class UserType:
     def dashboard(self, timezone_offset_minutes: int = 0) -> DashboardData:
         """Get dashboard data.
 
+        Args:
+            timezone_offset_minutes: Browser offset from UTC in minutes.
+
         Returns:
             DashboardData: Dashboard data object
         """
-        # pylint: disable=no-member
-        # self is the UserType instance or the User model depending on how it
-        # was returned.
-        # But for Mypy, it treats it as UserType.
-        # We need to fetch the actual user model to get relations safely.
-        # Since self.id is available, we can query.
-        # However, at runtime 'self' IS the User model if returned from 'me'.
-        # To satisfy mypy, casting or fresh query is needed.
-        # Let's use the ID to be safe and clear.
-
-        user_model = User.objects.get(pk=self.id)
         measurements = list(
-            Measurement.objects.filter(user=user_model).order_by(
+            Measurement.objects.filter(user_id=self.id).order_by(
                 "-created_at", "-id"
             )[:14]
         )
         measurement = measurements[0] if measurements else None
-        goal = user_model.fat_perc_goals.order_by(  # type: ignore
-            "-created_at", "-id"
-        ).first()
+        goal = (
+            User.objects.get(pk=self.id)
+            .fat_perc_goals.order_by("-created_at", "-id")  # type: ignore
+            .first()
+        )
 
         safe_offset = max(-14 * 60, min(14 * 60, timezone_offset_minutes))
         local_today = (
             datetime.now(timezone.utc) - timedelta(minutes=safe_offset)
         ).date()
         today = (
-            Day.objects.filter(plan__user=user_model, day=local_today)
+            Day.objects.filter(plan__user_id=self.id, day=local_today)
             .order_by("-plan__start_date", "-plan_id")
             .first()
         )

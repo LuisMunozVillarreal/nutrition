@@ -9,6 +9,8 @@ import { gql, graphqlRequest } from '@/lib/graphql'
 import {
   buildTrendCoordinates,
   buildWeightTrendSeries,
+  describeWeightTrendChange,
+  millisecondsUntilNextLocalDay,
   type DashboardMeasurement,
 } from './dashboardHelpers'
 
@@ -70,6 +72,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (status !== 'authenticated') return
     let cancelled = false
+    let midnightTimer: ReturnType<typeof setTimeout> | undefined
 
     async function loadDashboard() {
       setLoading(true)
@@ -91,8 +94,28 @@ export default function Dashboard() {
       }
     }
 
+    function scheduleMidnightRefresh() {
+      midnightTimer = setTimeout(async () => {
+        await loadDashboard()
+        if (!cancelled) scheduleMidnightRefresh()
+      }, millisecondsUntilNextLocalDay())
+    }
+
+    function refreshWhenVisible() {
+      if (!document.hidden) void loadDashboard()
+    }
+
     void loadDashboard()
-    return () => { cancelled = true }
+    scheduleMidnightRefresh()
+    window.addEventListener('focus', refreshWhenVisible)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      cancelled = true
+      if (midnightTimer) clearTimeout(midnightTimer)
+      window.removeEventListener('focus', refreshWhenVisible)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
   }, [status])
 
   const summary = response?.me?.dashboard
@@ -234,7 +257,7 @@ function WeightTrend({ series }: { series: ReturnType<typeof buildWeightTrendSer
   const first = series[0]
   const last = series.at(-1)!
   const change = last.weight - first.weight
-  const label = `Weight trend from ${first.weight} kilograms to ${last.weight} kilograms, ${change >= 0 ? 'up' : 'down'} ${Math.abs(change).toFixed(1)} kilograms`
+  const label = `Weight trend from ${first.weight} kilograms to ${last.weight} kilograms, ${describeWeightTrendChange(change)}`
 
   return (
     <div>

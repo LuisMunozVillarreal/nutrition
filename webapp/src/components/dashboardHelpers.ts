@@ -11,6 +11,18 @@ export interface WeightTrendPoint {
   weight: number
 }
 
+export function millisecondsUntilNextLocalDay(now = new Date()): number {
+  const nextDay = new Date(now)
+  nextDay.setHours(24, 0, 0, 0)
+  return Math.max(1, nextDay.getTime() - now.getTime())
+}
+
+export function describeWeightTrendChange(change: number): string {
+  if (change === 0) return 'unchanged'
+  const direction = change > 0 ? 'up' : 'down'
+  return `${direction} ${Math.abs(change).toFixed(1)} kilograms`
+}
+
 export function normalizeDateForComparison(
   value: string,
   timezoneOffsetMinutes?: number,
