@@ -103,6 +103,11 @@ test('custom intake edit preserves destination totals on meal-only and serving e
     carbsG: 0,
   })
 
+  for (const nutrient of ['energyKcal', 'proteinG', 'fatG', 'carbsG']) {
+    const blankForm = { ...form, [nutrient]: '' }
+    assert.equal(buildCustomIntakeUpdateVariables('9', blankForm)[nutrient], 0)
+  }
+
   for (const pagePath of [
     '../src/app/intakes/new/page.tsx',
     '../src/app/intakes/[id]/page.tsx',

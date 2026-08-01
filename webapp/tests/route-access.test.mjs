@@ -45,6 +45,14 @@ test('staff sessions can access catalog create, edit, delete, and serving routes
   }
 })
 
+test('authenticated regular sessions can access routes without a staff policy', async () => {
+  const { decideRouteAccess } = await routePolicy()
+
+  assert.deepEqual(decideRouteAccess('/plans', 'authenticated', false), {
+    kind: 'allow',
+  })
+})
+
 test('unauthenticated and expired protected sessions gate deep links at sign-in', async () => {
   const { decideRouteAccess } = await routePolicy()
 

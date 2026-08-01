@@ -657,3 +657,208 @@ class TestDayStepsQuery:
         # Then it is deleted
         assert result.errors is None
         assert not DaySteps.objects.filter(pk=ds.id).exists()
+
+
+@pytest.mark.django_db
+class TestExerciseOwnershipIsolation:
+    """Prove exercise and step resolvers cannot cross user boundaries."""
+
+    @staticmethod
+    def _context(mocker, user):
+        """Build an authenticated GraphQL context for a concrete user."""
+        context = mocker.Mock()
+        context.request.user = user
+        return context
+
+    def test_single_record_queries_hide_another_users_records(self, mocker):
+        """Single-record queries return null for records owned by another user."""
+        requesting_user, _ = _create_user_with_day(
+            "isolation-query@example.com"
+        )
+        _, owned_day = _create_user_with_day(
+            "isolation-query-owner@example.com"
+        )
+        exercise = Exercise.objects.create(
+            day=owned_day, time="10:00", type="walk", kcals=100
+        )
+        day_steps = DaySteps.objects.create(day=owned_day, steps=5000)
+
+        result = schema.execute_sync(
+            """
+                query OtherUserRecords($exerciseId: ID!, $dayStepsId: ID!) {
+                    exercise(id: $exerciseId) { id }
+                    daySteps(id: $dayStepsId) { id }
+                }
+            """,
+            variable_values={
+                "exerciseId": str(exercise.id),
+                "dayStepsId": str(day_steps.id),
+            },
+            context_value=self._context(mocker, requesting_user),
+        )
+
+        assert result.errors is None
+        assert result.data == {"exercise": None, "daySteps": None}
+
+    def test_day_steps_list_returns_only_requesting_users_records(
+        self, mocker
+    ):
+        """The day-steps list excludes rows owned by every other user."""
+        requesting_user, requesting_day = _create_user_with_day(
+            "isolation-list@example.com"
+        )
+        _, other_day = _create_user_with_day(
+            "isolation-list-owner@example.com"
+        )
+        own_steps = DaySteps.objects.create(day=requesting_day, steps=1234)
+        DaySteps.objects.create(day=other_day, steps=9876)
+
+        result = schema.execute_sync(
+            """
+                query RequestingUserSteps {
+                    dayStepsList { id steps }
+                }
+            """,
+            context_value=self._context(mocker, requesting_user),
+        )
+
+        assert result.errors is None
+        assert result.data == {
+            "dayStepsList": [{"id": str(own_steps.id), "steps": 1234}]
+        }
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            (
+                "createExercise",
+                """
+                    mutation OtherUserExercise($dayId: Int!) {
+                        createExercise(
+                            dayId: $dayId, type: "walk", kcals: 100
+                        ) { id }
+                    }
+                """,
+                "Day not found",
+                Exercise,
+            ),
+            (
+                "createDaySteps",
+                """
+                    mutation OtherUserSteps($dayId: Int!) {
+                        createDaySteps(dayId: $dayId, steps: 5000) { id }
+                    }
+                """,
+                "Day not found",
+                DaySteps,
+            ),
+        ],
+    )
+    def test_creates_reject_another_users_day(self, mocker, case):
+        """Create mutations cannot attach records to another user's day."""
+        field, mutation, expected_error, model = case
+        requesting_user, _ = _create_user_with_day(
+            f"isolation-{field}@example.com"
+        )
+        _, owned_day = _create_user_with_day(
+            f"isolation-{field}-owner@example.com"
+        )
+        initial_count = model.objects.filter(day=owned_day).count()
+
+        result = schema.execute_sync(
+            mutation,
+            variable_values={"dayId": owned_day.id},
+            context_value=self._context(mocker, requesting_user),
+        )
+
+        assert result.errors is not None
+        assert result.errors[0].message == expected_error
+        assert model.objects.filter(day=owned_day).count() == initial_count
+
+    def test_updates_reject_another_users_records_without_changes(
+        self, mocker
+    ):
+        """Update mutations preserve records owned by another user."""
+        requesting_user, _ = _create_user_with_day(
+            "isolation-update@example.com"
+        )
+        _, owned_day = _create_user_with_day(
+            "isolation-update-owner@example.com"
+        )
+        exercise = Exercise.objects.create(
+            day=owned_day, time="10:00", type="walk", kcals=100
+        )
+        day_steps = DaySteps.objects.create(day=owned_day, steps=5000)
+        context = self._context(mocker, requesting_user)
+
+        exercise_result = schema.execute_sync(
+            """
+                mutation OtherUserExercise($id: ID!) {
+                    updateExercise(
+                        id: $id, type: "run", kcals: 999
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(exercise.id)},
+            context_value=context,
+        )
+        steps_result = schema.execute_sync(
+            """
+                mutation OtherUserSteps($id: ID!) {
+                    updateDaySteps(id: $id, steps: 999) { id }
+                }
+            """,
+            variable_values={"id": str(day_steps.id)},
+            context_value=context,
+        )
+
+        assert exercise_result.errors is not None
+        assert exercise_result.errors[0].message == "Exercise not found"
+        assert steps_result.errors is not None
+        assert steps_result.errors[0].message == "Day steps not found"
+        exercise.refresh_from_db()
+        day_steps.refresh_from_db()
+        assert (exercise.type, exercise.kcals) == ("walk", 100)
+        assert day_steps.steps == 5000
+
+    def test_deletes_reject_another_users_records_without_changes(
+        self, mocker
+    ):
+        """Delete mutations cannot remove records owned by another user."""
+        requesting_user, _ = _create_user_with_day(
+            "isolation-delete@example.com"
+        )
+        _, owned_day = _create_user_with_day(
+            "isolation-delete-owner@example.com"
+        )
+        exercise = Exercise.objects.create(
+            day=owned_day, time="10:00", type="walk", kcals=100
+        )
+        day_steps = DaySteps.objects.create(day=owned_day, steps=5000)
+        context = self._context(mocker, requesting_user)
+
+        exercise_result = schema.execute_sync(
+            """
+                mutation OtherUserExercise($id: ID!) {
+                    deleteExercise(id: $id)
+                }
+            """,
+            variable_values={"id": str(exercise.id)},
+            context_value=context,
+        )
+        steps_result = schema.execute_sync(
+            """
+                mutation OtherUserSteps($id: ID!) {
+                    deleteDaySteps(id: $id)
+                }
+            """,
+            variable_values={"id": str(day_steps.id)},
+            context_value=context,
+        )
+
+        assert exercise_result.errors is not None
+        assert exercise_result.errors[0].message == "Exercise not found"
+        assert steps_result.errors is not None
+        assert steps_result.errors[0].message == "Day steps not found"
+        assert Exercise.objects.filter(pk=exercise.id).exists()
+        assert DaySteps.objects.filter(pk=day_steps.id).exists()

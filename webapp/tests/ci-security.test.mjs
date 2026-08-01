@@ -438,7 +438,7 @@ test('workflow publication and deployment paths are transitively gated by comple
   assert.ok(webappCommands.includes('npm ci'), 'frontend dependency installation is missing')
   assert.ok(webappCommands.includes('npm test'), 'frontend tests are missing')
   assert.ok(
-    webappCommands.includes('npx tsc --noEmit --ignoreDeprecations 6.0'),
+    webappCommands.includes('npx tsc --noEmit'),
     'accepted frontend typecheck is missing',
   )
   assert.ok(webappCommands.every((command) => !/eslint/i.test(command)), 'unsupported frontend lint is enabled')

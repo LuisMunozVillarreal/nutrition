@@ -61,15 +61,13 @@ export default function EntityForm({
       setConfirmDelete(true)
       return
     }
-    if (onDelete) {
-      setError(null)
-      try {
-        await onDelete()
-        router.push(backHref)
-      } catch (err: any) {
-        setError(err?.stack || err?.message || 'An error occurred')
-        setConfirmDelete(false)
-      }
+    setError(null)
+    try {
+      await onDelete!()
+      router.push(backHref)
+    } catch (err: any) {
+      setError(err?.stack || err?.message || 'An error occurred')
+      setConfirmDelete(false)
     }
   }
 
