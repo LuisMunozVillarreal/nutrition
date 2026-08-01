@@ -5,6 +5,7 @@
 import datetime
 import os
 import sys
+from typing import cast
 
 import django
 
@@ -12,28 +13,35 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from apps.foods.models import Food  # noqa: E402
+from apps.garmin.models import GarminConnection  # noqa: E402
 from apps.users.models import User  # noqa: E402
 from scripts.e2e_lifecycle import LifecyclePayload  # noqa: E402
 from scripts.e2e_lifecycle import read_lifecycle_payload  # noqa: E402
 
 
-def create_e2e_user(email: str, password: str, *, is_staff: bool) -> None:
+def create_e2e_user(email: str, password: str, *, is_staff: bool) -> User:
     """Replace one E2E account with the requested privilege level.
 
     Args:
         email: Unique account email address.
         password: Generated password for this run.
         is_staff: Whether the account may mutate shared catalog data.
+
+    Returns:
+        The newly created isolated E2E user.
     """
     User.objects.filter(email=email).delete()
-    User.objects.create_user(
-        email=email,
-        password=password,
-        first_name="E2E",
-        last_name="Staff" if is_staff else "Regular",
-        date_of_birth=datetime.date(1990, 1, 1),
-        height=180.0,
-        is_staff=is_staff,
+    return cast(
+        User,
+        User.objects.create_user(
+            email=email,
+            password=password,
+            first_name="E2E",
+            last_name="Staff" if is_staff else "Regular",
+            date_of_birth=datetime.date(1990, 1, 1),
+            height=180.0,
+            is_staff=is_staff,
+        ),
     )
 
 
@@ -43,7 +51,7 @@ def seed_accounts(payload: LifecyclePayload) -> None:
     Args:
         payload: Validated identities and credentials for the current run.
     """
-    create_e2e_user(
+    regular_user = create_e2e_user(
         payload.regular_email,
         payload.regular_password,
         is_staff=False,
@@ -52,6 +60,14 @@ def seed_accounts(payload: LifecyclePayload) -> None:
         payload.staff_email,
         payload.staff_password,
         is_staff=True,
+    )
+    placeholder_ciphertext = "e2e-" + "placeholder-" + "ciphertext"
+    GarminConnection.objects.create(
+        user=regular_user,
+        status=GarminConnection.Status.ACTIVE,
+        # Deliberately invalid ciphertext: disconnect must erase it without
+        # contacting an external provider or requiring deployment credentials.
+        refresh_token_encrypted=placeholder_ciphertext,
     )
 
 

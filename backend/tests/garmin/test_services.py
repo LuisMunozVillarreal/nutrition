@@ -14,6 +14,7 @@ from django.db import IntegrityError, router
 from django.utils import timezone
 
 import apps.garmin.services as services
+from apps.exercises.models import Exercise
 from apps.garmin.models import (
     GarminActivity,
     GarminConnection,
@@ -58,6 +59,12 @@ def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "GARMIN_REQUEST_TIMEOUT_SECONDS", 10)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITY_MAX_PAGES", 3)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITIES_LIMIT", 100)
+    monkeypatch.setattr(settings, "GARMIN_ACTIVITY_MAX_TOTAL_ITEMS", 10000)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES",
+        5 * 1024 * 1024,
+    )
     monkeypatch.setattr(settings, "GARMIN_STATE_TTL_SECONDS", 300)
     monkeypatch.setattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", 3600)
     monkeypatch.setattr(
@@ -171,6 +178,7 @@ def _activity_payload(
     distance_source: str | None = None,
     user_id: str = "provider-user",
     include_local_fields: bool = True,
+    duration: int = 30,
 ) -> dict:
     local = start_time_local if start_time_local is not None else started_at
     payload: dict[str, object] = {
@@ -178,7 +186,7 @@ def _activity_payload(
         "activityType": activity_type,
         "startTime": started_at,
         "duration": 30,
-        "activeKcal": 250,
+        "activeKcal": 120,
         "userId": user_id,
     }
     if include_local_fields:
@@ -194,6 +202,7 @@ def _activity_payload(
 
     if include_local_fields and start_time_local is None:
         payload["timezoneOffsetMinutes"] = 0
+    payload["duration"] = duration
 
     return payload
 
@@ -238,6 +247,7 @@ def test_iter_activity_payloads_follows_cursors(requests_mock, monkeypatch):
         timeout=10.0,
         activities_url="https://garmin.example.com/activities",
         response_max_bytes=1024 * 1024,
+        activity_max_total_items=100,
     )
 
     assert [row["activityId"] for row in payloads] == ["1", "2"]
@@ -280,13 +290,16 @@ def test_iter_activity_payloads_detects_loop(requests_mock, monkeypatch):
     with pytest.raises(
         ValueError, match="Garmin activity pagination loop detected"
     ):
-        services._iter_activity_payloads(
-            "access-token",
-            max_pages=3,
-            page_limit=100,
-            timeout=10.0,
-            activities_url="https://garmin.example.com/activities",
-            response_max_bytes=1024 * 1024,
+        list(
+            services._iter_activity_payloads(
+                "access-token",
+                max_pages=3,
+                page_limit=100,
+                timeout=10.0,
+                activities_url="https://garmin.example.com/activities",
+                response_max_bytes=1024 * 1024,
+                activity_max_total_items=100,
+            )
         )
 
 
@@ -315,14 +328,212 @@ def test_iter_activity_payloads_exceeds_max_pages(requests_mock, monkeypatch):
     with pytest.raises(
         ValueError, match="Garmin activity pagination exceeded maximum pages"
     ):
-        services._iter_activity_payloads(
-            "access-token",
-            max_pages=1,
-            page_limit=100,
-            timeout=10.0,
-            activities_url="https://garmin.example.com/activities",
-            response_max_bytes=1024 * 1024,
+        list(
+            services._iter_activity_payloads(
+                "access-token",
+                max_pages=1,
+                page_limit=100,
+                timeout=10.0,
+                activities_url="https://garmin.example.com/activities",
+                response_max_bytes=1024 * 1024,
+                activity_max_total_items=100,
+            )
         )
+
+
+def test_iter_activity_payloads_is_lazy_per_page(monkeypatch):
+    """Payload consumption should request pages only as needed."""
+    _configure_garmin(monkeypatch)
+
+    calls: list[tuple[int | None, dict[str, str]]] = []
+    request_index = 0
+
+    def _iter(
+        _method: str,
+        _url: str,
+        _operation: str,
+        *,
+        timeout: float,
+        max_response_bytes: int,
+        headers: dict[str, str],
+        params: dict[str, str] | None = None,
+    ) -> tuple[dict[str, object], int]:
+        nonlocal request_index
+        calls.append((max_response_bytes, dict(params or {})))
+        if request_index == 0:
+            request_index += 1
+            return {
+                "activities": [
+                    _activity_payload(
+                        activity_id="1",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:00:00+00:00",
+                    ),
+                    _activity_payload(
+                        activity_id="2",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:10:00+00:00",
+                    ),
+                ],
+                "next": "page-2",
+            }, 16
+        if request_index == 1:
+            request_index += 1
+            return {
+                "activities": [
+                    _activity_payload(
+                        activity_id="3",
+                        activity_type="cycle",
+                        started_at="2026-08-01T11:00:00+00:00",
+                    )
+                ]
+            }, 8
+        raise AssertionError("unexpected page request")
+
+    monkeypatch.setattr(services, "_request_json_with_size", _iter)
+
+    iterator = services._iter_activity_payloads(
+        "access-token",
+        max_pages=3,
+        page_limit=100,
+        timeout=10.0,
+        activities_url="https://garmin.example.com/activities",
+        response_max_bytes=1024 * 1024,
+        activity_max_total_items=10,
+    )
+    assert len(calls) == 0
+
+    first_item = next(iterator)
+    assert first_item["activityId"] == "1"
+    assert len(calls) == 1
+
+    assert [row["activityId"] for row in iterator] == ["2", "3"]
+    assert len(calls) == 2
+
+
+def test_iter_activity_payloads_respects_aggregate_limits(monkeypatch):
+    """Aggregate item/byte limits should stop streaming mid-stream."""
+    _configure_garmin(monkeypatch)
+
+    payloads = [
+        (
+            {
+                "activities": [
+                    _activity_payload(
+                        activity_id="1",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:00:00+00:00",
+                    ),
+                    _activity_payload(
+                        activity_id="2",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:05:00+00:00",
+                    ),
+                ],
+                "next": "page-2",
+            },
+            4,
+        ),
+        (
+            {
+                "activities": [
+                    _activity_payload(
+                        activity_id="3",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:10:00+00:00",
+                    )
+                ]
+            },
+            4,
+        ),
+    ]
+    request_index = 0
+
+    def _iter(*_, **__) -> tuple[dict[str, object], int]:
+        nonlocal request_index
+        payload, response_bytes = payloads[request_index]
+        request_index += 1
+        return payload, response_bytes
+
+    monkeypatch.setattr(services, "_request_json_with_size", _iter)
+
+    iterator = services._iter_activity_payloads(
+        "access-token",
+        max_pages=3,
+        page_limit=100,
+        timeout=10.0,
+        activities_url="https://garmin.example.com/activities",
+        response_max_bytes=1024 * 1024,
+        activity_max_total_items=2,
+        activity_total_response_max_bytes=100,
+    )
+    with pytest.raises(
+        ValueError,
+        match="Garmin activity payloads exceeded total item limit",
+    ):
+        list(iterator)
+
+    assert request_index == 2
+
+
+def test_iter_activity_payloads_respects_aggregate_response_limit(monkeypatch):
+    """The total streamed response budget should bound all fetched pages."""
+    _configure_garmin(monkeypatch)
+
+    payloads = [
+        (
+            {
+                "activities": [
+                    _activity_payload(
+                        activity_id="1",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:00:00+00:00",
+                    )
+                ],
+                "next": "page-2",
+            },
+            8,
+        ),
+        (
+            {
+                "activities": [
+                    _activity_payload(
+                        activity_id="2",
+                        activity_type="cycle",
+                        started_at="2026-08-01T10:10:00+00:00",
+                    )
+                ]
+            },
+            8,
+        ),
+    ]
+    request_index = 0
+
+    def _iter(*_, **__) -> tuple[dict[str, object], int]:
+        nonlocal request_index
+        payload, response_bytes = payloads[request_index]
+        request_index += 1
+        return payload, response_bytes
+
+    monkeypatch.setattr(services, "_request_json_with_size", _iter)
+
+    iterator = services._iter_activity_payloads(
+        "access-token",
+        max_pages=3,
+        page_limit=100,
+        timeout=10.0,
+        activities_url="https://garmin.example.com/activities",
+        response_max_bytes=1024 * 1024,
+        activity_max_total_items=10,
+        activity_total_response_max_bytes=10,
+    )
+    with pytest.raises(
+        ValueError,
+        match="Garmin activity responses exceeded total byte limit",
+    ):
+        list(iterator)
+
+    assert request_index == 2
 
 
 def test_iter_activity_payloads_extracts_nested_data_payloads(
@@ -350,13 +561,16 @@ def test_iter_activity_payloads_extracts_nested_data_payloads(
         ],
     )
 
-    payloads = services._iter_activity_payloads(
-        "access-token",
-        max_pages=1,
-        page_limit=100,
-        timeout=10.0,
-        activities_url="https://garmin.example.com/activities",
-        response_max_bytes=1024 * 1024,
+    payloads = list(
+        services._iter_activity_payloads(
+            "access-token",
+            max_pages=1,
+            page_limit=100,
+            timeout=10.0,
+            activities_url="https://garmin.example.com/activities",
+            response_max_bytes=1024 * 1024,
+            activity_max_total_items=100,
+        )
     )
 
     assert len(payloads) == 1
@@ -382,6 +596,75 @@ def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
 
     assert token.access_token == "rotated-access"
     assert token.refresh_token == "refresh-token"
+
+
+def test_refresh_access_token_with_retry_stores_rotated_refresh_token(
+    monkeypatch,
+):
+    """A rotated refresh token from the provider should be persisted."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-rotate-persist@example.com")
+    connection = _connection_with_token(user)
+
+    using = router.db_for_write(type(connection), instance=connection)
+
+    def _refresh(
+        _connection: services.GarminConnection,
+    ) -> services.GarminTokenPair:
+        return services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    access_token, _, _ = services._refresh_access_token_with_retry(
+        connection,
+        using,
+    )
+
+    connection.refresh_from_db()
+    assert access_token == "rotated-access"
+    assert connection.refresh_token == "rotated-refresh"
+
+
+def test_refresh_access_token_with_retry_preserves_refresh_on_missing(
+    monkeypatch,
+):
+    """Omitted rotate refresh token should keep the previous value."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-rotate-omit@example.com")
+    connection = _connection_with_token(
+        user,
+        access_token="stale-access",
+    )
+
+    using = router.db_for_write(type(connection), instance=connection)
+
+    def _refresh(
+        _connection: services.GarminConnection,
+    ) -> services.GarminTokenPair:
+        return services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token=None,
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    access_token, _, _ = services._refresh_access_token_with_retry(
+        connection,
+        using,
+    )
+
+    connection.refresh_from_db()
+    assert access_token == "rotated-access"
+    assert connection.refresh_token == "refresh-token"
 
 
 def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(
@@ -637,6 +920,7 @@ def test_sync_connection_uses_locked_day_for_new_activity(monkeypatch):
     )
 
     captured: dict[str, object] = {}
+    uses_locked_day: list[bool] = []
     using = router.db_for_write(services.GarminActivity)
     manager = services.GarminActivity.objects.db_manager(using)
     original_create = type(manager).create
@@ -654,9 +938,9 @@ def test_sync_connection_uses_locked_day_for_new_activity(monkeypatch):
     original_day_save = services.Day.save
 
     def _track_day_save(instance: services.Day, *args, **kwargs):
-        captured["uses_locked_day"] = captured.get("uses_locked_day", []) + [
+        uses_locked_day.append(
             getattr(instance, "_plan_aggregate_locks", None) is not None
-        ]
+        )
         return original_day_save(instance, *args, **kwargs)
 
     def _track_create(*_self, **kwargs):
@@ -668,6 +952,7 @@ def test_sync_connection_uses_locked_day_for_new_activity(monkeypatch):
     monkeypatch.setattr(services.Day, "save", _track_day_save)
 
     services.sync_connection(connection)
+    captured["uses_locked_day"] = uses_locked_day
 
     created_day = captured["activity_day"]
     locked_days = captured["locked_days"]
@@ -743,6 +1028,7 @@ def test_sync_connection_reconciles_moved_exercise_and_recomputes_days(
             started_at=timezone.make_aware(
                 datetime.combine(target_day.day, time(9, 0))
             ).isoformat(),
+            duration=1800,
         )
     ]
     monkeypatch.setattr(
@@ -832,6 +1118,117 @@ def test_sync_connection_ambiguous_day_reconciles_after_resolution(
     assert activity.day is not None
     assert activity.day.day == day.day
     assert activity.exercise is not None
+
+
+def test_sync_connection_resolved_activity_retries_after_becoming_ambiguous(
+    monkeypatch,
+):
+    """Resolved Garmin imports retire their derived exercise through ambiguity."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-ambiguous-cycle@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(8, 30)))
+    manual_exercise = Exercise.objects.create(
+        day=day,
+        time=time(7, 30),
+        type=Exercise.EXERCISE_WALK,
+        kcals=40,
+        duration=timedelta(minutes=30),
+        distance=Decimal("1.00"),
+    )
+
+    payload = [
+        _activity_payload(
+            activity_id="ambiguous-cycle-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            distance=Decimal("12.00"),
+        )
+    ]
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: payload,
+    )
+
+    first_summary = services.sync_connection(connection)
+    assert first_summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    first_activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="ambiguous-cycle-1",
+    )
+    assert first_activity.exercise is not None
+    assert first_activity.pending_reconciliation is False
+    day.refresh_from_db()
+    assert sum(day.exercises.values_list("kcals", flat=True)) == 160
+    assert manual_exercise.pk is not None
+
+    overlapping_measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80.0"),
+        body_fat_perc=Decimal("20.0"),
+    )
+    overlapping_plan = WeekPlan.objects.create(
+        user=user,
+        measurement=overlapping_measurement,
+        start_date=day.day,
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+
+    second_summary = services.sync_connection(connection)
+    assert second_summary == GarminSyncSummary(
+        imported=0,
+        duplicates=1,
+        unsupported=0,
+        invalid=0,
+    )
+
+    first_activity.refresh_from_db()
+    assert first_activity.pending_reconciliation is True
+    assert first_activity.pending_reconciliation_reason == "ambiguous_day"
+    assert first_activity.exercise is None
+    manual_exercise.refresh_from_db()
+    day.refresh_from_db()
+    assert sum(day.exercises.values_list("kcals", flat=True)) == 40
+    assert (
+        Exercise.objects.filter(
+            day=day,
+            type=Exercise.EXERCISE_CYCLE,
+            kcals=120,
+            distance=Decimal("12.00"),
+        ).count()
+        == 0
+    )
+
+    overlapping_plan.delete()
+    assert services.reconcile_pending_garmin_activities(connection) == 1
+
+    first_activity.refresh_from_db()
+    assert first_activity.pending_reconciliation is False
+    assert first_activity.exercise is not None
+    day.refresh_from_db()
+    assert sum(day.exercises.values_list("kcals", flat=True)) == 160
+    assert (
+        Exercise.objects.filter(
+            day=day,
+            type=Exercise.EXERCISE_CYCLE,
+            kcals=120,
+            distance=Decimal("12.00"),
+        ).count()
+        == 1
+    )
+    assert Exercise.objects.filter(
+        pk=manual_exercise.pk,
+        day=day,
+        type=Exercise.EXERCISE_WALK,
+    ).exists()
 
 
 def test_sync_connection_quantizes_meters_before_validation(monkeypatch):
@@ -937,6 +1334,110 @@ def test_sync_connection_rejects_unknown_distance_unit(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("unit", ["mi", "mile", "miles"])
+def test_sync_connection_converts_distance_miles_unit_to_kilometers(
+    monkeypatch, unit: str
+):
+    """Distance miles should normalize to kilometers."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-distance-mile-unit@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="distance-mile-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+            distance_source="distanceMiles",
+            distance=Decimal("1.234"),
+            distance_unit=unit,
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="distance-mile-1",
+    )
+    assert activity.distance == Decimal("1.99")
+
+
+def test_sync_connection_rejects_distance_miles_with_kilometer_unit(
+    monkeypatch,
+):
+    """A mileage source with a non-mile unit should be rejected."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day(
+        "sync-distance-mile-unit-contradiction@example.com"
+    )
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="distance-mile-contradiction-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+            distance_source="distanceMiles",
+            distance=Decimal("1.0"),
+            distance_unit="km",
+        )
+    ]
+
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+
+
+def test_validate_distance_km_rejects_miles_out_of_bounds():
+    """Miles distances should retain existing kilometer-level bounds."""
+    max_miles = (
+        services._ACTIVITY_DISTANCE_MAX
+        / services._ACTIVITY_DISTANCE_MILES_TO_KM
+    )
+
+    assert services._validate_distance_km(
+        Decimal("1"), "mile", source="distanceMiles"
+    ) == Decimal("1.61")
+
+    assert services._validate_distance_km(
+        max_miles,
+        "mile",
+        source="distanceMiles",
+    ) == services._ACTIVITY_DISTANCE_MAX.quantize(
+        services._ACTIVITY_DISTANCE_QUANT
+    )
+
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(
+            max_miles + Decimal("0.000001"),
+            "mile",
+            source="distanceMiles",
+        )
+
+
 def test_sync_connection_rejects_payloads_missing_local_start(monkeypatch):
     """Local-start metadata must be explicit and not inferred from UTC."""
     _configure_garmin(monkeypatch)
@@ -1019,6 +1520,99 @@ def test_state_ttl_enforces_expiry(monkeypatch):
         )
 
 
+def test_begin_authorization_uses_router_alias_with_user_instance(
+    monkeypatch,
+):
+    """Oauth state issuance must use user-sharded write alias."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("begin-auth-router@example.com")
+
+    captured_db_for_write: list[tuple[Any, object | None]] = []
+
+    def _db_for_write(model, instance=None):
+        captured_db_for_write.append((model, instance))
+        return "default"
+
+    monkeypatch.setattr(services.router, "db_for_write", _db_for_write)
+
+    state_methods: dict[str, object] = {}
+
+    original_prune = services.GarminOAuthState.prune_expired.__func__
+    original_count = services.GarminOAuthState.count_active.__func__
+    original_create = services.GarminOAuthState.create_for_user.__func__
+
+    def _prune(
+        cls,
+        *,
+        now,
+        user: Any,
+        provider: str,
+        retention_seconds: int = 3600,
+        using=None,
+    ):
+        state_methods["prune"] = using
+        return original_prune(
+            cls,
+            now=now,
+            user=user,
+            provider=provider,
+            retention_seconds=retention_seconds,
+            using=using,
+        )
+
+    def _count(cls, *, now, user: Any, provider: str, using=None):
+        state_methods["count"] = using
+        return original_count(
+            cls,
+            now=now,
+            user=user,
+            provider=provider,
+            using=using,
+        )
+
+    def _create(
+        cls,
+        user: Any,
+        raw_state: str,
+        *,
+        provider: str,
+        expires_at,
+        using=None,
+    ):
+        state_methods["create"] = using
+        return original_create(
+            cls,
+            user,
+            raw_state,
+            provider=provider,
+            expires_at=expires_at,
+            using=using,
+        )
+
+    monkeypatch.setattr(
+        services.GarminOAuthState, "prune_expired", classmethod(_prune)
+    )
+    monkeypatch.setattr(
+        services.GarminOAuthState, "count_active", classmethod(_count)
+    )
+    monkeypatch.setattr(
+        services.GarminOAuthState, "create_for_user", classmethod(_create)
+    )
+
+    services.begin_authorization(user)
+
+    assert captured_db_for_write
+    assert all(
+        db_model.__name__ == "GarminOAuthState" and db_instance is user
+        for db_model, db_instance in captured_db_for_write
+    )
+    assert state_methods == {
+        "prune": "default",
+        "count": "default",
+        "create": "default",
+    }
+
+
 def test_provider_config_rejects_unapproved_origin(monkeypatch):
     """Provider endpoints must be in a configured HTTPS origin allowlist."""
     _configure_garmin(monkeypatch)
@@ -1067,6 +1661,62 @@ def test_provider_config_rejects_revoke_url_outside_provider_origins(
 
     with pytest.raises(ValueError, match="unapproved origin"):
         services._provider_config()
+
+
+def test_parse_token_payload_accepts_provider_account_id_at_model_max_length(
+    monkeypatch,
+):
+    """A provider account id at max length should remain valid payload."""
+    _configure_garmin(monkeypatch)
+    payload = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "expires_in": 3600,
+        "userId": "x" * 255,
+    }
+
+    parsed = services._parse_token_payload(payload)
+
+    assert parsed.provider_account_id == "x" * 255
+
+
+def test_parse_token_payload_rejects_oversize_provider_account_id(monkeypatch):
+    """Overlong provider account ids should raise instead of truncating."""
+    _configure_garmin(monkeypatch)
+    payload = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "expires_in": 3600,
+        "userId": "x" * 256,
+    }
+
+    with pytest.raises(ValueError, match="provider_account_id is too long"):
+        services._parse_token_payload(payload)
+
+
+def test_parse_token_payload_rejects_collision_style_provider_account_ids(
+    monkeypatch,
+):
+    """Two near-duplicate ids should both be rejected when over max length."""
+    _configure_garmin(monkeypatch)
+
+    first = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "expires_in": 3600,
+        "userId": ("x" * 255 + "a"),
+    }
+    second = {
+        "access_token": "access-token",
+        "refresh_token": "refresh-token",
+        "expires_in": 3600,
+        "userId": ("x" * 255 + "b"),
+    }
+
+    with pytest.raises(ValueError, match="provider_account_id is too long"):
+        services._parse_token_payload(first)
+    with pytest.raises(ValueError, match="provider_account_id is too long"):
+        services._parse_token_payload(second)
 
 
 def test_request_json_enforces_exact_boundary_and_streaming(monkeypatch):
@@ -1176,6 +1826,32 @@ def test_request_json_exact_boundary_payload_is_accepted(monkeypatch):
     )
 
     assert result == {"ok": True}
+    assert fake_response.closed is True
+
+
+def test_request_json_rejects_redirect_status_codes(monkeypatch):
+    """3xx responses must not be treated as successful response bodies."""
+    _configure_garmin(monkeypatch)
+    fake_response = _FakeStreamingResponse(
+        status_code=302,
+        chunks=[b'{"ok": true}'],
+        headers={"Location": "https://garmin.example.com/login"},
+    )
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    with pytest.raises(ValueError, match="Garmin activity fetch failed"):
+        services._request_json(
+            "GET",
+            "https://garmin.example.com/login",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+
     assert fake_response.closed is True
 
 

@@ -21,61 +21,69 @@ releases:
           key: gemini-api-key
           name: nutrition-gemini-api-key
     - name: GARMIN_ENABLED
-      value: "false"
+      value: '{{ .Values.garmin.enabled }}'
     - name: GARMIN_CLIENT_ID
       valueFrom:
         secretKeyRef:
           key: client-id
           name: nutrition-garmin-config
+          optional: true
     - name: GARMIN_CLIENT_SECRET
       valueFrom:
         secretKeyRef:
           key: client-secret
           name: nutrition-garmin-config
+          optional: true
     - name: GARMIN_AUTHORIZATION_URL
-      value: "https://example.com/garmin/oauth/authorize"
+      value: '{{ .Values.garmin.authorizationUrl }}'
     - name: GARMIN_TOKEN_URL
-      value: "https://example.com/garmin/oauth/token"
+      value: '{{ .Values.garmin.tokenUrl }}'
     - name: GARMIN_ACTIVITIES_URL
-      value: "https://example.com/garmin/activities"
+      value: '{{ .Values.garmin.activitiesUrl }}'
     - name: GARMIN_CALLBACK_URL
-      value: "https://{{ .Values.domain }}/settings/garmin-callback"
+      value: '{{ .Values.garmin.callbackUrl }}'
     - name: GARMIN_PROVIDER_ORIGINS
-      value: "https://{{ .Values.domain }}"
+      value: '{{ .Values.garmin.providerOrigins }}'
     - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
-      value: "https://{{ .Values.domain }}"
+      value: '{{ .Values.garmin.callbackAllowedOrigins }}'
     - name: GARMIN_SCOPES
-      value: "read"
+      value: '{{ .Values.garmin.scopes }}'
     - name: GARMIN_REQUEST_TIMEOUT_SECONDS
-      value: "10"
+      value: '{{ .Values.garmin.requestTimeoutSeconds }}'
     - name: GARMIN_ACTIVITY_MAX_PAGES
-      value: "200"
+      value: '{{ .Values.garmin.activityMaxPages }}'
     - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
-      value: "200"
+      value: '{{ .Values.garmin.activitySyncBatchSize }}'
     - name: GARMIN_ACTIVITIES_LIMIT
-      value: "100"
+      value: '{{ .Values.garmin.activitiesLimit }}'
+    - name: GARMIN_ACTIVITY_MAX_TOTAL_ITEMS
+      value: '{{ .Values.garmin.activityMaxTotalItems }}'
     - name: GARMIN_STATE_TTL_SECONDS
-      value: "300"
+      value: '{{ .Values.garmin.stateTtlSeconds }}'
     - name: GARMIN_STATE_MAX_IN_FLIGHT
-      value: "5"
+      value: '{{ .Values.garmin.stateMaxInFlight }}'
     - name: GARMIN_TOKEN_MAX_TTL_SECONDS
-      value: "86400"
+      value: '{{ .Values.garmin.tokenMaxTtlSeconds }}'
     - name: GARMIN_TOKEN_ENCRYPTION_KEYS
       valueFrom:
         secretKeyRef:
           key: token-encryption-keys
           name: nutrition-garmin-config
+          optional: true
     - name: GARMIN_TOKEN_ENCRYPTION_KEY
       valueFrom:
         secretKeyRef:
           key: token-encryption-key
           name: nutrition-garmin-config
+          optional: true
     - name: GARMIN_REVOKE_TOKEN_URL
-      value: "https://example.com/garmin/oauth/revoke"
+      value: '{{ .Values.garmin.revokeTokenUrl }}'
     - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
-      value: "1048576"
+      value: '{{ .Values.garmin.activityEndpointMaxResponseBytes }}'
+    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES
+      value: '{{ .Values.garmin.activityEndpointMaxTotalBytes }}'
     - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
-      value: "262144"
+      value: '{{ .Values.garmin.tokenEndpointMaxResponseBytes }}'
     - name: POSTGRESQL_PASSWORD
       valueFrom:
         secretKeyRef:

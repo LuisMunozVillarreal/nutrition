@@ -65,8 +65,30 @@ Remove the password from the file.
 
 ##### Garmin integration config
 
+Garmin is disabled by default (`GARMIN_ENABLED=false`). In that state the
+`nutrition-garmin-config` Secret may be absent and backend/scheduler rollout is
+not blocked. To enable Garmin, create the Secret before changing
+`garmin.enabled` and configure the provider endpoints/origin separately from
+the application callback URL/origin in the environment values file.
+
+The complete Secret-key inventory referenced by the workloads is:
+
+- `client-id` (required when enabled)
+- `client-secret` (required when enabled)
+- `token-encryption-keys` (preferred comma-separated Fernet keyring)
+- `token-encryption-key` (legacy single-key fallback)
+
+At least one of `token-encryption-keys` or `token-encryption-key` is required
+when the integration is used. Missing enabled configuration fails closed when
+a Garmin operation runs; no provider request is made with incomplete config.
+
     ```bash
-    kubectl create secret generic nutrition-garmin-config --namespace nutrition-<environment> --from-literal=client-id=<my-garmin-client-id-here> --from-literal=client-secret=<my-garmin-client-secret-here> --from-literal=token-encryption-key=<my-garmin-token-encryption-key-here> --from-literal=token-encryption-keys=<my-garmin-token-encryption-key-ring-here>
+    kubectl create secret generic nutrition-garmin-config \
+      --namespace nutrition-<environment> \
+      --from-literal=client-id=<garmin-client-id> \
+      --from-literal=client-secret=<garmin-client-secret> \
+      --from-literal=token-encryption-keys=<garmin-fernet-keyring> \
+      --from-literal=token-encryption-key=<legacy-garmin-fernet-key>
     ```
 
 ##### NextAuth Secret

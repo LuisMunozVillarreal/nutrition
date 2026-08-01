@@ -90,63 +90,35 @@ spec:
                       value: "https://{preview_host}"
                     - name: GARMIN_ENABLED
                       value: "false"
-                    - name: GARMIN_CLIENT_ID
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: client-id
-                    - name: GARMIN_CLIENT_SECRET
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: client-secret
-                    - name: GARMIN_AUTHORIZATION_URL
-                      value: "https://example.com/garmin/oauth/authorize"
-                    - name: GARMIN_TOKEN_URL
-                      value: "https://example.com/garmin/oauth/token"
-                    - name: GARMIN_ACTIVITIES_URL
-                      value: "https://example.com/garmin/activities"
                     - name: GARMIN_CALLBACK_URL
                       value: "https://{preview_host}/settings/garmin-callback"
-                    - name: GARMIN_PROVIDER_ORIGINS
-                      value: "https://{preview_host}"
                     - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
                       value: "https://{preview_host}"
-                    - name: GARMIN_SCOPES
-                      value: "read"
-                    - name: GARMIN_REQUEST_TIMEOUT_SECONDS
-                      value: "10"
-                    - name: GARMIN_ACTIVITY_MAX_PAGES
-                      value: "200"
-                    - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
-                      value: "200"
-                    - name: GARMIN_ACTIVITIES_LIMIT
-                      value: "100"
-                    - name: GARMIN_STATE_TTL_SECONDS
-                      value: "300"
-                    - name: GARMIN_STATE_MAX_IN_FLIGHT
-                      value: "5"
-                    - name: GARMIN_TOKEN_MAX_TTL_SECONDS
-                      value: "86400"
-                    - name: GARMIN_TOKEN_ENCRYPTION_KEYS
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: token-encryption-keys
-                    - name: GARMIN_TOKEN_ENCRYPTION_KEY
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: token-encryption-key
-                    - name: GARMIN_REVOKE_TOKEN_URL
-                      value: "https://example.com/garmin/oauth/revoke"
-                    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
-                      value: "1048576"
-                    - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
-                      value: "262144"
       target:
         kind: Deployment
         name: nutrition-backend
+    - patch: |
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: nutrition-garmin-sync
+        spec:
+          jobTemplate:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: garmin-sync
+                      env:
+                        - name: GARMIN_ENABLED
+                          value: "false"
+                        - name: GARMIN_CALLBACK_URL
+                          value: "https://{preview_host}/settings/garmin-callback"
+                        - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                          value: "https://{preview_host}"
+      target:
+        kind: CronJob
+        name: nutrition-garmin-sync
     - patch: |
         apiVersion: apps/v1
         kind: Deployment

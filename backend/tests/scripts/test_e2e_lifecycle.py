@@ -6,6 +6,7 @@ import pytest
 from django.utils import timezone
 
 from apps.foods.models import CupboardItem, Food, FoodProduct, Recipe
+from apps.garmin.models import GarminConnection
 from apps.measurements.models import Measurement
 from apps.plans.models import WeekPlan
 from apps.users.models import User
@@ -64,6 +65,9 @@ def test_cleanup_removes_only_each_runs_shared_and_owned_fixtures():
         )
         seed_accounts(payload)
         regular = User.objects.get(email=payload.regular_email)
+        garmin_connection = GarminConnection.objects.get(user=regular)
+        assert garmin_connection.is_connected
+        assert garmin_connection.has_refresh_token
         product = FoodProduct.objects.create(name=f"Cypress Milk {marker}")
         Recipe.objects.create(name=f"Cypress Recipe {marker}")
         CupboardItem.objects.create(
@@ -93,5 +97,6 @@ def test_cleanup_removes_only_each_runs_shared_and_owned_fixtures():
         ).exists()
         assert not CupboardItem.objects.filter(owner=regular).exists()
         assert not WeekPlan.objects.filter(user=regular).exists()
+        assert not GarminConnection.objects.filter(user=regular).exists()
 
     assert FoodProduct.objects.filter(pk=retained.pk).exists()

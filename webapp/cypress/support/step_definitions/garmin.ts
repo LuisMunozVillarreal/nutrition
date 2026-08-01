@@ -1,180 +1,163 @@
-import { Given, Then, When } from "@badeball/cypress-cucumber-preprocessor"
-
-type GarminStatusFixture = {
-  enabled: boolean
-  connected: boolean
-  hasRefreshToken: boolean
-  lastSyncedAt: string | null
-  lastSyncSummary: {
-    imported: number
-    duplicates: number
-    unsupported: number
-    invalid: number
-  } | null
-}
-
-const garminDefaultStatus: GarminStatusFixture = {
-  enabled: true,
-  connected: false,
-  hasRefreshToken: false,
-  lastSyncedAt: null,
-  lastSyncSummary: null,
-}
-
-const garminConnectedStatus: GarminStatusFixture = {
-  ...garminDefaultStatus,
-  enabled: true,
-  connected: true,
-  hasRefreshToken: true,
-  lastSyncedAt: '2026-07-30T10:00:00.000Z',
-  lastSyncSummary: {
-    imported: 0,
-    duplicates: 0,
-    unsupported: 0,
-    invalid: 0,
-  },
-}
+import { Given, Then, When } from '@badeball/cypress-cucumber-preprocessor'
 
 function getGraphQLEndpoint(): string {
   const baseUrl = Cypress.config('baseUrl') || 'http://localhost:3000'
   const configuredEndpoint = Cypress.env('NEXT_PUBLIC_GRAPHQL_ENDPOINT') as
     | string
     | undefined
-
   const endpoint = configuredEndpoint?.trim() || '/graphql/'
 
   return new URL(endpoint, `${baseUrl}/`).href
 }
 
-function registerGarminIntercepts({
-  status = [garminDefaultStatus],
-  beginUrl = '/settings/garmin-callback?code=unit-code&state=unit-state',
-  completeStatus = garminConnectedStatus,
-  disconnectResult = true,
-}: {
-  status?: GarminStatusFixture | GarminStatusFixture[]
-  beginUrl?: string
-  completeStatus?: GarminStatusFixture
-  disconnectResult?: boolean
-}) {
-  const queue = Array.isArray(status) ? [...status] : [status]
+function expectBearerAuthorization(headers: Record<string, unknown>): void {
+  const authorization = headers.authorization
+  expect(authorization, 'backend bearer authorization')
+    .to.be.a('string')
+    .and.match(/^Bearer\s+\S+$/)
+}
+
+function registerGarminPassthroughAliases(): void {
   const endpoint = getGraphQLEndpoint()
+  let statusRequests = 0
 
   cy.intercept('POST', endpoint, (req) => {
     const body = req.body as { operationName?: string }
     const operation = body?.operationName
-    if (!operation) return
 
     if (operation === 'GarminSettingsStatusQuery') {
-      const payload = queue.shift() ?? garminDefaultStatus
-      req.reply({
-        statusCode: 200,
-        body: { data: { garminStatus: payload } },
-      })
-      req.alias = 'garminStatusQuery'
-      return
-    }
-
-    if (operation === 'BeginGarminAuthorization') {
-      req.reply({
-        statusCode: 200,
-        body: {
-          data: {
-            beginGarminAuthorization: {
-              authorizationUrl: `http://localhost:3000${beginUrl}`,
-              state: 'unit-state',
-              expiresAt: '2026-07-31T10:00:00.000Z',
-            },
-          },
-        },
-      })
-      req.alias = 'garminBeginAuthorization'
-      return
-    }
-
-    if (operation === 'CompleteGarminAuthorization') {
-      req.reply({
-        statusCode: 200,
-        body: { data: { completeGarminAuthorization: completeStatus } },
-      })
-      req.alias = 'garminCompleteAuthorization'
-      return
-    }
-
-    if (operation === 'DisconnectGarmin') {
-      req.reply({
-        statusCode: 200,
-        body: {
-          data: { disconnectGarmin: disconnectResult },
-        },
-      })
+      req.alias =
+        statusRequests++ === 0
+          ? 'garminStatusInitial'
+          : 'garminStatusAfterDisconnect'
+    } else if (operation === 'DisconnectGarmin') {
       req.alias = 'garminDisconnect'
-      return
+    } else if (operation === 'CompleteGarminAuthorization') {
+      req.alias = 'garminStateRejection'
     }
-  }).as('garminGraphQL')
+
+    req.continue()
+  })
 }
 
-Given('Garmin integration is disconnected', () => {
-  registerGarminIntercepts({
-    status: garminDefaultStatus,
-    beginUrl: '/settings/garmin-callback?code=unit-code&state=unit-state',
-    completeStatus: garminConnectedStatus,
-    disconnectResult: true,
-  })
-})
+function requestGarminStatus() {
+  return cy.request('/api/auth/session').then((sessionResponse) => {
+    const accessToken = sessionResponse.body?.accessToken
+    expect(accessToken, 'session access token').to.be.a('string').and.not.be.empty
 
-Given('Garmin integration is connected', () => {
-  registerGarminIntercepts({
-    status: [garminConnectedStatus, garminDefaultStatus],
-    beginUrl: '/settings/garmin-callback?code=unit-code&state=unit-state',
-    completeStatus: garminConnectedStatus,
-    disconnectResult: true,
+    return cy.request({
+      method: 'POST',
+      url: getGraphQLEndpoint(),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: {
+        operationName: 'GarminPersistedStatusQuery',
+        query: `
+          query GarminPersistedStatusQuery {
+            garminStatus {
+              enabled
+              connected
+              hasRefreshToken
+            }
+          }
+        `,
+      },
+    })
   })
+}
+
+Given('Garmin GraphQL requests use the deployed backend', () => {
+  registerGarminPassthroughAliases()
 })
 
 When('I navigate to the settings page', () => {
   cy.visit('/settings')
-  cy.get('[data-testid="settings-title"]', { timeout: 10000 })
-    .should('be.visible')
+  cy.get('[data-testid="settings-title"]', { timeout: 10000 }).should(
+    'be.visible',
+  )
 })
 
-When('I mock Garmin OAuth begin response with local callback URL', () => {
-  registerGarminIntercepts({
-    status: [garminDefaultStatus, garminConnectedStatus],
-    beginUrl: '/settings/garmin-callback?code=unit-code&state=unit-state',
-    completeStatus: garminConnectedStatus,
-    disconnectResult: true,
+Then('the deployed backend should report the seeded Garmin connection', () => {
+  cy.wait('@garminStatusInitial').then(({ request, response }) => {
+    expectBearerAuthorization(request.headers)
+    expect(response?.statusCode).to.equal(200)
+    expect(response?.body?.errors).to.equal(undefined)
+    expect(response?.body?.data?.garminStatus).to.include({
+      connected: true,
+      hasRefreshToken: true,
+    })
   })
+  cy.get('[data-testid="garmin-connected"]', { timeout: 10000 }).should(
+    'contain.text',
+    'Yes',
+  )
 })
 
-When('I click the Garmin connect button', () => {
-  cy.get('[data-testid="garmin-connect-btn"]', { timeout: 10000 }).click()
-  cy.wait('@garminBeginAuthorization')
-})
-
-When('I click the Garmin disconnect button', () => {
+When('I disconnect Garmin through the deployed backend', () => {
+  cy.window().then((window) => {
+    cy.stub(window, 'confirm').returns(true)
+  })
   cy.get('[data-testid="garmin-disconnect-btn"]', { timeout: 10000 })
     .should('be.visible')
     .click()
 
-  cy.wait('@garminDisconnect')
-  cy.wait('@garminStatusQuery')
+  cy.wait('@garminDisconnect').then(({ request, response }) => {
+    expectBearerAuthorization(request.headers)
+    expect(response?.statusCode).to.equal(200)
+    expect(response?.body?.errors).to.equal(undefined)
+    expect(response?.body?.data?.disconnectGarmin).to.equal(true)
+  })
+  cy.wait('@garminStatusAfterDisconnect').then(({ request, response }) => {
+    expectBearerAuthorization(request.headers)
+    expect(response?.statusCode).to.equal(200)
+    expect(response?.body?.errors).to.equal(undefined)
+    expect(response?.body?.data?.garminStatus).to.include({
+      connected: false,
+      hasRefreshToken: false,
+    })
+  })
 })
 
-Then('I should see Garmin as disconnected', () => {
-  cy.get('[data-testid="garmin-connected"]', { timeout: 10000 })
-    .should('contain.text', 'No')
+Then('the real Garmin disconnect should remain persisted', () => {
+  cy.get('[data-testid="garmin-connected"]', { timeout: 10000 }).should(
+    'contain.text',
+    'No',
+  )
+  requestGarminStatus().then((response) => {
+    expect(response.status).to.equal(200)
+    expect(response.body?.errors).to.equal(undefined)
+    expect(response.body?.data?.garminStatus).to.include({
+      connected: false,
+      hasRefreshToken: false,
+    })
+  })
 })
 
-Then('I should be redirected to the Garmin callback page', () => {
-  cy.wait(100)
-  cy.url({ timeout: 20000 }).should('include', '/settings/garmin-callback')
+Given('I submit an untrusted Garmin callback state', () => {
+  registerGarminPassthroughAliases()
+  cy.visit(
+    '/settings/garmin-callback?code=e2e-invalid-code&state=e2e-untrusted-state',
+  )
 })
 
-Then('I should return to the settings page after successful Garmin callback', () => {
-  cy.get('[data-testid="garmin-callback-success"]', { timeout: 20000 })
+Then('the deployed backend should reject the Garmin callback state', () => {
+  cy.wait('@garminStateRejection').then(({ request, response }) => {
+    expectBearerAuthorization(request.headers)
+    expect(response?.statusCode).to.equal(200)
+    expect(response?.body?.data).to.equal(null)
+    expect(response?.body?.errors).to.be.an('array').and.not.be.empty
+    expect(
+      response?.body?.errors.some((error: { message?: string }) =>
+        error.message?.toLowerCase().includes('state'),
+      ),
+      'state rejection error',
+    ).to.equal(true)
+  })
+  cy.get('[data-testid="garmin-callback-error"]', { timeout: 10000 })
     .should('be.visible')
-  cy.location('pathname', { timeout: 20000 }).should('equal', '/settings')
+    .and('contain.text', 'Garmin connection failed during completion')
 })
 
 Given('I visit Garmin callback with provider error', () => {

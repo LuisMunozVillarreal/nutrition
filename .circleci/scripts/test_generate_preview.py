@@ -3,9 +3,20 @@
 import subprocess
 
 import pytest
+import yaml
 from click.testing import CliRunner
 from generate_flux_preview import generate_manifest, main
 from sanitise_branch import sanitise_branch_name
+
+
+def _patch_for(manifest: str, kind: str, name: str) -> dict:
+    """Return one parsed inline Flux patch by target kind and name."""
+    document = yaml.safe_load(manifest)
+    for entry in document["spec"]["patches"]:
+        target = entry["target"]
+        if target.get("kind") == kind and target.get("name") == name:
+            return yaml.safe_load(entry["patch"])
+    raise AssertionError(f"Missing {kind} patch for {name}")
 
 
 @pytest.fixture
@@ -58,7 +69,7 @@ def test_generate_manifest_content():
     # Given
     branch = "feature/test"
     image_tag = "v1.0.0"
-    preview_domain = "custom.domain.com"
+    preview_domain = "custom.example.com"
 
     # When
     manifest, sanitized = generate_manifest(branch, image_tag, preview_domain)
@@ -68,9 +79,24 @@ def test_generate_manifest_content():
     assert "name: nutrition-preview-feature-test" in manifest
     assert "targetNamespace: nutrition-staging--feature-test" in manifest
     assert "newTag: v1.0.0" in manifest
-    assert "value: custom.domain.com" in manifest
+    assert "value: custom.example.com" in manifest
     assert "GARMIN_CALLBACK_URL" in manifest
-    assert "GARMIN_TOKEN_ENCRYPTION_KEY" in manifest
+    backend_patch = _patch_for(manifest, "Deployment", "nutrition-backend")
+    scheduler_patch = _patch_for(manifest, "CronJob", "nutrition-garmin-sync")
+    backend_env = backend_patch["spec"]["template"]["spec"]["containers"][0][
+        "env"
+    ]
+    scheduler_env = scheduler_patch["spec"]["jobTemplate"]["spec"][
+        "template"
+    ]["spec"]["containers"][0]["env"]
+    assert [
+        entry for entry in backend_env if entry["name"].startswith("GARMIN_")
+    ] == scheduler_env
+    assert {entry["name"] for entry in scheduler_env} == {
+        "GARMIN_ENABLED",
+        "GARMIN_CALLBACK_URL",
+        "GARMIN_CALLBACK_ALLOWED_ORIGINS",
+    }
 
 
 def test_generate_manifest_default_domain():

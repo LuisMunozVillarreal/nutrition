@@ -73,11 +73,13 @@ spec:
                 secretKeyRef:
                   key: client-id
                   name: nutrition-garmin-config
+                  optional: true
             - name: GARMIN_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   key: client-secret
                   name: nutrition-garmin-config
+                  optional: true
             - name: GARMIN_AUTHORIZATION_URL
               value: "https://example.com/garmin/oauth/authorize"
             - name: GARMIN_TOKEN_URL
@@ -85,20 +87,11 @@ spec:
             - name: GARMIN_ACTIVITIES_URL
               value: "https://example.com/garmin/activities"
             - name: GARMIN_CALLBACK_URL
-              valueFrom:
-                secretKeyRef:
-                  name: nutrition-garmin-config
-                  key: callback-url
+              value: "https://example.com/settings/garmin-callback"
             - name: GARMIN_PROVIDER_ORIGINS
-              valueFrom:
-                secretKeyRef:
-                  name: nutrition-garmin-config
-                  key: provider-origins
+              value: "https://example.com"
             - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
-              valueFrom:
-                secretKeyRef:
-                  name: nutrition-garmin-config
-                  key: callback-allowed-origins
+              value: "https://example.com"
             - name: GARMIN_SCOPES
               value: "read"
             - name: GARMIN_REQUEST_TIMEOUT_SECONDS
@@ -109,6 +102,8 @@ spec:
               value: "200"
             - name: GARMIN_ACTIVITIES_LIMIT
               value: "100"
+            - name: GARMIN_ACTIVITY_MAX_TOTAL_ITEMS
+              value: "10000"
             - name: GARMIN_STATE_TTL_SECONDS
               value: "300"
             - name: GARMIN_STATE_MAX_IN_FLIGHT
@@ -120,15 +115,19 @@ spec:
                 secretKeyRef:
                   key: token-encryption-keys
                   name: nutrition-garmin-config
+                  optional: true
             - name: GARMIN_TOKEN_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   key: token-encryption-key
                   name: nutrition-garmin-config
+                  optional: true
             - name: GARMIN_REVOKE_TOKEN_URL
               value: "https://example.com/garmin/oauth/revoke"
             - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
               value: "1048576"
+            - name: GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES
+              value: "5242880"
             - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
               value: "262144"
             - name: POSTGRESQL_HOST

@@ -1,10 +1,43 @@
 """Tests for the clone_preview_secrets script."""
 
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import main
+from clone_preview_secrets import SECRETS, main
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _secret_names(value):
+    """Recursively collect Secret objects referenced by manifest data."""
+    names = set()
+    if isinstance(value, dict):
+        reference = value.get("secretKeyRef")
+        if isinstance(reference, dict) and reference.get("name"):
+            names.add(reference["name"])
+        secret = value.get("secret")
+        if isinstance(secret, dict) and secret.get("secretName"):
+            names.add(secret["secretName"])
+        for nested in value.values():
+            names.update(_secret_names(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            names.update(_secret_names(nested))
+    return names
+
+
+def test_preview_clones_every_base_workload_secret():
+    """Preview Secret inventory must derive from every base workload ref."""
+    required = set()
+    for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob("*.yaml"):
+        for document in yaml.safe_load_all(manifest_path.read_text()):
+            required.update(_secret_names(document))
+
+    assert required <= set(SECRETS)
+    assert "nutrition-garmin-config" in required
 
 
 @pytest.fixture
@@ -57,7 +90,10 @@ def test_main_success(mock_run, mocker):
     mock_apply = mocker.MagicMock()
     mock_apply.returncode = 0
 
-    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 6
+    mock_run.side_effect = [mock_get_ns] + [
+        mock_get_secret,
+        mock_apply,
+    ] * len(SECRETS)
 
     # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
@@ -75,10 +111,8 @@ def test_main_success(mock_run, mocker):
     assert msg_exists in result.output
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
 
-    # And it should call kubectl get namespace once,
-    # plus get+apply for 6 secrets
-    # Total calls: 1 + (6 * 2) = 13 calls
-    assert mock_run.call_count == 13
+    # And it should call kubectl get namespace once, plus get+apply per secret.
+    assert mock_run.call_count == 1 + (len(SECRETS) * 2)
 
     # And it should remove unwanted metadata fields
     last_apply_call = mock_run.call_args_list[-1]

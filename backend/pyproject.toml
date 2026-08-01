@@ -73,6 +73,7 @@ exclude_dirs = [
     "../.circleci/scripts/test_generate_preview.py",
     "../.circleci/scripts/test_cleanup_preview.py",
     "../.circleci/scripts/test_clone_secrets.py",
+    "../.circleci/scripts/test_kustomize_garmin.py",
 ]
 
 [tool.black]
@@ -114,7 +115,7 @@ skip_glob = ["**/migrations/*"]
 
 [tool.mypy]
 plugins = "mypy_django_plugin.main"
-exclude = ["test_generate_preview\\.py", "test_cleanup_preview\\.py", "test_clone_secrets\\.py", "migrations"]
+exclude = ["test_generate_preview\\.py", "test_cleanup_preview\\.py", "test_clone_secrets\\.py", "test_kustomize_garmin\\.py", "migrations"]
 
 [[tool.mypy.overrides]]
 module = "taggit.models,django_sql_dashboard,django_sql_dashboard.models"
@@ -135,6 +136,7 @@ ignore-paths = [
     "../.circleci/scripts/test_generate_preview.py",
     "../.circleci/scripts/test_cleanup_preview.py",
     "../.circleci/scripts/test_clone_secrets.py",
+    "../.circleci/scripts/test_kustomize_garmin.py",
 ]
 [tool.pylint.MASTER]
 load-plugins = [

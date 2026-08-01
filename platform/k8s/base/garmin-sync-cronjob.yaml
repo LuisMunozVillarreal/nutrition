@@ -1,0 +1,136 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nutrition-garmin-sync
+  labels:
+    app.kubernetes.io/name: garmin-sync
+    app.kubernetes.io/instance: nutrition
+spec:
+  schedule: "*/15 * * * *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: garmin-sync
+            app.kubernetes.io/instance: nutrition
+        spec:
+          serviceAccountName: default
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: garmin-sync
+              image: luismunozvillarreal/nutrition-backend:latest
+              imagePullPolicy: IfNotPresent
+              command:
+                - python
+                - manage.py
+                - sync_garmin
+              securityContext:
+                runAsUser: 1001
+                runAsGroup: 1001
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              env:
+                - name: ENVIRONMENT
+                  value: "staging"
+                - name: GARMIN_ENABLED
+                  value: "false"
+                - name: GARMIN_CLIENT_ID
+                  valueFrom:
+                    secretKeyRef:
+                      key: client-id
+                      name: nutrition-garmin-config
+                      optional: true
+                - name: GARMIN_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      key: client-secret
+                      name: nutrition-garmin-config
+                      optional: true
+                - name: GARMIN_AUTHORIZATION_URL
+                  value: "https://example.com/garmin/oauth/authorize"
+                - name: GARMIN_TOKEN_URL
+                  value: "https://example.com/garmin/oauth/token"
+                - name: GARMIN_ACTIVITIES_URL
+                  value: "https://example.com/garmin/activities"
+                - name: GARMIN_CALLBACK_URL
+                  value: "https://example.com/settings/garmin-callback"
+                - name: GARMIN_PROVIDER_ORIGINS
+                  value: "https://example.com"
+                - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                  value: "https://example.com"
+                - name: GARMIN_SCOPES
+                  value: "read"
+                - name: GARMIN_REQUEST_TIMEOUT_SECONDS
+                  value: "10"
+                - name: GARMIN_ACTIVITY_MAX_PAGES
+                  value: "200"
+                - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
+                  value: "200"
+                - name: GARMIN_ACTIVITIES_LIMIT
+                  value: "100"
+                - name: GARMIN_ACTIVITY_MAX_TOTAL_ITEMS
+                  value: "10000"
+                - name: GARMIN_STATE_TTL_SECONDS
+                  value: "300"
+                - name: GARMIN_STATE_MAX_IN_FLIGHT
+                  value: "5"
+                - name: GARMIN_TOKEN_MAX_TTL_SECONDS
+                  value: "86400"
+                - name: GARMIN_TOKEN_ENCRYPTION_KEYS
+                  valueFrom:
+                    secretKeyRef:
+                      key: token-encryption-keys
+                      name: nutrition-garmin-config
+                      optional: true
+                - name: GARMIN_TOKEN_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: token-encryption-key
+                      name: nutrition-garmin-config
+                      optional: true
+                - name: GARMIN_REVOKE_TOKEN_URL
+                  value: "https://example.com/garmin/oauth/revoke"
+                - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
+                  value: "1048576"
+                - name: GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES
+                  value: "5242880"
+                - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
+                  value: "262144"
+                - name: POSTGRESQL_HOST
+                  value: "nutrition-postgres"
+                - name: POSTGRESQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: postgresql-password
+                      name: nutrition-postgresql
+                - name: SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      key: secret-key
+                      name: nutrition-django-secret-key

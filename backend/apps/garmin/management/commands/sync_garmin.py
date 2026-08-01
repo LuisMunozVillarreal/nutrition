@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, router
 
 from apps.garmin.models import GarminConnection
@@ -36,16 +36,22 @@ class Command(BaseCommand):
         queryset = GarminConnection.objects.using(using).all()
         if user_id is not None:
             queryset = queryset.filter(user_id=user_id)
+        queryset = queryset.filter(status=GarminConnection.Status.ACTIVE)
+
+        failures = 0
 
         outcomes = []
         for connection in queryset.order_by("pk"):
+            failure_row = {
+                "connection_id": connection.pk,
+                "user_id": connection.user_id,
+                "reconciled": "not_attempted",
+            }
             status_error = None
             try:
                 summary = sync_connection(connection)
-                outcomes.append(
+                failure_row.update(
                     {
-                        "connection_id": connection.pk,
-                        "user_id": connection.user_id,
                         "imported": summary.imported,
                         "duplicates": summary.duplicates,
                         "unsupported": summary.unsupported,
@@ -58,22 +64,26 @@ class Command(BaseCommand):
                 status_error = "database_error"
 
             if status_error is not None:
-                outcomes.append(
-                    {
-                        "connection_id": connection.pk,
-                        "user_id": connection.user_id,
-                        "error": status_error,
-                    }
-                )
-                continue
+                failure_row["error"] = status_error
+                failures += 1
 
             try:
                 reconcile_pending_garmin_activities(connection)
+                failure_row["reconciled"] = "ok"
             except ValueError:
-                outcomes[-1]["reconciled"] = "error"
-                outcomes[-1]["error"] = "reconcile_failed"
+                failures += 1
+                failure_row["reconciled"] = "error"
+                if failure_row.get("error") is None:
+                    failure_row["error"] = "reconcile_failed"
             except OperationalError:
-                outcomes[-1]["reconciled"] = "error"
-                outcomes[-1]["error"] = "database_error"
+                failures += 1
+                failure_row["reconciled"] = "error"
+                if failure_row.get("error") is None:
+                    failure_row["error"] = "database_error"
 
+            outcomes.append(failure_row)
+
+        if failures:
+            self.stdout.write(json.dumps(outcomes, sort_keys=True))
+            raise CommandError("Garmin sync finished with failures")
         self.stdout.write(json.dumps(outcomes, sort_keys=True))

@@ -47,6 +47,12 @@ def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "GARMIN_REQUEST_TIMEOUT_SECONDS", 10)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITY_MAX_PAGES", 3)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITIES_LIMIT", 100)
+    monkeypatch.setattr(settings, "GARMIN_ACTIVITY_MAX_TOTAL_ITEMS", 10000)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES",
+        5 * 1024 * 1024,
+    )
     monkeypatch.setattr(settings, "GARMIN_STATE_TTL_SECONDS", 300)
     monkeypatch.setattr(settings, "GARMIN_STATE_MAX_IN_FLIGHT", 3)
     monkeypatch.setattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", 3600)
@@ -226,6 +232,9 @@ def test_complete_garmin_authorization_consumes_state_even_when_exchange_fails(
         context_value=context,
     )
     assert first.errors is not None
+    assert "Garmin connection state changed during authorization" in str(
+        first.errors[0].message
+    )
 
     second = schema_module.schema.execute_sync(
         """
@@ -240,6 +249,153 @@ def test_complete_garmin_authorization_consumes_state_even_when_exchange_fails(
     )
     assert second.errors is not None
     assert call_count["tokens"] == 1
+
+
+def test_complete_garmin_auth_rejects_connection_change(
+    monkeypatch,
+):
+    """Disconnecting during token exchange should reject persistence."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-authorization-race@example.com")
+    context = _request_context(user, bearer=True)
+
+    _create_connection_with_tokens(user)
+
+    call_count = {"tokens": 0}
+
+    def _exchange(code: str) -> GarminTokenPair:
+        call_count["tokens"] += 1
+        connection = GarminConnection.objects.get(user=user)
+        connection.clear_tokens()
+        connection.save(
+            update_fields=[
+                "access_token_encrypted",
+                "refresh_token_encrypted",
+                "provider_scopes",
+                "provider_account_id",
+                "provider",
+                "access_token_expires_at",
+                "status",
+                "connection_generation",
+                "last_synced_at",
+                "last_sync_summary",
+                "updated_at",
+            ]
+        )
+        return GarminTokenPair(
+            access_token="access-token",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    begin_result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                beginGarminAuthorization {
+                    state
+                }
+            }
+        """,
+        context_value=context,
+    )
+    assert begin_result.errors is None
+    state = begin_result.data["beginGarminAuthorization"]["state"]
+
+    first = schema_module.schema.execute_sync(
+        """
+            mutation($code: String!, $state: String!) {
+                completeGarminAuthorization(code: $code, state: $state) {
+                    connected
+                }
+            }
+        """,
+        variable_values={"code": "auth-code", "state": state},
+        context_value=context,
+    )
+    assert first.errors is not None
+
+    second = schema_module.schema.execute_sync(
+        """
+            mutation($code: String!, $state: String!) {
+                completeGarminAuthorization(code: $code, state: $state) {
+                    connected
+                }
+            }
+        """,
+        variable_values={"code": "auth-code", "state": state},
+        context_value=context,
+    )
+    assert second.errors is not None
+    assert call_count["tokens"] == 1
+
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.status == GarminConnection.Status.DISCONNECTED
+
+
+def test_complete_garmin_authorization_uses_router_alias_with_user_instance(
+    monkeypatch,
+):
+    """Oauth completion must use the user-sharded write router for updates."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-complete-router@example.com")
+    context = _request_context(user, bearer=True)
+
+    begin_result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                beginGarminAuthorization {
+                    state
+                }
+            }
+        """,
+        context_value=context,
+    )
+    assert begin_result.errors is None
+    state = begin_result.data["beginGarminAuthorization"]["state"]
+
+    db_calls: list[tuple[object, object | None]] = []
+
+    def _db_for_write(model, instance=None):
+        db_calls.append((model, instance))
+        return "default"
+
+    monkeypatch.setattr(schema_module.router, "db_for_write", _db_for_write)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda *_: GarminTokenPair(
+            access_token="access-token",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read",
+            provider_account_id="provider-user",
+        ),
+    )
+
+    complete = schema_module.schema.execute_sync(
+        """
+            mutation($code: String!, $state: String!) {
+                completeGarminAuthorization(code: $code, state: $state) {
+                    connected
+                }
+            }
+        """,
+        variable_values={"code": "auth-code", "state": state},
+        context_value=context,
+    )
+
+    assert complete.errors is None
+    assert all(model.__name__ == "GarminConnection" for model, _ in db_calls)
+    assert all(
+        instance is not None
+        and instance.__class__.__name__ == "User"
+        and instance.pk == user.pk
+        for _, instance in db_calls
+    )
 
 
 def test_garmin_manual_sync_mutation_is_not_exposed():

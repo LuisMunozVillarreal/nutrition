@@ -378,6 +378,7 @@ test('E2E account management keeps the default identity least-privileged', async
 
   assert.match(manager, /create_e2e_user\([\s\S]*?payload\.regular_password[\s\S]*?is_staff=False/)
   assert.match(manager, /create_e2e_user\([\s\S]*?payload\.staff_password[\s\S]*?is_staff=True/)
+  assert.match(manager, /GarminConnection\.objects\.create\([\s\S]*?user=regular_user[\s\S]*?refresh_token_encrypted=/)
   assert.match(manager, /read_lifecycle_payload\(sys\.stdin\)/)
   assert.match(manager, /email__in=\[payload\.regular_email, payload\.staff_email\]/)
   assert.match(seedDay, /read_lifecycle_payload\(sys\.stdin\)/)
