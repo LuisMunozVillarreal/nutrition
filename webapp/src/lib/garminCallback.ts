@@ -35,14 +35,6 @@ function valueOrNull(value: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
 type SearchParamsLike = {
   get: (name: string) => string | null
   getAll: (name: string) => string[]
@@ -52,21 +44,21 @@ export function parseGarminCallbackParams(
   params: SearchParamsLike,
 ): GarminCallbackParseResult {
   const providerError = valueOrNull(getSingleValue(params, 'error'))
-    const providerErrorDescription = valueOrNull(
+  const providerErrorDescription = valueOrNull(
     getSingleValue(params, 'error_description'),
   )
   if (providerError) {
     return {
       kind: 'providerError',
-      error: safeDecode(providerError),
+      error: providerError,
       errorDescription: providerErrorDescription
-        ? safeDecode(providerErrorDescription)
+        ? providerErrorDescription
         : null,
     }
   }
 
-  const code = valueOrNull(safeDecode(getSingleValue(params, 'code') ?? ''))
-  const state = valueOrNull(safeDecode(getSingleValue(params, 'state') ?? ''))
+  const code = valueOrNull(getSingleValue(params, 'code'))
+  const state = valueOrNull(getSingleValue(params, 'state'))
 
   if (!code || !state) {
     return {

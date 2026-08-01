@@ -21,16 +21,18 @@ from apps.foods.schema import (
     RecipeMutation,
     RecipeQuery,
 )
-from apps.goals.schema import GoalMutation, GoalQuery
-from apps.libs.graphql import get_request_user
-from apps.garmin.models import GARMIN_PROVIDER
-from apps.garmin.models import GarminConnection, GarminOAuthState
+from apps.garmin.models import (
+    GARMIN_PROVIDER,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.garmin.services import (
-    GarminSyncSummary,
     begin_authorization,
     exchange_code_for_tokens,
-    sync_connection,
+    revoke_refresh_token,
 )
+from apps.goals.schema import GoalMutation, GoalQuery
+from apps.libs.graphql import get_request_user
 from apps.measurements.models import Measurement
 from apps.measurements.schema import MeasurementMutation, MeasurementQuery
 from apps.plans.models import Day
@@ -48,16 +50,6 @@ class GarminSyncSummaryType:
     duplicates: int
     unsupported: int
     invalid: int
-
-    @staticmethod
-    def from_model(summary: GarminSyncSummary) -> "GarminSyncSummaryType":
-        """Build a GraphQL type from a sync summary model."""
-        return GarminSyncSummaryType(
-            imported=summary.imported,
-            duplicates=summary.duplicates,
-            unsupported=summary.unsupported,
-            invalid=summary.invalid,
-        )
 
 
 @strawberry.type
@@ -105,14 +97,20 @@ class GarminQuery:
             enabled=bool(settings.GARMIN_ENABLED),
             connected=connection.is_connected,
             has_refresh_token=connection.has_refresh_token,
-            last_synced_at=connection.last_synced_at.isoformat()
-            if connection.last_synced_at
-            else None,
+            last_synced_at=(
+                connection.last_synced_at.isoformat()
+                if connection.last_synced_at
+                else None
+            ),
             last_sync_summary=(
                 GarminSyncSummaryType(
                     imported=connection.last_sync_summary.get("imported", 0),
-                    duplicates=connection.last_sync_summary.get("duplicates", 0),
-                    unsupported=connection.last_sync_summary.get("unsupported", 0),
+                    duplicates=connection.last_sync_summary.get(
+                        "duplicates", 0
+                    ),
+                    unsupported=connection.last_sync_summary.get(
+                        "unsupported", 0
+                    ),
                     invalid=connection.last_sync_summary.get("invalid", 0),
                 )
                 if connection.last_sync_summary
@@ -123,13 +121,13 @@ class GarminQuery:
 
 @strawberry.type
 class GarminMutation:
-    """Mutation mixin for Garmin OAuth and sync lifecycle."""
+    """Mutation mixin for Garmin OAuth lifecycle."""
 
     @strawberry.mutation
     def begin_garmin_authorization(self, info: Info) -> GarminAuthStart:
         """Create a one-time state and return an authorization URL."""
-        user = authenticated_user(info.context)
-        if user is None or not user.is_authenticated:
+        user = authenticated_bearer_user(info.context)
+        if user is None:
             raise PermissionError("Authentication required")
 
         authorization_url, expires_at, state = begin_authorization(user)
@@ -147,8 +145,8 @@ class GarminMutation:
         state: str,
     ) -> GarminStatus:
         """Complete OAuth and persist Garmin credentials for the caller."""
-        user = authenticated_user(info.context)
-        if user is None or not user.is_authenticated:
+        user = authenticated_bearer_user(info.context)
+        if user is None:
             raise PermissionError("Authentication required")
 
         if not state:
@@ -160,12 +158,16 @@ class GarminMutation:
 
         using = router.db_for_write(GarminConnection)
         with transaction.atomic(using=using):
-            connection, _ = GarminConnection.objects.using(using).get_or_create(
+            connection, _ = GarminConnection.objects.using(
+                using
+            ).get_or_create(
                 user=user,
                 defaults={"provider": GARMIN_PROVIDER},
             )
-            connection = GarminConnection.objects.using(using).select_for_update().get(
-                pk=connection.pk
+            connection = (
+                GarminConnection.objects.using(using)
+                .select_for_update()
+                .get(pk=connection.pk)
             )
             GarminOAuthState.consume_for_user(
                 user=user,
@@ -174,20 +176,41 @@ class GarminMutation:
                 using=using,
             )
 
-            token_pair = exchange_code_for_tokens(code)
+        token_pair = exchange_code_for_tokens(code)
+
+        with transaction.atomic(using=using):
+            connection = (
+                GarminConnection.objects.using(using)
+                .select_for_update()
+                .get(pk=connection.pk)
+            )
             if connection.provider != GARMIN_PROVIDER:
                 connection.provider = GARMIN_PROVIDER
+            previous_account = connection.provider_account_id
             connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
+            if (
+                previous_account
+                and token_pair.provider_account_id
+                and token_pair.provider_account_id != previous_account
+            ):
+                connection.last_sync_summary = {}
+                connection.last_synced_at = None
+
             connection.save(
                 using=using,
                 update_fields=[
+                    "provider",
+                    "provider_account_id",
+                    "provider_scopes",
                     "access_token_encrypted",
                     "refresh_token_encrypted",
                     "access_token_expires_at",
-                    "provider_account_id",
-                    "provider_scopes",
+                    "status",
+                    "connection_generation",
+                    "last_synced_at",
+                    "last_sync_summary",
                     "updated_at",
-                ]
+                ],
             )
 
         return GarminStatus(
@@ -201,48 +224,48 @@ class GarminMutation:
     @strawberry.mutation
     def disconnect_garmin(self, info: Info) -> bool:
         """Disconnect a Garmin connection by erasing stored secrets."""
-        user = authenticated_user(info.context)
-        if user is None or not user.is_authenticated:
+        user = authenticated_bearer_user(info.context)
+        if user is None:
             raise PermissionError("Authentication required")
         using = router.db_for_write(GarminConnection, instance=user)
+        from django.db import transaction
 
-        try:
-            connection = GarminConnection.objects.using(using).get(user=user)
-        except GarminConnection.DoesNotExist:
-            return False
+        with transaction.atomic(using=using):
+            try:
+                connection = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update()
+                    .get(
+                        user=user,
+                    )
+                )
+            except GarminConnection.DoesNotExist:
+                return False
 
-        connection.clear_tokens()
-        connection.save(
-            using=using,
-            update_fields=[
-                "access_token_encrypted",
-                "refresh_token_encrypted",
-                "access_token_expires_at",
-                "provider_scopes",
-                "provider_account_id",
-                "last_synced_at",
-                "last_sync_summary",
-                "updated_at",
-            ]
-        )
+            refresh_token = connection.refresh_token
+
+            connection.clear_tokens()
+            connection.save(
+                using=using,
+                update_fields=[
+                    "access_token_encrypted",
+                    "refresh_token_encrypted",
+                    "provider_scopes",
+                    "provider_account_id",
+                    "provider",
+                    "access_token_expires_at",
+                    "status",
+                    "connection_generation",
+                    "last_synced_at",
+                    "last_sync_summary",
+                    "updated_at",
+                ],
+            )
+
+        if refresh_token:
+            revoke_refresh_token(refresh_token)
+
         return True
-
-    @strawberry.mutation
-    def sync_garmin(self, info: Info) -> GarminSyncSummaryType:
-        """Run a manual Garmin activity sync for the current user."""
-        user = authenticated_user(info.context)
-        if user is None or not user.is_authenticated:
-            raise PermissionError("Authentication required")
-
-        try:
-            connection = GarminConnection.objects.using(
-                router.db_for_write(GarminConnection, instance=user)
-            ).get(user=user)
-        except GarminConnection.DoesNotExist as exc:
-            raise ValueError("Garmin is not connected") from exc
-
-        summary = sync_connection(connection)
-        return GarminSyncSummaryType.from_model(summary)
 
 
 def authenticated_session_user(context: Any) -> Any:
@@ -271,6 +294,23 @@ def authenticated_user(context: Any) -> Any:
 
     request = getattr(context, "request", context)
     return authenticated_request_user(request)
+
+
+def authenticated_bearer_user(context: Any) -> Any:
+    """Return only Bearer-authenticated user for sensitive Garmin operations."""
+    request = getattr(context, "request", context)
+    if request is None:
+        return None
+
+    auth_header = getattr(request, "META", {}).get("HTTP_AUTHORIZATION", "")
+    if not isinstance(auth_header, str):
+        return None
+
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return None
+
+    return authenticated_user(context)
 
 
 @strawberry.type

@@ -46,10 +46,28 @@ class GarminActivityAdmin(admin.ModelAdmin):
         "connection",
         "provider_activity_id",
         "provider_activity_type",
+        "provider_account_id",
+        "pending_reconciliation",
         "started_at",
         "kcals",
         "duration_seconds",
         "distance",
+    ]
+    readonly_fields = [
+        "connection",
+        "provider_activity_id",
+        "provider_activity_type",
+        "provider_account_id",
+        "provider_local_started_date",
+        "provider_local_started_time",
+        "provider_timezone_offset_minutes",
+        "day",
+        "exercise",
+        "started_at",
+        "kcals",
+        "duration_seconds",
+        "distance",
+        "pending_reconciliation",
     ]
     fields = [
         "connection",
@@ -62,5 +80,24 @@ class GarminActivityAdmin(admin.ModelAdmin):
         "kcals",
         "duration_seconds",
         "distance",
+        "provider_timezone_offset_minutes",
+        "provider_local_started_date",
+        "provider_local_started_time",
+        "pending_reconciliation",
     ]
-    readonly_fields = ["connection", "provider_activity_id", "provider_activity_type"]
+
+    def has_add_permission(self, request):  # type: ignore[override]
+        """Disallow creating provenance records in the admin."""
+        return False
+
+    def has_change_permission(
+        self, request, obj=None  # type: ignore[override]
+    ):
+        """Disallow changing provenance records in the admin."""
+        return False
+
+    def has_delete_permission(
+        self, request, obj=None  # type: ignore[override]
+    ):
+        """Disallow deleting provenance records in the admin."""
+        return False

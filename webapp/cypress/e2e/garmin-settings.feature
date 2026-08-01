@@ -23,13 +23,6 @@ Feature: Garmin settings integration
     And I click the Garmin disconnect button
     Then I should see Garmin as disconnected
 
-  Scenario: Sync Garmin after connection
-    Given I am logged in
-    Given Garmin integration is connected
-    When I navigate to the settings page
-    And I click the Garmin sync button
-    Then I should see a Garmin sync summary
-
   Scenario: Handle Garmin provider error
     Given I am logged in
     When I visit Garmin callback with provider error

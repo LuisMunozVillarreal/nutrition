@@ -42,7 +42,6 @@ const garminSchema = buildSchema(`
     beginGarminAuthorization: GarminAuthStart!
     completeGarminAuthorization(code: String!, state: String!): GarminStatus!
     disconnectGarmin: Boolean!
-    syncGarmin: GarminSyncSummaryType!
   }
 
   schema {
@@ -101,15 +100,9 @@ test('Garmin GraphQL documents match backend schema contracts', async () => {
     '../src/components/GarminConnect.tsx',
     'DISCONNECT_GARMIN_MUTATION',
   )
-  const syncMutation = await readOperation(
-    '../src/components/GarminConnect.tsx',
-    'SYNC_GARMIN_MUTATION',
-  )
-
   assert.equal(beginMutation.includes('beginGarminAuthorization'), true)
   assert.equal(completeMutation.includes('completeGarminAuthorization'), true)
   assert.equal(disconnectMutation.includes('disconnectGarmin'), true)
-  assert.equal(syncMutation.includes('syncGarmin'), true)
 
   const beginValidation = validate(garminSchema, parse(beginMutation))
   const completeValidation = validate(garminSchema, parse(completeMutation))
@@ -117,11 +110,9 @@ test('Garmin GraphQL documents match backend schema contracts', async () => {
     garminSchema,
     parse(disconnectMutation),
   )
-  const syncValidation = validate(garminSchema, parse(syncMutation))
   assert.deepEqual(beginValidation.map((error) => error.message), [])
   assert.deepEqual(completeValidation.map((error) => error.message), [])
   assert.deepEqual(disconnectValidation.map((error) => error.message), [])
-  assert.deepEqual(syncValidation.map((error) => error.message), [])
 
   assert.match(statusQuery, /query GarminSettingsStatusQuery/)
   assert.match(statusQuery, /garminStatus\s*{/)

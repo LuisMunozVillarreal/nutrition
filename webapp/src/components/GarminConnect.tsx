@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 
 const BEGIN_GARMIN_AUTHORIZATION_MUTATION = gql`
@@ -16,17 +16,6 @@ const BEGIN_GARMIN_AUTHORIZATION_MUTATION = gql`
 const DISCONNECT_GARMIN_MUTATION = gql`
   mutation DisconnectGarmin {
     disconnectGarmin
-  }
-`
-
-const SYNC_GARMIN_MUTATION = gql`
-  mutation SyncGarmin {
-    syncGarmin {
-      imported
-      duplicates
-      unsupported
-      invalid
-    }
   }
 `
 
@@ -51,8 +40,6 @@ interface GarminAuthStart {
   expiresAt: string
 }
 
-type SyncActionState = 'idle' | 'syncing'
-
 interface GarminConnectProps {
   status: GarminStatus | null
   loading: boolean
@@ -60,9 +47,7 @@ interface GarminConnectProps {
   onStatusRefresh: () => void
 }
 
-function resolveError(
-  error: unknown,
-): string {
+function resolveError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message
   return 'Garmin request failed. Please try again.'
 }
@@ -74,18 +59,11 @@ export default function GarminConnect({
   onStatusRefresh,
 }: GarminConnectProps) {
   const [actionError, setActionError] = useState<string | null>(null)
-  const [syncAction, setSyncAction] = useState<SyncActionState>('idle')
-  const [syncSummary, setSyncSummary] = useState<GarminSyncSummary | null>(null)
+  const statusRef = useRef<HTMLParagraphElement | null>(null)
 
   const clearMessages = useCallback(() => {
     setActionError(null)
-    setSyncSummary(null)
   }, [])
-
-  const refreshAndReset = useCallback(() => {
-    clearMessages()
-    onStatusRefresh()
-  }, [clearMessages, onStatusRefresh])
 
   const handleConnect = async () => {
     clearMessages()
@@ -111,30 +89,14 @@ export default function GarminConnect({
       const response = await graphqlRequest<{ disconnectGarmin: boolean }>(
         DISCONNECT_GARMIN_MUTATION,
       )
-      if (response.disconnectGarmin) {
-        refreshAndReset()
-      } else {
+      if (!response.disconnectGarmin) {
         setActionError('Garmin was already disconnected.')
+        return
       }
-    } catch (error) {
-      setActionError(resolveError(error))
-    }
-  }
 
-  const handleSync = async () => {
-    clearMessages()
-    if (!status?.connected || !status.enabled) return
-    setSyncAction('syncing')
-    try {
-      const response = await graphqlRequest<{ syncGarmin: GarminSyncSummary }>(
-        SYNC_GARMIN_MUTATION,
-      )
-      setSyncSummary(response.syncGarmin)
-      refreshAndReset()
+      onStatusRefresh()
     } catch (error) {
       setActionError(resolveError(error))
-    } finally {
-      setSyncAction('idle')
     }
   }
 
@@ -172,7 +134,13 @@ export default function GarminConnect({
       </div>
 
       {(requestError || actionError) && (
-        <p className="toast toast-error" data-testid="garmin-error">
+        <p
+          ref={statusRef}
+          role="alert"
+          className="toast toast-error"
+          data-testid="garmin-error"
+          tabIndex={-1}
+        >
           {actionError || requestError}
         </p>
       )}
@@ -198,14 +166,22 @@ export default function GarminConnect({
         )}
         <div className="text-sm">
           <dt className="text-slate-400">Last sync</dt>
-          <dd data-testid="garmin-last-sync">{lastSyncLabel}</dd>
+          <dd data-testid="garmin-last-sync">
+            {lastSyncLabel}
+          </dd>
         </div>
       </dl>
 
-      {syncSummary && (
-        <p className="text-sm text-slate-300" data-testid="garmin-sync-summary">
-          Last sync: {syncSummary.imported} imported, {syncSummary.duplicates} duplicates,
-          {` ${syncSummary.unsupported} unsupported, ${syncSummary.invalid} invalid`}
+      {status?.lastSyncSummary && (
+        <p
+          className="text-sm text-slate-300"
+          role="status"
+          aria-live="polite"
+          data-testid="garmin-sync-summary"
+          tabIndex={-1}
+        >
+          Last sync: {status.lastSyncSummary.imported} imported, {status.lastSyncSummary.duplicates} duplicates,
+          {` ${status.lastSyncSummary.unsupported} unsupported, ${status.lastSyncSummary.invalid} invalid`}
         </p>
       )}
 
@@ -222,27 +198,15 @@ export default function GarminConnect({
           </button>
         ) : null}
         {status?.enabled && status.connected ? (
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={handleSync}
-              disabled={syncAction === 'syncing'}
-              aria-label="Sync Garmin data"
-              data-testid="garmin-sync-btn"
-            >
-              {syncAction === 'syncing' ? 'Syncing…' : 'Sync Now'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={handleDisconnect}
-              aria-label="Disconnect Garmin"
-              data-testid="garmin-disconnect-btn"
-            >
-              Disconnect Garmin
-            </button>
-          </>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={handleDisconnect}
+            aria-label="Disconnect Garmin"
+            data-testid="garmin-disconnect-btn"
+          >
+            Disconnect Garmin
+          </button>
         ) : null}
       </div>
     </section>

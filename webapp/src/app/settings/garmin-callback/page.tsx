@@ -48,7 +48,12 @@ function ErrorPanel({ message }: { message: string }) {
     <main className="max-w-3xl mx-auto p-6 md:p-10">
       <div className="glass-card p-6 rounded-2xl space-y-4">
         <h1 className="text-2xl font-black text-white">Garmin Connection Error</h1>
-        <p className="text-slate-200" data-testid="garmin-callback-error">
+        <p
+          className="text-slate-200"
+          role="alert"
+          aria-live="assertive"
+          data-testid="garmin-callback-error"
+        >
           {message}
         </p>
         <button
@@ -107,13 +112,20 @@ function GarminCallbackFlow() {
 
   return (
     <main className="max-w-3xl mx-auto p-6 md:p-10">
-      <section className="glass-card p-6 rounded-2xl">
+        <section className="glass-card p-6 rounded-2xl">
         {isDone ? (
-          <p className="text-green-300" data-testid="garmin-callback-success">
+          <p
+            className="text-green-300"
+            role="status"
+            aria-live="polite"
+            data-testid="garmin-callback-success"
+          >
             {message}
           </p>
         ) : (
-          <p data-testid="garmin-callback-loading">{message}</p>
+          <p role="status" aria-live="polite" data-testid="garmin-callback-loading">
+            {message}
+          </p>
         )}
       </section>
     </main>
