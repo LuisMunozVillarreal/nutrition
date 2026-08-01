@@ -226,12 +226,15 @@ def main(branch: str, tag: str, domain: str | None, dry_run: bool) -> None:
     """
     if branch == "main":
         click.echo(
-            "Branch is main. Skipping preview generation " + "(handled by prod flow)."
+            "Branch is main. Skipping preview generation "
+            + "(handled by prod flow)."
         )
         sys.exit(0)
 
     # 1. Generate the Kustomization Manifest (The "Payload")
-    kustomization_content, sanitized_branch = generate_manifest(branch, tag, domain)
+    kustomization_content, sanitized_branch = generate_manifest(
+        branch, tag, domain
+    )
     target_namespace = _preview_namespace_name(sanitized_branch)
     rbac_content = _build_preview_rbac(target_namespace, sanitized_branch)
     kustomization_name = f"{KUSTOMIZATION_PREFIX}{sanitized_branch}"
@@ -251,7 +254,9 @@ def main(branch: str, tag: str, domain: str | None, dry_run: bool) -> None:
             # Convert start 'git@github.com:' -> 'ssh://git@github.com/'
             repo_url = "ssh://" + repo_url.replace(":", "/", 1)
     except subprocess.CalledProcessError:
-        repo_url = "https://github.com/LuisMunozVillarreal/nutrition"  # Fallback
+        repo_url = (
+            "https://github.com/LuisMunozVillarreal/nutrition"  # Fallback
+        )
 
     # 3. Generate the GitRepository Manifest
     git_repo_manifest = f"""apiVersion: source.toolkit.fluxcd.io/v1beta2
