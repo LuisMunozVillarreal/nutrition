@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField, TextareaField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
 import { compatibleUnits, isCompatibleUnitPair, UNIT_CHOICES } from '@/lib/units'
 import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
@@ -56,6 +56,32 @@ interface ServingRow {
   proteinG: number
 }
 
+interface FoodProductDetails {
+  id: string
+  brand: string | null
+  name: string
+  barcode: string | null
+  notes: string
+  nutritionalInfoSize: number
+  nutritionalInfoUnit: string
+  size: number
+  sizeUnit: string
+  numServings: number
+  energyKcal: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+  saturatedFatG: number | null
+  sugarsG: number | null
+  fibreG: number | null
+  saltG: number | null
+  servings: ServingRow[]
+}
+
+interface FoodProductQueryResponse {
+  foodProduct: FoodProductDetails | null
+}
+
 const servingColumns: Column<ServingRow>[] = [
   { key: 'size', label: 'Serving Size', accessor: (r) => `${r.servingSize} ${r.servingUnit}` },
   { key: 'energy', label: 'Energy (kcal)', accessor: (r) => Math.round(r.energyKcal) },
@@ -79,7 +105,7 @@ export default function EditProductPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ foodProduct: any }>(PRODUCT_QUERY, { id })
+        const res = await graphqlRequest<FoodProductQueryResponse>(PRODUCT_QUERY, { id })
         if (res.foodProduct) {
           const p = res.foodProduct
           setForm({

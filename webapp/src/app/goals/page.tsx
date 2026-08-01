@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
+import { subscribeToPromise } from '@/lib/promiseSubscription'
 
 const GOALS_QUERY = gql`
   query {
@@ -40,24 +41,27 @@ export default function GoalsPage() {
   const [data, setData] = useState<FatPercGoal[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
+  const loadData = () => graphqlRequest<{ fatPercGoals: FatPercGoal[] }>(GOALS_QUERY)
+  const applyData = (res: { fatPercGoals: FatPercGoal[] }) => setData(res.fatPercGoals)
+  const reportLoadError = (err: unknown) => console.error('Failed to fetch goals', err)
+  const finishLoading = () => setLoading(false)
+
+  const reloadData = () => {
     setLoading(true)
-    try {
-      const res = await graphqlRequest<{ fatPercGoals: FatPercGoal[] }>(GOALS_QUERY)
-      setData(res.fatPercGoals)
-    } catch (err) {
-      console.error('Failed to fetch goals', err)
-    }
-    setLoading(false)
+    return loadData().then(applyData, reportLoadError).then(finishLoading)
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => subscribeToPromise(loadData(), {
+    onFulfilled: applyData,
+    onRejected: reportLoadError,
+    onSettled: finishLoading,
+  }), [])
 
   const handleDelete = async (row: FatPercGoal) => {
     if (!confirm('Delete this goal?')) return
     try {
       await graphqlRequest(DELETE_MUTATION, { id: row.id })
-      fetchData()
+      await reloadData()
     } catch (err) {
       console.error('Failed to delete goal', err)
     }

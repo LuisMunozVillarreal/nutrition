@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField, ReadonlyField } from '@/components/FormField'
 import { servingUnitChoices } from '@/lib/units'
 import { servingMacroDisplayValues } from './servingMacroDisplay'
 
@@ -31,6 +31,26 @@ const DELETE_MUTATION = gql`
   }
 `
 
+interface ServingDetails {
+  id: string
+  servingSize: number
+  servingUnit: string
+  energyKcal: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+}
+
+interface ServingProduct {
+  sizeUnit: string
+  nutritionalInfoUnit: string
+  servings: ServingDetails[]
+}
+
+interface ServingQueryResponse {
+  foodProduct: ServingProduct | null
+}
+
 function EditServingForm() {
   const params = useParams()
   const id = params.id as string
@@ -41,7 +61,7 @@ function EditServingForm() {
   const [productUnits, setProductUnits] = useState({
     sizeUnit: '', nutritionalInfoUnit: ''
   })
-  const [readOnly, setReadOnly] = useState<any>({})
+  const [readOnly, setReadOnly] = useState<Partial<ServingDetails>>({})
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -52,7 +72,7 @@ function EditServingForm() {
         return
       }
       try {
-        const res = await graphqlRequest<{ foodProduct: { sizeUnit: string, nutritionalInfoUnit: string, servings: any[] } }>(SERVING_QUERY, { foodId })
+        const res = await graphqlRequest<ServingQueryResponse>(SERVING_QUERY, { foodId })
         const serving = res.foodProduct?.servings?.find(s => s.id === id)
         if (res.foodProduct) {
           setProductUnits({

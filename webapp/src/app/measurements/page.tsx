@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
+import { subscribeToPromise } from '@/lib/promiseSubscription'
 
 const MEASUREMENTS_QUERY = gql`
   query {
@@ -46,24 +47,27 @@ export default function MeasurementsPage() {
   const [data, setData] = useState<Measurement[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
+  const loadData = () => graphqlRequest<{ measurements: Measurement[] }>(MEASUREMENTS_QUERY)
+  const applyData = (res: { measurements: Measurement[] }) => setData(res.measurements)
+  const reportLoadError = (err: unknown) => console.error('Failed to fetch measurements', err)
+  const finishLoading = () => setLoading(false)
+
+  const reloadData = () => {
     setLoading(true)
-    try {
-      const res = await graphqlRequest<{ measurements: Measurement[] }>(MEASUREMENTS_QUERY)
-      setData(res.measurements)
-    } catch (err) {
-      console.error('Failed to fetch measurements', err)
-    }
-    setLoading(false)
+    return loadData().then(applyData, reportLoadError).then(finishLoading)
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => subscribeToPromise(loadData(), {
+    onFulfilled: applyData,
+    onRejected: reportLoadError,
+    onSettled: finishLoading,
+  }), [])
 
   const handleDelete = async (row: Measurement) => {
     if (!confirm('Delete this measurement?')) return
     try {
       await graphqlRequest(DELETE_MUTATION, { id: row.id })
-      fetchData()
+      await reloadData()
     } catch (err) {
       console.error('Failed to delete measurement', err)
     }

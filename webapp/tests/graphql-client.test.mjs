@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 
 test('browser GraphQL client resolves endpoints, authenticates, retries, and disables caching', async () => {
   const originalWindow = globalThis.window

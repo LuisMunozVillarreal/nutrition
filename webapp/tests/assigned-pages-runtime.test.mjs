@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test, { afterEach, mock } from 'node:test'
+import { afterEach, test, vi } from 'vitest'
 import React from 'react'
 import { JSDOM } from 'jsdom'
 
@@ -24,10 +24,10 @@ const graphqlRequest = async (operation, variables) => {
 }
 const gql = (parts, ...values) => parts.reduce((text, part, index) => text + part + (values[index] ?? ''), '')
 
-await mock.module('@/lib/graphql', { namedExports: { graphqlRequest, gql } })
-await mock.module('next/navigation', { namedExports: { useParams: () => params } })
-await mock.module('@/components/DataTable', {
-  defaultExport: ({ columns, data, loading, rowHref, addHref, addLabel, onDelete, emptyMessage }) => React.createElement(
+vi.doMock('@/lib/graphql', () => ({ graphqlRequest, gql }))
+vi.doMock('next/navigation', () => ({ useParams: () => params }))
+vi.doMock('@/components/DataTable', () => ({
+  default: ({ columns, data, loading, rowHref, addHref, addLabel, onDelete, emptyMessage }) => React.createElement(
     'section',
     { 'data-testid': 'table', 'data-loading': String(Boolean(loading)) },
     addHref && React.createElement('a', { href: addHref }, addLabel),
@@ -43,9 +43,9 @@ await mock.module('@/components/DataTable', {
       ),
     )),
   ),
-})
-await mock.module('@/components/EntityForm', {
-  defaultExport: ({ title, backHref, onSave, onDelete, saving, fieldsets }) => React.createElement(
+}))
+vi.doMock('@/components/EntityForm', () => ({
+  default: ({ title, backHref, onSave, onDelete, saving, fieldsets }) => React.createElement(
     'form',
     { onSubmit: (event) => { event.preventDefault(); void onSave() }, 'data-saving': String(Boolean(saving)) },
     React.createElement('h1', null, title),
@@ -54,25 +54,28 @@ await mock.module('@/components/EntityForm', {
     React.createElement('button', { type: 'submit' }, 'Save'),
     onDelete && React.createElement('button', { type: 'button', onClick: () => void onDelete() }, 'Delete'),
   ),
-})
-const input = (type = 'text') => ({ label, name, value, checked, onChange, options = [], helpText, ...props }) => React.createElement(
-  'label',
-  null,
-  label,
-  type === 'select'
-    ? React.createElement('select', { 'aria-label': label, name, value, onChange: (event) => onChange(name, event.target.value), ...props }, options.map((option) => React.createElement('option', { key: option.value, value: option.value }, option.label)))
-    : React.createElement('input', { 'aria-label': label, name, type, value: type === 'checkbox' ? undefined : value, checked: type === 'checkbox' ? checked : undefined, onChange: (event) => onChange(name, type === 'checkbox' ? event.target.checked : event.target.value), ...props }),
-  helpText && React.createElement('small', null, helpText),
-)
-await mock.module('@/components/FormField', {
-  namedExports: {
+}))
+const input = (type = 'text') => {
+  function MockInput({ label, name, value, checked, onChange, options = [], helpText, ...props }) {
+    return React.createElement(
+      'label',
+      null,
+      label,
+      type === 'select'
+        ? React.createElement('select', { 'aria-label': label, name, value, onChange: (event) => onChange(name, event.target.value), ...props }, options.map((option) => React.createElement('option', { key: option.value, value: option.value }, option.label)))
+        : React.createElement('input', { 'aria-label': label, name, type, value: type === 'checkbox' ? undefined : value, checked: type === 'checkbox' ? checked : undefined, onChange: (event) => onChange(name, type === 'checkbox' ? event.target.checked : event.target.value), ...props }),
+      helpText && React.createElement('small', null, helpText),
+    )
+  }
+  return MockInput
+}
+vi.doMock('@/components/FormField', () => ({
     FormField: input(),
     SelectField: input('select'),
     TextareaField: input(),
     CheckboxField: input('checkbox'),
     ReadonlyField: ({ label, value }) => React.createElement('output', { 'aria-label': label }, String(value)),
-  },
-})
+}))
 
 const DaysPage = (await import('../src/app/days/page.tsx')).default
 const EditDayPage = (await import('../src/app/days/[id]/page.tsx')).default
@@ -100,13 +103,13 @@ afterEach(() => {
   requests.length = 0
   responses = []
   params = { id: '42' }
-  mock.restoreAll()
+  vi.restoreAllMocks()
 })
 
 const deferred = () => {
-  let resolve
-  const promise = new Promise((done) => { resolve = done })
-  return { promise, resolve }
+  let resolve, reject
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 const waitForTableLoaded = async () => waitFor(() => {
@@ -115,6 +118,27 @@ const waitForTableLoaded = async () => waitFor(() => {
 
 const waitForEditLoaded = async () => waitFor(() => {
   assert.equal(screen.queryByText('Loading...'), null)
+})
+
+test('list loaders cancel pending fulfillment and rejection after unmount', async () => {
+  const pendingPlan = deferred()
+  responses = [() => pendingPlan.promise]
+  const planView = render(React.createElement(PlansPage))
+  planView.unmount()
+  pendingPlan.resolve({ weekPlans: [] })
+
+  const pendingExercises = deferred()
+  responses = [() => pendingExercises.promise]
+  const exerciseView = render(React.createElement(ExercisesPage))
+  exerciseView.unmount()
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  pendingExercises.reject(new Error('cancelled request'))
+
+  await new Promise(setImmediate)
+  assert.equal(
+    consoleError.mock.calls.some((call) => call[0] === 'Failed to fetch exercises'),
+    false,
+  )
 })
 
 test('plans list renders success rows, empty state, and fetch failures', async () => {
@@ -138,11 +162,11 @@ test('plans list renders success rows, empty state, and fetch failures', async (
   await screen.findByText('No plans created yet.')
   cleanup()
   requests.length = 0
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   responses = [planError]
   render(React.createElement(PlansPage))
   await waitForTableLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch plans', planError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch plans', planError])
 })
 
 test('plan creation submits parsed fields and preserves saving state', async () => {
@@ -207,13 +231,13 @@ test('plan edit saves, deletes, handles missing payload, and logs fetch failures
   assert.equal(Object.prototype.hasOwnProperty.call(requests[1].variables, 'proteinGKg'), true)
 
   const planError = new Error('plan failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [planError]
   render(React.createElement(EditPlanPage))
   await waitForEditLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch plan', planError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch plan', planError])
 })
 
 test('days list renders loading, sorted rows, empty state, and request errors', async () => {
@@ -235,11 +259,11 @@ test('days list renders loading, sorted rows, empty state, and request errors', 
   cleanup()
   requests.length = 0
   const error = new Error('days failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   responses = [error]
   render(React.createElement(DaysPage))
   await waitForTableLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch days', error])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch days', error])
 })
 
 test('day edit updates tracked flag, handles missing day, and logs fetch failures', async () => {
@@ -281,13 +305,13 @@ test('day edit updates tracked flag, handles missing day, and logs fetch failure
   assert.equal(requests[1].variables.tracked, false)
 
   const dayError = new Error('day failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [dayError]
   render(React.createElement(EditDayPage))
   await waitForEditLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch day', dayError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch day', dayError])
 })
 
 test('exercise list renders all cells and covers cancelled, successful, and failed deletion', async () => {
@@ -296,7 +320,7 @@ test('exercise list renders all cells and covers cancelled, successful, and fail
     { id: 'e2', type: 'walk', kcals: 50, duration: '00:30:00', distance: 0, time: '09:00' },
   ]
   responses = [{ exercises: rows }]
-  const confirmMock = mock.method(globalThis, 'confirm', () => false)
+  const confirmMock = vi.spyOn(globalThis, 'confirm').mockImplementation(() => false)
   render(React.createElement(ExercisesPage))
   await screen.findByTestId('row-e1')
   assert.match(screen.getByTestId('row-e1').textContent, /Run100——08:00/)
@@ -304,7 +328,7 @@ test('exercise list renders all cells and covers cancelled, successful, and fail
   fireEvent.click(screen.getByText('delete-e1'))
   assert.equal(requests.length, 1)
 
-  confirmMock.mock.mockImplementation(() => true)
+  confirmMock.mockImplementation(() => true)
   responses = [undefined, { exercises: [rows[1]] }]
   await act(async () => {
     fireEvent.click(screen.getByText('delete-e1'))
@@ -314,14 +338,14 @@ test('exercise list renders all cells and covers cancelled, successful, and fail
   assert.deepEqual(requests[1].variables, { id: 'e1' })
 
   const error = new Error('delete failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   responses = [error]
   await act(async () => {
     fireEvent.click(screen.getByText('delete-e2'))
     await new Promise(setImmediate)
   })
-  assert.equal(consoleError.mock.callCount(), 1)
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to delete exercise', error])
+  assert.equal(consoleError.mock.calls.length, 1)
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to delete exercise', error])
 })
 
 test('new exercise submits parsed required and optional fields', async () => {
@@ -390,14 +414,14 @@ test('edit exercise loads values, submits payloads, deletes, and handles missing
   assert.equal(document.querySelector('form'), null)
 
   const exerciseError = new Error('exercise failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [exerciseError]
   render(React.createElement(EditExercisePage))
   await waitFor(() => assert.ok(screen.getByText('Unable to load exercise.')))
   assert.equal(document.querySelector('form'), null)
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch exercise', exerciseError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch exercise', exerciseError])
 })
 
 test('exercise list covers empty and load error results', async () => {
@@ -407,17 +431,17 @@ test('exercise list covers empty and load error results', async () => {
   view.unmount()
 
   const error = new Error('load failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   responses = [error]
   render(React.createElement(ExercisesPage))
   await waitForTableLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch exercises', error])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch exercises', error])
 })
 
 test('goal list renders formatted values and covers deletion branches and load failures', async () => {
   const row = { id: 'g1', bodyFatPerc: 18.5, createdAt: '2026-01-02T00:00:00Z' }
   responses = [{ fatPercGoals: [row] }]
-  const confirmMock = mock.method(globalThis, 'confirm', () => false)
+  const confirmMock = vi.spyOn(globalThis, 'confirm').mockImplementation(() => false)
   render(React.createElement(GoalsPage))
   await screen.findByTestId('row-g1')
   assert.equal(screen.getByTestId('row-g1').dataset.href, '/goals/g1')
@@ -425,27 +449,27 @@ test('goal list renders formatted values and covers deletion branches and load f
   fireEvent.click(screen.getByText('delete-g1'))
   assert.equal(requests.length, 1)
 
-  confirmMock.mock.mockImplementation(() => true)
+  confirmMock.mockImplementation(() => true)
   responses = [undefined, { fatPercGoals: [] }]
   fireEvent.click(screen.getByText('delete-g1'))
   await screen.findByText('No goals set yet. Add your first one!')
 
   const error = new Error('goal delete failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   responses = [{ fatPercGoals: [row] }, error]
   cleanup()
   requests.length = 0
   render(React.createElement(GoalsPage))
   await screen.findByTestId('row-g1')
   fireEvent.click(screen.getByText('delete-g1'))
-  await waitFor(() => assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to delete goal', error]))
+  await waitFor(() => assert.deepEqual(consoleError.mock.calls[0], ['Failed to delete goal', error]))
   cleanup()
   requests.length = 0
 
   responses = [new Error('goal load failed')]
   render(React.createElement(GoalsPage))
   await waitForTableLoaded()
-  assert.equal(consoleError.mock.callCount(), 2)
+  assert.equal(consoleError.mock.calls.length, 2)
 })
 
 test('new goal updates its field and submits parsed variables while showing saving state', async () => {
@@ -487,14 +511,14 @@ test('edit goal updates, deletes, handles missing state, and logs fetch failures
   assert.equal(screen.getByLabelText('Created At').textContent, '—')
 
   const goalError = new Error('goal fetch failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [goalError]
   render(React.createElement(EditGoalPage))
   await waitFor(() => assert.ok(screen.getByText('Unable to load goal.')))
   assert.equal(document.querySelector('form'), null)
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch goal', goalError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch goal', goalError])
 })
 
 test('intakes list is static guidance', async () => {
@@ -611,13 +635,13 @@ test('edit intake covers food-backed and custom branches and missing payload bra
   assert.equal(requests[1].variables.id, '42')
 
   const intakeError = new Error('intake failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [intakeError]
   render(React.createElement(EditIntakePage))
   await waitForEditLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch intake', intakeError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake', intakeError])
 })
 
 test('measurements list loads rows and handles delete and fetch errors', async () => {
@@ -634,11 +658,11 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
   assert.equal(screen.getByTestId('row-m1').dataset.href, '/measurements/m1')
-  const consoleError = mock.method(console, 'error', () => {})
-  const confirmMock = mock.method(globalThis, 'confirm', () => false)
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const confirmMock = vi.spyOn(globalThis, 'confirm').mockImplementation(() => false)
   fireEvent.click(screen.getByText('delete-m1'))
   assert.equal(requests.length, 1)
-  confirmMock.mock.mockImplementation(() => true)
+  confirmMock.mockImplementation(() => true)
   responses = [undefined, { measurements: [] }]
   fireEvent.click(screen.getByText('delete-m1'))
   await screen.findByText('No measurements yet. Add your first one!')
@@ -652,13 +676,13 @@ test('measurements list loads rows and handles delete and fetch errors', async (
     fireEvent.click(screen.getByText('delete-m1'))
     await new Promise(setImmediate)
   })
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to delete measurement', deleteError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to delete measurement', deleteError])
   cleanup()
   requests.length = 0
   responses = [error]
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
-  assert.deepEqual(consoleError.mock.calls[1].arguments, ['Failed to fetch measurements', error])
+  assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
 })
 
 test('new measurement submits and edit page covers success, missing, and fetch failures', async () => {
@@ -714,14 +738,14 @@ test('new measurement submits and edit page covers success, missing, and fetch f
   assert.equal(screen.getByLabelText('Created At').textContent, '—')
 
   const measurementError = new Error('measurement failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [measurementError]
   render(React.createElement(EditMeasurementPage))
   await waitFor(() => assert.ok(screen.getByText('Unable to load measurement.')))
   assert.equal(document.querySelector('form'), null)
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch measurement', measurementError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch measurement', measurementError])
 })
 
 test('steps list loads rows and covers delete and load failure branches', async () => {
@@ -730,23 +754,23 @@ test('steps list loads rows and covers delete and load failure branches', async 
   await waitForTableLoaded()
   assert.equal(screen.getByTestId('row-s1').dataset.href, '/steps/s1')
   assert.match(screen.getByTestId('row-s1').textContent, /1,234/)
-  const confirmMock = mock.method(globalThis, 'confirm', () => false)
+  const confirmMock = vi.spyOn(globalThis, 'confirm').mockImplementation(() => false)
   fireEvent.click(screen.getByText('delete-s1'))
   assert.equal(requests.length, 1)
-  confirmMock.mock.mockImplementation(() => true)
+  confirmMock.mockImplementation(() => true)
   responses = [undefined, { dayStepsList: [] }]
   fireEvent.click(screen.getByText('delete-s1'))
   await screen.findByText('No step records yet.')
   assert.deepEqual(requests[1].variables, { id: 's1' })
 
   const error = new Error('steps failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [error]
   render(React.createElement(StepsPage))
   await waitForTableLoaded()
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch steps', error])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch steps', error])
 })
 
 test('new and edit steps submit parsed ints and cover missing/dayless branch', async () => {
@@ -786,14 +810,14 @@ test('new and edit steps submit parsed ints and cover missing/dayless branch', a
   assert.equal(screen.getByLabelText('Kcals').textContent, '—')
 
   const stepError = new Error('steps failed')
-  const consoleError = mock.method(console, 'error', () => {})
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   cleanup()
   requests.length = 0
   responses = [stepError]
   render(React.createElement(EditStepsPage))
   await waitFor(() => assert.ok(screen.getByText('Unable to load steps.')))
   assert.equal(document.querySelector('form'), null)
-  assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to fetch steps', stepError])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch steps', stepError])
 })
 
 test('day edit uses empty intake fallback and sends checked updates', async () => {
@@ -966,9 +990,9 @@ test('steps list logs delete failures', async () => {
   responses = [{ dayStepsList: [{ id: 's1', dayId: 2, steps: 1234, kcals: 43.1 }] }]
   render(React.createElement(StepsPage))
   await waitForTableLoaded()
-  const consoleError = mock.method(console, 'error', () => {})
-  mock.method(globalThis, 'confirm', () => true)
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(globalThis, 'confirm').mockImplementation(() => true)
   responses = [deleteError]
   fireEvent.click(screen.getByText('delete-s1'))
-  await waitFor(() => assert.deepEqual(consoleError.mock.calls[0].arguments, ['Failed to delete steps', deleteError]))
+  await waitFor(() => assert.deepEqual(consoleError.mock.calls[0], ['Failed to delete steps', deleteError]))
 })
