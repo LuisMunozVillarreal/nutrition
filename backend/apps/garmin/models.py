@@ -177,7 +177,10 @@ class GarminConnection(BaseModel):
         return self._decrypt_value(self.refresh_token_encrypted) or None
 
     def set_tokens(
-        self, token_pair: GarminTokenPair, *, expires_in: int
+        self,
+        token_pair: GarminTokenPair,
+        *,
+        expires_in: int,
     ) -> None:
         """Persist a fresh OAuth token pair for this connection."""
         self.access_token_encrypted = self._encrypt_value(
@@ -198,7 +201,6 @@ class GarminConnection(BaseModel):
             )
 
         self.status = self.Status.ACTIVE
-        self.last_synced_at = None
         self.connection_generation += 1
 
     def clear_tokens(self) -> None:
@@ -377,6 +379,11 @@ class GarminActivity(BaseModel):
     kcals = models.PositiveIntegerField()
     duration_seconds = models.PositiveIntegerField()
     distance = models.DecimalField(max_digits=10, decimal_places=2)
+    pending_reconciliation_reason = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+    )
     pending_reconciliation = models.BooleanField(
         default=False,
         help_text="Whether day resolution is still pending.",

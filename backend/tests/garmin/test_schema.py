@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 
 import config.schema as schema_module
+from apps.garmin.models import GarminConnection
 from apps.garmin.services import GarminTokenPair
 
 User = get_user_model()
@@ -31,6 +32,16 @@ def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         settings, "GARMIN_CALLBACK_URL", "https://app.example.com/callback"
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_PROVIDER_ORIGINS",
+        ["https://garmin.example.com"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_CALLBACK_ALLOWED_ORIGINS",
+        ["https://app.example.com"],
     )
     monkeypatch.setattr(settings, "GARMIN_SCOPES", "read write")
     monkeypatch.setattr(settings, "GARMIN_REQUEST_TIMEOUT_SECONDS", 10)
@@ -72,6 +83,31 @@ def _request_context(user, *, bearer: bool = False):
             algorithm="HS256",
         )
     return type("Context", (), {"request": request})()
+
+
+def _create_connection_with_tokens(user):
+    connection = GarminConnection.objects.create(user=user)
+    token_pair = GarminTokenPair(
+        access_token="access-token",
+        refresh_token="refresh-token",
+        expires_in=3600,
+        scope="read write",
+        provider_account_id="provider-user",
+    )
+    connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
+    connection.save(
+        update_fields=[
+            "access_token_encrypted",
+            "refresh_token_encrypted",
+            "access_token_expires_at",
+            "provider_account_id",
+            "provider_scopes",
+            "status",
+            "connection_generation",
+            "updated_at",
+        ]
+    )
+    return connection
 
 
 def test_begin_garmin_authorization_requires_authentication():
@@ -244,3 +280,60 @@ def test_garmin_mutations_require_bearer_authentication(monkeypatch):
 
     assert result.errors is not None
     assert "Authentication required" in result.errors[0].message
+
+
+def test_disconnect_garmin_clears_tokens_without_decryption(monkeypatch):
+    """Disconnect must clear locally even when token decryption breaks."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-disconnect-key-rotation@example.com")
+    _create_connection_with_tokens(user)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_TOKEN_ENCRYPTION_KEY",
+        Fernet.generate_key().decode(),
+    )
+
+    result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                disconnectGarmin
+            }
+        """,
+        context_value=_request_context(user, bearer=True),
+    )
+
+    assert result.errors is None
+    assert result.data["disconnectGarmin"] is True
+
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.access_token_encrypted == ""
+    assert connection.refresh_token_encrypted == ""
+    assert connection.status == GarminConnection.Status.DISCONNECTED
+
+
+def test_disconnect_garmin_still_clears_locally_if_revoke_fails(monkeypatch):
+    """Remote revocation failures should not prevent local credential wipe."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-disconnect-revoke-failure@example.com")
+    _create_connection_with_tokens(user)
+
+    def _revoke(_token: str) -> None:
+        raise ValueError("revoke failed")
+
+    monkeypatch.setattr(schema_module, "revoke_refresh_token", _revoke)
+
+    result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                disconnectGarmin
+            }
+        """,
+        context_value=_request_context(user, bearer=True),
+    )
+
+    assert result.errors is None
+    assert result.data["disconnectGarmin"] is True
+
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.access_token_encrypted == ""
+    assert connection.refresh_token_encrypted == ""

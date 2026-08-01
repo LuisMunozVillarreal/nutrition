@@ -59,6 +59,7 @@ export default function GarminConnect({
   onStatusRefresh,
 }: GarminConnectProps) {
   const [actionError, setActionError] = useState<string | null>(null)
+  const [requestInFlight, setRequestInFlight] = useState(false)
   const statusRef = useRef<HTMLParagraphElement | null>(null)
 
   const clearMessages = useCallback(() => {
@@ -66,7 +67,10 @@ export default function GarminConnect({
   }, [])
 
   const handleConnect = async () => {
+    if (!status?.enabled) return
     clearMessages()
+    setRequestInFlight(true)
+
     try {
       const response = await graphqlRequest<{
         beginGarminAuthorization: GarminAuthStart
@@ -77,15 +81,23 @@ export default function GarminConnect({
       }
     } catch (error) {
       setActionError(resolveError(error))
+    } finally {
+      setRequestInFlight(false)
     }
   }
 
   const handleDisconnect = async () => {
     clearMessages()
+
+    if (!status?.connected && !status?.hasRefreshToken) return
+
     const confirmed = window.confirm('Disconnect Garmin integration?')
-    if (!confirmed || !status?.enabled || !status.connected) return
+    if (!confirmed) {
+      return
+    }
 
     try {
+      setRequestInFlight(true)
       const response = await graphqlRequest<{ disconnectGarmin: boolean }>(
         DISCONNECT_GARMIN_MUTATION,
       )
@@ -97,16 +109,27 @@ export default function GarminConnect({
       onStatusRefresh()
     } catch (error) {
       setActionError(resolveError(error))
+    } finally {
+      setRequestInFlight(false)
     }
   }
 
   if (loading) {
     return (
-      <div className="glass-card p-6 rounded-2xl" data-testid="garmin-loading">
+      <div
+        className="glass-card p-6 rounded-2xl"
+        data-testid="garmin-loading"
+        role="status"
+        aria-live="polite"
+      >
         Loading Garmin status...
       </div>
     )
   }
+
+  const canConnect =
+    status?.enabled && !status.connected && !status.hasRefreshToken
+  const canDisconnect = status?.connected || status?.hasRefreshToken
 
   const statusText = !status
     ? 'Unknown'
@@ -144,6 +167,11 @@ export default function GarminConnect({
           {actionError || requestError}
         </p>
       )}
+      {requestInFlight ? (
+        <p role="status" aria-live="polite" data-testid="garmin-action-status">
+          Processing Garmin request...
+        </p>
+      ) : null}
 
       <dl className="space-y-2" data-testid="garmin-meta">
         <div className="text-sm">
@@ -186,24 +214,28 @@ export default function GarminConnect({
       )}
 
       <div className="flex flex-wrap gap-2">
-        {status?.enabled && !status.connected ? (
+        {canConnect ? (
           <button
             type="button"
             className="btn btn-primary"
             onClick={handleConnect}
             aria-label="Connect Garmin"
             data-testid="garmin-connect-btn"
+            aria-busy={requestInFlight}
+            disabled={requestInFlight}
           >
             Connect Garmin
           </button>
         ) : null}
-        {status?.enabled && status.connected ? (
+        {canDisconnect ? (
           <button
             type="button"
             className="btn btn-danger"
             onClick={handleDisconnect}
             aria-label="Disconnect Garmin"
             data-testid="garmin-disconnect-btn"
+            aria-busy={requestInFlight}
+            disabled={requestInFlight}
           >
             Disconnect Garmin
           </button>

@@ -8,7 +8,10 @@ from django.core.management.base import BaseCommand
 from django.db import OperationalError, router
 
 from apps.garmin.models import GarminConnection
-from apps.garmin.services import sync_connection
+from apps.garmin.services import (
+    reconcile_pending_garmin_activities,
+    sync_connection,
+)
 
 
 class Command(BaseCommand):
@@ -36,6 +39,7 @@ class Command(BaseCommand):
 
         outcomes = []
         for connection in queryset.order_by("pk"):
+            status_error = None
             try:
                 summary = sync_connection(connection)
                 outcomes.append(
@@ -48,23 +52,28 @@ class Command(BaseCommand):
                         "invalid": summary.invalid,
                     }
                 )
-            except ValueError as exc:
-                _ = exc
+            except ValueError:
+                status_error = "sync_failed"
+            except OperationalError:
+                status_error = "database_error"
+
+            if status_error is not None:
                 outcomes.append(
                     {
                         "connection_id": connection.pk,
                         "user_id": connection.user_id,
-                        "error": "sync_failed",
+                        "error": status_error,
                     }
                 )
-            except OperationalError as exc:
-                _ = exc
-                outcomes.append(
-                    {
-                        "connection_id": connection.pk,
-                        "user_id": connection.user_id,
-                        "error": "database_error",
-                    }
-                )
+                continue
+
+            try:
+                reconcile_pending_garmin_activities(connection)
+            except ValueError:
+                outcomes[-1]["reconciled"] = "error"
+                outcomes[-1]["error"] = "reconcile_failed"
+            except OperationalError:
+                outcomes[-1]["reconciled"] = "error"
+                outcomes[-1]["error"] = "database_error"
 
         self.stdout.write(json.dumps(outcomes, sort_keys=True))

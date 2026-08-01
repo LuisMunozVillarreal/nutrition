@@ -12,6 +12,12 @@ spec:
               value: "${BASE_DOMAIN}"
             - name: CSRF_TRUSTED_ORIGINS
               value: "https://${BASE_DOMAIN}"
+            - name: GARMIN_CALLBACK_URL
+              value: "https://${BASE_DOMAIN}/settings/garmin-callback"
+            - name: GARMIN_PROVIDER_ORIGINS
+              value: "https://${BASE_DOMAIN}"
+            - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+              value: "https://${BASE_DOMAIN}"
 ---
 apiVersion: apps/v1
 kind: Deployment

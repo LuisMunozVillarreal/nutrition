@@ -58,7 +58,7 @@ def test_main_success(mock_run, mocker):
     assert (
         "Creating least-privilege preview secret nutrition-gemini-api-key..."
     ) in result.output
-    assert mock_run.call_count == 11
+    assert mock_run.call_count == 13
 
     # Secrets are created directly in the target namespace and never read from
     # staging.
@@ -86,7 +86,7 @@ def test_main_apply_payload(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     for call in apply_calls:
         payload = json.loads(call.kwargs["input"].decode("utf-8"))
@@ -138,6 +138,9 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         "token-2",
         "token-3",
         "token-4",
+        "token-5",
+        "token-6",
+        "token-7",
     ]
     mocker.patch(
         "clone_preview_secrets.secrets.token_urlsafe",
@@ -156,7 +159,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     seen_values: list[str] = []
     for call in apply_calls:
@@ -167,5 +170,18 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
     assert sorted(seen_values) == sorted(
-        ["token-1", "token-2", "token-3", "token-4", "{}"]
+        [
+            "token-1",
+            "token-2",
+            "token-3",
+            "token-4",
+            "token-5",
+            "token-6",
+            "token-7",
+            "preview-disabled",
+            "https://example.com/settings/garmin-callback",
+            "https://example.com",
+            "https://example.com",
+            "{}",
+        ]
     )

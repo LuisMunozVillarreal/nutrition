@@ -25,6 +25,15 @@ SECRET_SCHEMA = {
     "nutrition-gcp-db-backup-credentials": {
         "nutrition-gcp-db-backup-credentials.json": lambda: "{}",
     },
+    "nutrition-garmin-config": {
+        "client-id": lambda: "preview-disabled",
+        "client-secret": lambda: secrets.token_urlsafe(32),
+        "callback-url": lambda: "https://example.com/settings/garmin-callback",
+        "provider-origins": lambda: "https://example.com",
+        "callback-allowed-origins": lambda: "https://example.com",
+        "token-encryption-keys": lambda: secrets.token_urlsafe(32),
+        "token-encryption-key": lambda: secrets.token_urlsafe(32),
+    },
 }
 NAMESPACE_PREFIX = "nutrition-staging--"
 

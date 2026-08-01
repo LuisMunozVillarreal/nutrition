@@ -20,6 +20,62 @@ releases:
         secretKeyRef:
           key: gemini-api-key
           name: nutrition-gemini-api-key
+    - name: GARMIN_ENABLED
+      value: "false"
+    - name: GARMIN_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          key: client-id
+          name: nutrition-garmin-config
+    - name: GARMIN_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          key: client-secret
+          name: nutrition-garmin-config
+    - name: GARMIN_AUTHORIZATION_URL
+      value: "https://example.com/garmin/oauth/authorize"
+    - name: GARMIN_TOKEN_URL
+      value: "https://example.com/garmin/oauth/token"
+    - name: GARMIN_ACTIVITIES_URL
+      value: "https://example.com/garmin/activities"
+    - name: GARMIN_CALLBACK_URL
+      value: "https://{{ .Values.domain }}/settings/garmin-callback"
+    - name: GARMIN_PROVIDER_ORIGINS
+      value: "https://{{ .Values.domain }}"
+    - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+      value: "https://{{ .Values.domain }}"
+    - name: GARMIN_SCOPES
+      value: "read"
+    - name: GARMIN_REQUEST_TIMEOUT_SECONDS
+      value: "10"
+    - name: GARMIN_ACTIVITY_MAX_PAGES
+      value: "200"
+    - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
+      value: "200"
+    - name: GARMIN_ACTIVITIES_LIMIT
+      value: "100"
+    - name: GARMIN_STATE_TTL_SECONDS
+      value: "300"
+    - name: GARMIN_STATE_MAX_IN_FLIGHT
+      value: "5"
+    - name: GARMIN_TOKEN_MAX_TTL_SECONDS
+      value: "86400"
+    - name: GARMIN_TOKEN_ENCRYPTION_KEYS
+      valueFrom:
+        secretKeyRef:
+          key: token-encryption-keys
+          name: nutrition-garmin-config
+    - name: GARMIN_TOKEN_ENCRYPTION_KEY
+      valueFrom:
+        secretKeyRef:
+          key: token-encryption-key
+          name: nutrition-garmin-config
+    - name: GARMIN_REVOKE_TOKEN_URL
+      value: "https://example.com/garmin/oauth/revoke"
+    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
+      value: "1048576"
+    - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
+      value: "262144"
     - name: POSTGRESQL_PASSWORD
       valueFrom:
         secretKeyRef:

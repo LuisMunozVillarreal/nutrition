@@ -129,6 +129,8 @@ def test_generate_manifest_content():
     )
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
+    assert "GARMIN_CALLBACK_URL" in manifest
+    assert "GARMIN_TOKEN_ENCRYPTION_KEY" in manifest
 
 
 def test_generate_manifest_default_domain():
@@ -141,6 +143,12 @@ def test_generate_manifest_default_domain():
 
     sanitized = sanitise_branch_name(branch)
     assert f"staging--{sanitized}.${{BASE_DOMAIN}}" in manifest
+    assert 'value: "https://staging--flux.${BASE_DOMAIN}/graphql/"' in manifest
+    assert 'value: "https://staging--flux.${BASE_DOMAIN}"' in manifest
+    assert (
+        "value: \"https://staging--flux.${BASE_DOMAIN}/settings/garmin-callback\""
+        in manifest
+    )
 
 
 def test_main_execution(mock_check_output, mock_run):
