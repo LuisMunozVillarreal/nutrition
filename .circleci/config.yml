@@ -240,7 +240,7 @@ jobs:
           command: |
             npm audit --omit=dev --audit-level=high --json > /tmp/npm-audit-report.json
             AUDIT_EXIT_CODE=$?
-            python3 .circleci/scripts/check_frontend_dependency_audit.py \
+            python3 ../.circleci/scripts/check_frontend_dependency_audit.py \
               --audit-report /tmp/npm-audit-report.json \
               --allowlist ../.circleci/dependency-audit-npm-allowlist.txt \
               --exit-code "$AUDIT_EXIT_CODE"
