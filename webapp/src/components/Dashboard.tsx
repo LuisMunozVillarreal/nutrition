@@ -270,7 +270,7 @@ function WeightTrend({ series }: { series: ReturnType<typeof buildWeightTrendSer
           </circle>
         ))}
       </svg>
-      <div className="flex justify-between text-xs text-slate-500">
+      <div className="flex justify-between text-xs text-slate-400">
         <span>{first.date}</span><span>{last.date}</span>
       </div>
     </div>
