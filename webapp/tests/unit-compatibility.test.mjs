@@ -15,6 +15,8 @@ test('unit compatibility mirrors backend mass volume and contextual rules', () =
   assert.equal(isCompatibleUnitPair('container', 'container'), true)
   assert.equal(isCompatibleUnitPair('g', 'ml'), false)
   assert.equal(isCompatibleUnitPair('unit', 'serving'), false)
+  assert.equal(isCompatibleUnitPair('unknown', 'g'), false)
+  assert.equal(isCompatibleUnitPair('ml', 'g'), false)
 })
 
 test('product compatibility choices keep only the selected dimension', () => {
@@ -37,6 +39,19 @@ test('serving choices retain container semantics but reject other dimensions', (
     servingUnitChoices('unit', 'unit').map(({ value }) => value),
     ['unit', 'container', 'serving'],
   )
+  assert.deepEqual(servingUnitChoices('g', 'ml'), [])
+})
+
+test('manual recipe choices fail loudly if the canonical unit catalog is corrupted', async () => {
+  const { recipeUnitChoices, UNIT_CHOICES } = await import('../src/lib/units.ts')
+  const index = UNIT_CHOICES.findIndex(({ value }) => value === 'g')
+  const [removed] = UNIT_CHOICES.splice(index, 1)
+
+  try {
+    assert.throws(() => recipeUnitChoices(false, 'g'), /Unknown recipe unit: g/)
+  } finally {
+    UNIT_CHOICES.splice(index, 0, removed)
+  }
 })
 
 test('product and serving forms apply compatibility choices', async () => {

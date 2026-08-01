@@ -32,6 +32,19 @@ test('successful credential authorization returns the NextAuth user', async () =
   })
 })
 
+test('credential authorization handles missing credentials and rejected logins', async () => {
+  const { authorizeCredentials } = await loadAuthHelpers()
+  let receivedVariables
+
+  const result = await authorizeCredentials(undefined, async (_document, variables) => {
+    receivedVariables = variables
+    return { login: null }
+  })
+
+  assert.deepEqual(receivedVariables, { email: undefined, password: undefined })
+  assert.equal(result, null)
+})
+
 test('staff capability refresh queries me with the bearer access token', async () => {
   const { fetchCurrentStaffCapability } = await loadAuthHelpers()
   let receivedRequest

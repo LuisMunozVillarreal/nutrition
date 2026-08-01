@@ -178,7 +178,7 @@ jobs:
   webapp-checks:
     working_directory: ~/project/webapp
     docker:
-      - image: cimg/node:22.12.0
+      - image: cimg/node:22.23
     steps:
       - checkout:
           path: ~/project
@@ -190,7 +190,7 @@ jobs:
           command: npm test
       - run:
           name: Run Frontend Type Check
-          command: npx tsc --noEmit --ignoreDeprecations 6.0
+          command: npx tsc --noEmit
 
   backend-docker-build-tag-push:
     working_directory: ~/project/backend
@@ -303,7 +303,7 @@ jobs:
   cypress-e2e:
     working_directory: ~/project
     docker:
-      - image: cimg/node:22.12.0-browsers
+      - image: cimg/node:22.23-browsers
     steps:
       - checkout
       - kubernetes/install

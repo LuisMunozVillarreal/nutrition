@@ -36,22 +36,25 @@ export default function EditGoalPage() {
   const [form, setForm] = useState({ bodyFatPerc: '' })
   const [createdAt, setCreatedAt] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'not-found' | 'error'>('loading')
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const res = await graphqlRequest<{
-          fatPercGoal: { id: string; bodyFatPerc: number; createdAt: string } | null
+          fatPercGoal: { id: string; bodyFatPerc: number; createdAt: string | null } | null
         }>(GOAL_QUERY, { id })
         if (res.fatPercGoal) {
           setForm({ bodyFatPerc: String(res.fatPercGoal.bodyFatPerc) })
           setCreatedAt(res.fatPercGoal.createdAt)
+          setLoadStatus('ready')
+        } else {
+          setLoadStatus('not-found')
         }
       } catch (err) {
         console.error('Failed to fetch goal', err)
+        setLoadStatus('error')
       }
-      setLoading(false)
     }
     fetchData()
   }, [id])
@@ -76,9 +79,11 @@ export default function EditGoalPage() {
     await graphqlRequest(DELETE_MUTATION, { id })
   }
 
-  if (loading) {
+  if (loadStatus === 'loading') {
     return <div className="p-12 text-center text-slate-500">Loading...</div>
   }
+  if (loadStatus === 'not-found') return <div className="p-12 text-center text-slate-500">Goal not found.</div>
+  if (loadStatus === 'error') return <div className="p-12 text-center text-red-600">Unable to load goal.</div>
 
   return (
     <EntityForm

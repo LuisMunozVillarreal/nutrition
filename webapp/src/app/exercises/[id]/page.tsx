@@ -53,7 +53,7 @@ export default function EditExercisePage() {
     type: 'walk', kcals: '', time: '00:00', duration: '', distance: '',
   })
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'not-found' | 'error'>('loading')
 
   useEffect(() => {
     const fetchData = async () => {
@@ -67,9 +67,14 @@ export default function EditExercisePage() {
             duration: res.exercise.duration || '',
             distance: optionalNumberInput(res.exercise.distance),
           })
+          setLoadStatus('ready')
+        } else {
+          setLoadStatus('not-found')
         }
-      } catch (err) { console.error('Failed to fetch exercise', err) }
-      setLoading(false)
+      } catch (err) {
+        console.error('Failed to fetch exercise', err)
+        setLoadStatus('error')
+      }
     }
     fetchData()
   }, [id])
@@ -90,7 +95,9 @@ export default function EditExercisePage() {
 
   const handleDelete = async () => { await graphqlRequest(DELETE_MUTATION, { id }) }
 
-  if (loading) return <div className="p-12 text-center text-slate-500">Loading...</div>
+  if (loadStatus === 'loading') return <div className="p-12 text-center text-slate-500">Loading...</div>
+  if (loadStatus === 'not-found') return <div className="p-12 text-center text-slate-500">Exercise not found.</div>
+  if (loadStatus === 'error') return <div className="p-12 text-center text-red-600">Unable to load exercise.</div>
 
   return (
     <EntityForm

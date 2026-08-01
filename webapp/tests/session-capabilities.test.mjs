@@ -196,6 +196,60 @@ test('staff login retains staff capability through JWT and session callbacks', a
   assert.equal(session.user.isStaff, true)
 })
 
+test('capability helpers preserve anonymous tokens and clear stale session fields', async () => {
+  const {
+    applyUserCapabilitiesToToken,
+    applyTokenCapabilitiesToSession,
+    createJwtCapabilityCallback,
+  } = await loadCapabilities()
+  const originalToken = { marker: 'preserved' }
+
+  assert.equal(applyUserCapabilitiesToToken(originalToken, null), originalToken)
+
+  const jwt = createJwtCapabilityCallback(async () => {
+    throw new Error('anonymous tokens must not be refreshed')
+  })
+  const anonymousToken = await jwt({ token: {} })
+  assert.equal(anonymousToken.isStaff, false)
+
+  const session = applyTokenCapabilitiesToSession(
+    {
+      accessToken: 'stale-token',
+      error: 'BackendReauthenticationRequired',
+      user: null,
+    },
+    { isStaff: false },
+  )
+  assert.equal(session.accessToken, undefined)
+  assert.equal(session.error, undefined)
+  assert.deepEqual(session.user, { isStaff: false })
+})
+
+test('capability refresh runs when the recorded timestamp is in the future', async () => {
+  const { createJwtCapabilityCallback } = await loadCapabilities()
+  let refreshCalls = 0
+  const jwt = createJwtCapabilityCallback(
+    async () => {
+      refreshCalls += 1
+      return { authentication: 'authenticated', isStaff: true }
+    },
+    { now: () => 10 },
+  )
+
+  const token = await jwt({
+    token: {
+      accessToken: 'opaque-token',
+      isStaff: false,
+      staffCapabilityRefreshedAt: 11,
+      error: 'BackendReauthenticationRequired',
+    },
+  })
+
+  assert.equal(refreshCalls, 1)
+  assert.equal(token.isStaff, true)
+  assert.equal(token.error, undefined)
+})
+
 test('NextAuth refreshes and propagates the backend staff capability', async () => {
   const route = await readFile(
     new URL('../src/app/api/auth/[...nextauth]/route.ts', import.meta.url),
