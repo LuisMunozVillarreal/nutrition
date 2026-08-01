@@ -30,18 +30,23 @@ export default function EditStepsPage() {
   const [form, setForm] = useState({ steps: '' })
   const [kcals, setKcals] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loadStatus, setLoadStatus] = useState<'loading' | 'ready' | 'not-found' | 'error'>('loading')
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ daySteps: { steps: number; kcals: number } | null }>(STEPS_QUERY, { id })
+        const res = await graphqlRequest<{ daySteps: { steps: number; kcals: number | null } | null }>(STEPS_QUERY, { id })
         if (res.daySteps) {
           setForm({ steps: String(res.daySteps.steps) })
           setKcals(res.daySteps.kcals)
+          setLoadStatus('ready')
+        } else {
+          setLoadStatus('not-found')
         }
-      } catch (err) { console.error('Failed to fetch steps', err) }
-      setLoading(false)
+      } catch (err) {
+        console.error('Failed to fetch steps', err)
+        setLoadStatus('error')
+      }
     }
     fetchData()
   }, [id])
@@ -57,7 +62,9 @@ export default function EditStepsPage() {
 
   const handleDelete = async () => { await graphqlRequest(DELETE_MUTATION, { id }) }
 
-  if (loading) return <div className="p-12 text-center text-slate-500">Loading...</div>
+  if (loadStatus === 'loading') return <div className="p-12 text-center text-slate-500">Loading...</div>
+  if (loadStatus === 'not-found') return <div className="p-12 text-center text-slate-500">Steps not found.</div>
+  if (loadStatus === 'error') return <div className="p-12 text-center text-red-600">Unable to load steps.</div>
 
   return (
     <EntityForm
