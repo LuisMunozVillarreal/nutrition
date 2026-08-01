@@ -134,6 +134,56 @@ test('Garmin frontend files avoid direct endpoint/token plumbing', async () => {
   assert.doesNotMatch(source, /authorizationUrl\s*:\s*['"].*http/)
 })
 
+test('Garmin status UI supports disconnect while disabled if credentials are cached', async () => {
+  const source = await readFile(
+    new URL('../src/components/GarminConnect.tsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.ok(
+    source.includes('const canDisconnect = status?.connected || status?.hasRefreshToken'),
+    'GarminConnect should expose disconnect for cached credentials',
+  )
+  assert.ok(
+    source.includes('const canConnect ='),
+    'GarminConnect should gate connect on enabled status only',
+  )
+  assert.ok(
+    source.includes('status?.enabled'),
+    'GarminConnect connect condition should honor feature flag',
+  )
+  assert.ok(
+    source.includes('role="status"'),
+    'GarminConnect should expose loading/error states to assistive tech',
+  )
+  assert.ok(
+    source.includes('data-testid="garmin-action-status"'),
+    'GarminConnect should expose action status text for loading feedback',
+  )
+  assert.ok(
+    source.includes('aria-busy={requestInFlight}'),
+    'Garmin action controls should surface busy state accessibly',
+  )
+})
+
+test('Garmin Cypress mock uses dynamic GraphQL endpoint and fixed success disconnect', async () => {
+  const source = await readFile(
+    new URL('../cypress/support/step_definitions/garmin.ts', import.meta.url),
+    'utf8',
+  )
+
+  assert.ok(source.includes('function getGraphQLEndpoint'), 'Expected dynamic endpoint helper')
+  assert.ok(
+    source.includes('return new URL(endpoint, `${baseUrl}/`).href'),
+    'Garmin cypress mocks should resolve GraphQL endpoint from Cypress config',
+  )
+  assert.match(source, /alias = 'garminDisconnect'/)
+  assert.ok(
+    source.includes('disconnectResult = true'),
+    'Garmin Cypress mock should return successful disconnect independent of fixture state',
+  )
+})
+
 test('settings route and sidebar source contracts include Garmin item and title', async () => {
   const sidebar = await readFile(
     new URL('../src/components/Sidebar.tsx', import.meta.url),

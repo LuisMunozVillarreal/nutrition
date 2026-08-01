@@ -89,3 +89,84 @@ def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
     assert len(rows) == 2
     assert all("error" in row for row in rows)
     assert {row["error"] for row in rows} == {"sync_failed"}
+
+
+def test_sync_command_reconciles_pending_rows_after_sync(monkeypatch):
+    """Each synced connection should run pending reconciliation."""
+    user = _create_user("command-reconcile@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    captured = {}
+
+    def _fake_sync(_connection):
+        return type(
+            "Summary",
+            (),
+            {
+                "imported": 1,
+                "duplicates": 0,
+                "unsupported": 0,
+                "invalid": 0,
+            },
+        )
+
+    def _fake_reconcile(reconcile_connection):
+        captured["connection_id"] = reconcile_connection.pk
+        return 1
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        _fake_reconcile,
+    )
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 1
+    assert rows[0]["imported"] == 1
+    assert rows[0].get("error") is None
+    assert captured["connection_id"] == connection.pk
+
+
+def test_sync_command_redacts_reconcile_errors(monkeypatch):
+    """Reconcile failures are redacted to stable error codes."""
+    user = _create_user("command-reconcile-failed@example.com")
+    GarminConnection.objects.create(user=user)
+
+    def _fake_sync(_connection):
+        return type(
+            "Summary",
+            (),
+            {
+                "imported": 1,
+                "duplicates": 0,
+                "unsupported": 0,
+                "invalid": 0,
+            },
+        )
+
+    def _fake_reconcile(_connection):
+        raise ValueError("secret failure detail")
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        _fake_reconcile,
+    )
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 1
+    assert rows[0]["error"] == "reconcile_failed"
+    assert rows[0]["reconciled"] == "error"

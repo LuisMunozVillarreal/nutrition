@@ -57,7 +57,7 @@ def test_main_success(mock_run, mocker):
     mock_apply = mocker.MagicMock()
     mock_apply.returncode = 0
 
-    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 5
+    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 6
 
     # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
@@ -76,9 +76,9 @@ def test_main_success(mock_run, mocker):
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
 
     # And it should call kubectl get namespace once,
-    # plus get+apply for 5 secrets
-    # Total calls: 1 + (5 * 2) = 11 calls
-    assert mock_run.call_count == 11
+    # plus get+apply for 6 secrets
+    # Total calls: 1 + (6 * 2) = 13 calls
+    assert mock_run.call_count == 13
 
     # And it should remove unwanted metadata fields
     last_apply_call = mock_run.call_args_list[-1]

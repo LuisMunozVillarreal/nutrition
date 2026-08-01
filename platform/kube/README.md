@@ -63,6 +63,12 @@ Remove the password from the file.
     kubectl create secret generic nutrition-gemini-api-key --namespace nutrition-<environment> --from-literal=gemini-api-key=<my-gemini-api-key-here>
     ```
 
+##### Garmin integration config
+
+    ```bash
+    kubectl create secret generic nutrition-garmin-config --namespace nutrition-<environment> --from-literal=client-id=<my-garmin-client-id-here> --from-literal=client-secret=<my-garmin-client-secret-here> --from-literal=token-encryption-key=<my-garmin-token-encryption-key-here> --from-literal=token-encryption-keys=<my-garmin-token-encryption-key-ring-here>
+    ```
+
 ##### NextAuth Secret
 
     ```bash

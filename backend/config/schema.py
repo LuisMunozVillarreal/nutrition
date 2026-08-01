@@ -9,6 +9,7 @@ import jwt
 import strawberry
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.core.exceptions import ImproperlyConfigured
 from django.db import router
 from strawberry.types import Info
 
@@ -242,7 +243,7 @@ class GarminMutation:
             except GarminConnection.DoesNotExist:
                 return False
 
-            refresh_token = connection.refresh_token
+            raw_refresh_token = connection.refresh_token_encrypted
 
             connection.clear_tokens()
             connection.save(
@@ -262,8 +263,18 @@ class GarminMutation:
                 ],
             )
 
-        if refresh_token:
-            revoke_refresh_token(refresh_token)
+        if raw_refresh_token:
+            try:
+                refresh_token = GarminConnection._decrypt_value(
+                    raw_refresh_token
+                )
+            except (ImproperlyConfigured, ValueError):
+                refresh_token = ""
+            if refresh_token:
+                try:
+                    revoke_refresh_token(refresh_token)
+                except Exception:
+                    pass
 
         return True
 
@@ -297,7 +308,7 @@ def authenticated_user(context: Any) -> Any:
 
 
 def authenticated_bearer_user(context: Any) -> Any:
-    """Return only Bearer-authenticated user for sensitive Garmin operations."""
+    """Return bearer user for sensitive Garmin operations."""
     request = getattr(context, "request", context)
     if request is None:
         return None

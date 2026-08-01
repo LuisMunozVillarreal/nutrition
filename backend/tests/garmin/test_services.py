@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -10,7 +10,7 @@ import pytest
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, router
 from django.utils import timezone
 
 import apps.garmin.services as services
@@ -43,6 +43,16 @@ def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(
         settings, "GARMIN_CALLBACK_URL", "https://app.example.com/callback"
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_PROVIDER_ORIGINS",
+        ["https://garmin.example.com"],
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_CALLBACK_ALLOWED_ORIGINS",
+        ["https://app.example.com"],
     )
     monkeypatch.setattr(settings, "GARMIN_SCOPES", "read write")
     monkeypatch.setattr(settings, "GARMIN_REQUEST_TIMEOUT_SECONDS", 10)
@@ -113,9 +123,41 @@ def _connection_with_token(
             "access_token_expires_at",
             "provider_account_id",
             "provider_scopes",
+            "connection_generation",
         ]
     )
     return connection
+
+
+class _FakeStreamingResponse:
+    """Minimal streaming response shim for request-level byte-limit tests."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        chunks: list[bytes],
+        headers: dict[str, str] | None = None,
+        encoding: str = "utf-8",
+    ) -> None:
+        self.status_code = status_code
+        self._chunks = chunks
+        self.headers = headers or {}
+        self.encoding = encoding
+        self.closed = False
+
+    def iter_content(self, chunk_size: int = 1):  # noqa: ARG002
+        for chunk in self._chunks:
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> "_FakeStreamingResponse":
+        return self
+
+    def __exit__(self, *args) -> None:  # noqa: ARG002
+        self.close()
 
 
 def _activity_payload(
@@ -558,11 +600,238 @@ def test_sync_connection_rejects_ambiguous_day_matches(monkeypatch):
     summary = services.sync_connection(connection)
 
     assert summary == GarminSyncSummary(
-        imported=0,
+        imported=1,
         duplicates=0,
         unsupported=0,
-        invalid=1,
+        invalid=0,
     )
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="ambiguous-1",
+    )
+    assert activity.day is None
+    assert activity.exercise is None
+    assert activity.pending_reconciliation is True
+    assert activity.pending_reconciliation_reason == "ambiguous_day"
+
+
+def test_sync_connection_uses_locked_day_for_new_activity(monkeypatch):
+    """Cached candidate day metadata should not be used for writes."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-locked-day-service@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="locked-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: payloads,
+    )
+
+    captured: dict[str, object] = {}
+    using = router.db_for_write(services.GarminActivity)
+    manager = services.GarminActivity.objects.db_manager(using)
+    original_create = type(manager).create
+    original_lock_plan = services.lock_plan_aggregate_rows
+
+    def _track_lock(*, using: str, day_ids: tuple[int, ...], plan_ids=()):
+        locked = original_lock_plan(
+            using=using,
+            day_ids=day_ids,
+            plan_ids=plan_ids,
+        )
+        captured["locked_days"] = locked.days_by_pk
+        return locked
+
+    original_day_save = services.Day.save
+
+    def _track_day_save(instance: services.Day, *args, **kwargs):
+        captured["uses_locked_day"] = captured.get("uses_locked_day", []) + [
+            getattr(instance, "_plan_aggregate_locks", None) is not None
+        ]
+        return original_day_save(instance, *args, **kwargs)
+
+    def _track_create(*_self, **kwargs):
+        captured["activity_day"] = kwargs.get("day")
+        return original_create(manager, **kwargs)
+
+    monkeypatch.setattr(services, "lock_plan_aggregate_rows", _track_lock)
+    monkeypatch.setattr(type(manager), "create", _track_create)
+    monkeypatch.setattr(services.Day, "save", _track_day_save)
+
+    services.sync_connection(connection)
+
+    created_day = captured["activity_day"]
+    locked_days = captured["locked_days"]
+    assert isinstance(created_day, services.Day)
+    assert created_day is locked_days[day.pk]
+    assert captured.get("uses_locked_day")
+    assert all(captured["uses_locked_day"])
+
+
+def test_sync_connection_reconciles_moved_exercise_and_recomputes_days(
+    monkeypatch,
+):
+    """Date changes should move exercise and refresh both day states."""
+    _configure_garmin(monkeypatch)
+    user, source_day = _create_user_with_day("sync-move-exercise@example.com")
+    target_day = WeekPlan.objects.create(
+        user=user,
+        measurement=Measurement.objects.create(
+            user=user,
+            weight=Decimal("80.0"),
+            body_fat_perc=Decimal("20.0"),
+        ),
+        start_date=source_day.day + timedelta(days=3),
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    ).days.first()
+    assert target_day is not None
+    connection = _connection_with_token(user)
+    lock_calls: list[tuple[int, ...]] = []
+    original_lock_plan = services.lock_plan_aggregate_rows
+
+    def _track_lock(*, using: str, day_ids: tuple[int, ...], plan_ids=()):
+        lock_calls.append(tuple(sorted(day_ids)))
+        return original_lock_plan(
+            using=using,
+            day_ids=day_ids,
+            plan_ids=plan_ids,
+        )
+
+    monkeypatch.setattr(services, "lock_plan_aggregate_rows", _track_lock)
+
+    existing_exercise = services.Exercise.objects.create(
+        day=source_day,
+        time=time(9, 0),
+        type=services.Exercise.EXERCISE_CYCLE,
+        kcals=120,
+        duration=timedelta(minutes=30),
+        distance=Decimal("5.00"),
+    )
+    GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="move-1",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        day=source_day,
+        exercise=existing_exercise,
+        provider_local_started_date=source_day.day,
+        provider_local_started_time=time(9, 0),
+        provider_timezone_offset_minutes=0,
+        started_at=timezone.make_aware(
+            datetime.combine(source_day.day, time(9, 0))
+        ),
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.00"),
+    )
+
+    payloads = [
+        _activity_payload(
+            activity_id="move-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(target_day.day, time(9, 0))
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: payloads,
+    )
+
+    services.sync_connection(connection)
+
+    source_day.refresh_from_db()
+    target_day.refresh_from_db()
+    assert source_day.energy_kcal == Decimal("0.00")
+    assert target_day.energy_kcal == Decimal("0.00")
+    assert source_day.exercises.count() == 0
+    assert target_day.exercises.count() == 1
+
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="move-1",
+    )
+    assert activity.day_id == target_day.pk
+    assert activity.exercise is not None
+    assert activity.exercise.day_id == target_day.pk
+    assert tuple(sorted((source_day.pk, target_day.pk))) in lock_calls
+
+
+def test_sync_connection_ambiguous_day_reconciles_after_resolution(
+    monkeypatch,
+):
+    """Ambiguous matches recover after ambiguity resolves."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-ambiguous-recover@example.com")
+    connection = _connection_with_token(user)
+
+    second_measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80.0"),
+        body_fat_perc=Decimal("20.0"),
+    )
+    overlapping_plan = WeekPlan.objects.create(
+        user=user,
+        measurement=second_measurement,
+        start_date=day.day,
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+
+    payloads = [
+        _activity_payload(
+            activity_id="ambiguous-recover-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: payloads,
+    )
+
+    summary = services.sync_connection(connection)
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="ambiguous-recover-1",
+    )
+    assert activity.day is None
+    assert activity.exercise is None
+    assert activity.pending_reconciliation_reason == "ambiguous_day"
+    assert activity.pending_reconciliation is True
+
+    overlapping_plan.delete()
+
+    assert services.reconcile_pending_garmin_activities(connection) == 1
+
+    activity.refresh_from_db()
+    assert activity.pending_reconciliation is False
+    assert activity.day is not None
+    assert activity.day.day == day.day
+    assert activity.exercise is not None
 
 
 def test_sync_connection_quantizes_meters_before_validation(monkeypatch):
@@ -748,3 +1017,326 @@ def test_state_ttl_enforces_expiry(monkeypatch):
         GarminOAuthState.consume_for_user(
             user=user, raw_state="expired", provider="garmin"
         )
+
+
+def test_provider_config_rejects_unapproved_origin(monkeypatch):
+    """Provider endpoints must be in a configured HTTPS origin allowlist."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_AUTHORIZATION_URL",
+        "https://auth.evil.example.com/auth",
+    )
+
+    with pytest.raises(ValueError, match="unapproved origin"):
+        services._provider_config()
+
+
+def test_provider_config_rejects_fragment_and_credentials(monkeypatch):
+    """Provider callback URLs must not include credentials or fragment."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_TOKEN_URL",
+        "https://user:pass@garmin.example.com/token",
+    )
+
+    with pytest.raises(ValueError, match="credentials"):
+        services._provider_config()
+
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_TOKEN_URL",
+        "https://garmin.example.com/token#fragment",
+    )
+
+    with pytest.raises(ValueError, match="fragments"):
+        services._provider_config()
+
+
+def test_provider_config_rejects_revoke_url_outside_provider_origins(
+    monkeypatch,
+):
+    """Optional revoke URL also follows provider origin policy."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_REVOKE_TOKEN_URL",
+        "https://revoke.evil.example.com/revoke",
+    )
+
+    with pytest.raises(ValueError, match="unapproved origin"):
+        services._provider_config()
+
+
+def test_request_json_enforces_exact_boundary_and_streaming(monkeypatch):
+    """Streaming parser allows exact-boundary payloads and stream=True."""
+    _configure_garmin(monkeypatch)
+    captured: dict[str, object] = {}
+
+    payload = b'{"ok": true}'
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[payload],
+        headers={},
+    )
+
+    def _request(*_, **kwargs) -> _FakeStreamingResponse:
+        captured["stream"] = kwargs["stream"]
+        return fake_response
+
+    monkeypatch.setattr(services.requests, "request", _request)
+
+    result = services._request_json(
+        "GET",
+        "https://garmin.example.com/activities",
+        "activity fetch",
+        timeout=10.0,
+        max_response_bytes=len(payload),
+    )
+
+    assert captured["stream"] is True
+    assert result == {"ok": True}
+    assert fake_response.closed is True
+
+
+def test_request_json_rejects_chunked_payloads_over_limit(monkeypatch):
+    """Chunked bodies beyond the byte limit should be rejected quickly."""
+    _configure_garmin(monkeypatch)
+    payload = b'{"ok": "x"}'
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[payload[:4], payload[4:]],
+        headers={},
+    )
+
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    with pytest.raises(ValueError, match="exceeded limit"):
+        services._request_json(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=3,
+        )
+    assert fake_response.closed is True
+
+
+def test_request_json_rejects_invalid_content_length(monkeypatch):
+    """Invalid content-length headers should fail before parsing."""
+    _configure_garmin(monkeypatch)
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b'{"ok": true}'],
+        headers={"Content-Length": "n/a"},
+    )
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    with pytest.raises(ValueError, match="invalid content length"):
+        services._request_json(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+    assert fake_response.closed is True
+
+
+def test_request_json_exact_boundary_payload_is_accepted(monkeypatch):
+    """An exact-boundary body should be parsed without truncation."""
+    _configure_garmin(monkeypatch)
+    payload = b'{"ok": true}'
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[payload[:4], payload[4:]],
+        headers={"Content-Length": str(len(payload))},
+    )
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    result = services._request_json(
+        "GET",
+        "https://garmin.example.com/activities",
+        "activity fetch",
+        timeout=10.0,
+        max_response_bytes=len(payload),
+    )
+
+    assert result == {"ok": True}
+    assert fake_response.closed is True
+
+
+def test_sync_connection_retries_fetch_with_forced_refresh_on_unauthorized(
+    monkeypatch,
+):
+    """401 responses must trigger a forced token refresh before retrying."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-401-refresh@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="authorized-after-refresh",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+
+    attempts: dict[str, int] = {"fetch": 0}
+
+    def _iter(token: str, *_, **__) -> list[dict[str, object]]:
+        attempts["fetch"] += 1
+        if attempts["fetch"] == 1:
+            raise ValueError("Garmin activity fetch unauthorized")
+        if token != "refreshed-access":
+            raise ValueError("Garmin activity fetch unauthorized")
+        return payloads
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+
+    refresh_calls = {"count": 0}
+
+    def _refresh(_connection) -> services.GarminTokenPair:
+        refresh_calls["count"] += 1
+        return services.GarminTokenPair(
+            access_token="refreshed-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    summary = services.sync_connection(connection)
+
+    assert attempts["fetch"] == 2
+    assert refresh_calls["count"] == 1
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+
+
+def test_sync_connection_rejects_generation_change_before_import(monkeypatch):
+    """Do not overwrite expected generation before remote fetch."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-generation-account@example.com")
+    connection = _connection_with_token(user)
+    connection.access_token_expires_at = timezone.now() - timedelta(hours=1)
+    connection.save(update_fields=["access_token_expires_at"])
+
+    payloads = [
+        _activity_payload(
+            activity_id="generated-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+
+    def _refresh(_connection) -> services.GarminTokenPair:
+        return services.GarminTokenPair(
+            access_token="refreshed-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id=None,
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    def _iter(*_, **__) -> list[dict[str, object]]:
+        stale = GarminConnection.objects.get(pk=connection.pk)
+        stale.provider_account_id = "rotated-account"
+        stale.connection_generation += 1
+        stale.save(
+            update_fields=["provider_account_id", "connection_generation"]
+        )
+        return payloads
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin connection state changed during sync",
+    ):
+        services.sync_connection(connection)
+
+    assert (
+        GarminActivity.objects.filter(
+            connection=connection, provider_activity_id="generated-1"
+        ).count()
+        == 0
+    )
+
+
+def test_token_refresh_does_not_clear_last_sync_state_on_failed_import(
+    monkeypatch,
+):
+    """Preserve sync metadata until a successful import writes new values."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("sync-preserve-metadata@example.com")
+    connection = _connection_with_token(user)
+    baseline = timezone.now() - timedelta(hours=1)
+    connection.last_synced_at = baseline
+    connection.last_sync_summary = {
+        "imported": 3,
+        "duplicates": 1,
+        "unsupported": 1,
+        "invalid": 0,
+    }
+    connection.access_token_expires_at = timezone.now() - timedelta(hours=1)
+    connection.save(
+        update_fields=[
+            "last_synced_at",
+            "last_sync_summary",
+            "access_token_expires_at",
+        ]
+    )
+
+    def _refresh(_connection) -> services.GarminTokenPair:
+        return services.GarminTokenPair(
+            access_token="refreshed-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    def _iter(*_, **__) -> list[dict[str, object]]:
+        raise ValueError("broken")
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+
+    with pytest.raises(ValueError, match="broken"):
+        services.sync_connection(connection)
+
+    connection.refresh_from_db()
+    assert connection.last_synced_at == baseline
+    assert connection.last_sync_summary == {
+        "imported": 3,
+        "duplicates": 1,
+        "unsupported": 1,
+        "invalid": 0,
+    }
