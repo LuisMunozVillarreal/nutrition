@@ -13,7 +13,9 @@ def test_backend_docker_release_target_orders_contract_before_push():
         makefile,
         flags=re.MULTILINE,
     )
-    assert match, "Expected docker-build-contract-tag-push target in backend/Makefile."
+    assert (
+        match
+    ), "Expected docker-build-contract-tag-push target in backend/Makefile."
 
     commands = match.group("body").splitlines()
     body_text = "\n".join(commands)
@@ -23,7 +25,9 @@ def test_backend_docker_release_target_orders_contract_before_push():
     push = body_text.index("docker-push")
     assert build < contract < tag < push
 
-    circleci_config = (repo_root / ".circleci" / "config.yml").read_text(encoding="utf-8")
+    circleci_config = (repo_root / ".circleci" / "config.yml").read_text(
+        encoding="utf-8"
+    )
     assert (
         "make docker-build-contract-tag-push" in circleci_config
     ), "Expected CircleCI backend job to use the contract-aware docker target."
