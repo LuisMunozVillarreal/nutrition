@@ -18,14 +18,12 @@ def _run(
 ) -> int:
     """Write temporary inputs and run the audit parser CLI.
 
-    Args:
-        tmp_path: Temporary directory fixture path.
-        report: JSON payload to write into the temporary report file.
-        allowlist: List of waiver identifiers.
-        exit_code: Simulated `npm audit` exit code.
+    :param tmp_path: Temporary directory fixture path.
+    :param report: JSON payload to write into the temporary report file.
+    :param allowlist: List of waiver identifiers.
+    :param exit_code: Simulated `npm audit` exit code.
 
-    Returns:
-        The parser CLI exit status.
+    :return: The parser CLI exit status.
     """
     report_path = tmp_path / "npm-audit-report.json"
     allowlist_path = tmp_path / "allowlist.txt"
@@ -93,8 +91,14 @@ def test_clean_report_passes(tmp_path: Path) -> None:
         raise AssertionError("Expected audit exit code 0")
 
 
-def test_clean_report_non_vulnerability_failure_status_fails(tmp_path: Path) -> None:
-    """A clean report with non-vulnerability exit code must still fail."""
+def test_clean_report_non_vulnerability_failure_status_fails(
+    tmp_path: Path,
+) -> None:
+    """A clean report with non-vulnerability exit code must still fail.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
     exit_code = _run(
         tmp_path,
         {
