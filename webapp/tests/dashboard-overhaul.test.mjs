@@ -5,6 +5,8 @@ import test from 'node:test'
 import {
   buildTrendCoordinates,
   buildWeightTrendSeries,
+  describeWeightTrendChange,
+  millisecondsUntilNextLocalDay,
   normalizeDateForComparison,
 } from '../src/components/dashboardHelpers.ts'
 
@@ -58,6 +60,15 @@ test('measurement dates use the local calendar date across midnight offsets', ()
   assert.equal(normalizeDateForComparison('2026-02-03'), '2026-02-03')
 })
 
+test('dashboard refresh helpers handle midnight rollover and flat trends', () => {
+  const thirtySecondsBeforeMidnight = new Date(2026, 1, 3, 23, 59, 30)
+
+  assert.equal(millisecondsUntilNextLocalDay(thirtySecondsBeforeMidnight), 30_000)
+  assert.equal(describeWeightTrendChange(0), 'unchanged')
+  assert.equal(describeWeightTrendChange(0.4), 'up 0.4 kilograms')
+  assert.equal(describeWeightTrendChange(-0.4), 'down 0.4 kilograms')
+})
+
 test('dashboard query and actions include required data shape and remove hydration placeholder', async () => {
   const dashboardSource = await readFile(
     new URL('../src/components/Dashboard.tsx', import.meta.url),
@@ -79,6 +90,8 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /role="progressbar"/)
   assert.match(dashboardSource, /aria-valuetext=/)
   assert.match(dashboardSource, /key=\{point\.id\}/)
+  assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
+  assert.match(dashboardSource, /visibilitychange/)
   assert.doesNotMatch(dashboardSource, /Hydration/)
   assert.doesNotMatch(dashboardSource, /Measurement logging.*unavailable/i)
 })
