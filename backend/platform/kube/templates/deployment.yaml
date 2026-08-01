@@ -43,16 +43,16 @@ spec:
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /admin/login/
+              path: /healthz/
               port: 9000
             initialDelaySeconds: 15
           readinessProbe:
             httpGet:
-              path: /admin/login/
+              path: /healthz/
               port: 9000
           startupProbe:
             httpGet:
-              path: /admin/login/
+              path: /healthz/
               port: 9000
             initialDelaySeconds: 15
             failureThreshold: 600

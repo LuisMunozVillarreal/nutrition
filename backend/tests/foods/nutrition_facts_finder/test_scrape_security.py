@@ -1,12 +1,20 @@
 """Tests for nutrition URL scraper hardening."""
 
 import socket
+import time
 
 import pytest
+import requests
+from requests.adapters import HTTPAdapter
 
 from apps.foods.nutrition_facts_finder import (
     MAX_RESPONSE_BYTES,
+    _build_scraper_session,
+    _follow_redirects,
+    _resolve_redirect_url,
     _response_bytes,
+    _ScraperHTTPSAdapter,
+    _validate_url,
     get_product_nutritional_info_from_url,
 )
 
@@ -256,21 +264,241 @@ def test_scrape_rejects_oversized_body(monkeypatch, requests_mock):
         )
 
 
+def test_validate_url_preserves_query_and_drops_fragment(monkeypatch):
+    """Query values are kept while fragments are stripped from requests."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"public.example.com"},
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+
+    sanitized_url, host, ip = _validate_url(
+        "https://public.example.com/page?foo=bar&baz=1#ignored"
+    )
+
+    assert host == "public.example.com"
+    assert ip == "93.184.216.34"
+    assert sanitized_url == "https://public.example.com/page?foo=bar&baz=1"
+
+
+def test_resolve_redirect_url_preserves_query_and_drops_fragment(monkeypatch):
+    """Redirect URLs are resolved with the same query rules as initial URLs."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+
+    normalized_url, host, ip = _resolve_redirect_url(
+        "https://good.example.com/page?foo=bar",
+        "/next?query=1#ignored",
+        "good.example.com",
+    )
+
+    assert host == "good.example.com"
+    assert ip == "93.184.216.34"
+    assert normalized_url == "https://good.example.com/next?query=1"
+
+
+def test_follow_redirect_preserves_query_between_hops(
+    monkeypatch, requests_mock
+):
+    """Redirects should keep query parameters from redirect targets."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+
+    requests_mock.get(
+        "https://good.example.com/start?query=first#ignored",
+        status_code=302,
+        headers={"Location": "/next?query=second#ignored"},
+    )
+    requests_mock.get(
+        "https://good.example.com/next?query=second",
+        status_code=200,
+        headers={"Content-Type": "text/html"},
+        text="<html><body>ok</body></html>",
+    )
+
+    html = _follow_redirects(
+        "https://good.example.com/start?query=first#ignored"
+    )
+
+    assert html == b"<html><body>ok</body></html>"
+    assert requests_mock.call_count == 2
+    assert (
+        requests_mock.request_history[0].url
+        == "https://good.example.com/start?query=first"
+    )
+    assert (
+        requests_mock.request_history[1].url
+        == "https://good.example.com/next?query=second"
+    )
+
+
+def test_dns_rebinding_is_blocked_by_single_hop_resolution(
+    monkeypatch, requests_mock
+):
+    """Resolver is called once per hop; transport does not re-resolve.
+
+    The adapter receives selected IPs from _validate_url validation.
+    """
+    calls: list[str] = []
+
+    def rebinding_lookup(*args: object, **kwargs: object):
+        host = args[0]
+        calls.append(str(host))
+        if len(calls) > 1:
+            raise AssertionError("DNS lookup called more than once per hop")
+        return _public_addrinfo()
+
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        rebinding_lookup,
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    requests_mock.get(
+        "https://good.example.com/page",
+        status_code=200,
+        headers={"Content-Type": "text/html"},
+        text="<html><body>ok</body></html>",
+    )
+
+    payload = _follow_redirects(
+        "https://good.example.com/page#ignored-fragment"
+    )
+
+    assert payload == b"<html><body>ok</body></html>"
+    assert calls == ["good.example.com"]
+
+
+def test_scraper_adapter_uses_resolved_ip_and_preserves_tls_hostname(
+    monkeypatch,
+):
+    """Adapter connects by resolved IP while still validating TLS for the host."""
+    adapter = _ScraperHTTPSAdapter({"good.example.com": "203.0.113.10"})
+    request = requests.Request(
+        "GET", "https://good.example.com/page?x=1#frag"
+    ).prepare()
+
+    captures: dict[str, object] = {}
+
+    def fake_build_pool_keys(self, prepared_request, verify, cert=None):
+        captures["verify"] = verify
+        captures["cert"] = cert
+        return (
+            {
+                "host": "should-be-overwritten",
+                "port": 443,
+            },
+            {},
+        )
+
+    def fake_connection_from_host(**kwargs):
+        captures["pool_kwargs"] = kwargs["pool_kwargs"]
+        captures["connection_host"] = kwargs["host"]
+        captures["connection_port"] = kwargs["port"]
+        return object()
+
+    monkeypatch.setattr(
+        HTTPAdapter,
+        "build_connection_pool_key_attributes",
+        fake_build_pool_keys,
+    )
+    monkeypatch.setattr(
+        adapter.poolmanager,
+        "connection_from_host",
+        fake_connection_from_host,
+    )
+
+    adapter.get_connection_with_tls_context(
+        request,
+        verify=True,
+        proxies={"https": "http://bad-proxy.example"},
+        cert=None,
+    )
+
+    assert captures["connection_host"] == "203.0.113.10"
+    assert captures["connection_port"] == 443
+    assert captures["pool_kwargs"]["assert_hostname"] == "good.example.com"
+    assert captures["pool_kwargs"]["server_hostname"] == "good.example.com"
+
+
+def test_scraper_session_disables_environment_proxies():
+    """Scraper sessions do not read proxy settings from process environment."""
+    session = _build_scraper_session({"good.example.com": "203.0.113.11"})
+
+    assert session.trust_env is False
+
+
 class _ChunkedResponse:
     """Fake response object without content length headers."""
 
-    def __init__(self, body: bytes, content_type: str = "text/html") -> None:
+    def __init__(
+        self,
+        chunks: list[bytes],
+        clock: "MonotonicClock",
+        content_type: str = "text/html",
+    ) -> None:
         self.headers = {"Content-Type": content_type}
-        self._body = body
+        self._chunks = chunks
+        self._clock = clock
 
     def iter_content(self, _chunk_size: int = 1):
-        """Yield response chunks exactly as iter_content would."""
-        yield self._body
+        """Yield response chunks with simulated delays."""
+        for index, chunk in enumerate(self._chunks):
+            if index > 0:
+                self._clock.advance(0.6)
+            yield chunk
+
+
+class MonotonicClock:
+    """Deterministic monotonic-clock shim for timeout regressions."""
+
+    def __init__(self, start: float = 0.0) -> None:
+        self._time = start
+
+    def __call__(self) -> float:
+        return self._time
+
+    def advance(self, seconds: float) -> None:
+        """Advance the synthetic monotonic clock by a fixed interval."""
+        self._time += seconds
+
+
+def test_response_bytes_respects_total_deadline_with_slow_chunks(monkeypatch):
+    """Simulated slow chunking must honor the absolute monotonic fetch timeout."""
+    clock = MonotonicClock()
+    response = _ChunkedResponse([b"chunk-1", b"chunk-2"], clock)
+
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.time.monotonic",
+        clock,
+    )
+
+    with pytest.raises(ValueError, match="Fetch exceeded total time budget"):
+        _response_bytes(response, deadline=0.5)
 
 
 def test_scrape_rejects_oversized_streamed_body():
     """Streaming responses are bounded by MAX_RESPONSE_BYTES."""
-    response = _ChunkedResponse(b"x" * (MAX_RESPONSE_BYTES + 1))
+    response = _ChunkedResponse(
+        [b"x" * (MAX_RESPONSE_BYTES + 1)], MonotonicClock()
+    )
 
     with pytest.raises(ValueError, match="Response exceeded"):
-        _response_bytes(response)
+        _response_bytes(response, deadline=time.monotonic() + 5)
