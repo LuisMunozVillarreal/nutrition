@@ -40,8 +40,8 @@ if grep -Eq "\\bsudo\\b" "$DOCKERFILE_PATH"; then
 fi
 
 RUNTIME_CHECK="$(
-  docker run --rm --entrypoint /bin/bash "$IMAGE" -lc '
-    set -euo pipefail
+  docker run --rm --entrypoint /bin/sh "$IMAGE" -lc '
+    set -eu
 
     if [ "$(id -u)" -eq 0 ]; then
       echo "runtime user is root" >&2
