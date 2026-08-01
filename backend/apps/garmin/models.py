@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import models, router, transaction
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
 from apps.libs.basemodel import BaseModel
@@ -111,6 +112,24 @@ class GarminConnection(BaseModel):
     def __str__(self) -> str:
         """Return a non-sensitive connection label."""
         return f"Garmin connection for {self.user_id}"
+
+    def delete(
+        self,
+        using: str | None = None,
+        keep_parents: bool = False,
+    ) -> NoReturn:
+        """Prohibit direct deletion; callers must disconnect or delete the owner.
+
+        User deletion still uses Django's cascade collector and therefore removes
+        the connection together with all of the user's plans and exercises.
+
+        Raises:
+            ProtectedError: Always, to preserve provider provenance and exercises.
+        """
+        raise ProtectedError(
+            "Garmin connections cannot be deleted directly. Disconnect Garmin instead.",
+            {self},
+        )
 
     @property
     def is_active(self) -> bool:

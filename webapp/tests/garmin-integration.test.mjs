@@ -40,6 +40,7 @@ const garminSchema = buildSchema(`
 
   type Mutation {
     beginGarminAuthorization: GarminAuthStart!
+    cancelGarminAuthorization(state: String!): Boolean!
     completeGarminAuthorization(code: String!, state: String!): GarminStatus!
     disconnectGarmin: Boolean!
   }
@@ -50,8 +51,9 @@ const garminSchema = buildSchema(`
   }
 `)
 
-test('Garmin callback parser validates success, duplicates, and provider errors', async () => {
+test('Garmin callback parser validates state-bound provider errors and safe messages', async () => {
   const {
+    garminProviderErrorMessage,
     parseGarminCallbackParams,
   } = await import('../src/lib/garminCallback.ts')
 
@@ -63,15 +65,40 @@ test('Garmin callback parser validates success, duplicates, and provider errors'
   assert.deepEqual(
     parseGarminCallbackParams(
       new URLSearchParams(
-        'error=access_denied&error_description=User%20cancelled',
+        'error=access_denied&error_description=User%20cancelled&state=state-2',
       ),
     ),
     {
       kind: 'providerError',
       error: 'access_denied',
-      errorDescription: 'User cancelled',
+      state: 'state-2',
     },
   )
+
+  assert.equal(
+    garminProviderErrorMessage('access_denied'),
+    'Garmin sign-in was cancelled.',
+  )
+  assert.equal(
+    garminProviderErrorMessage('provider_internal_failure'),
+    'Garmin sign-in failed. Please try again.',
+  )
+  assert.equal(
+    garminProviderErrorMessage('<script>untrusted provider text</script>'),
+    'Garmin sign-in failed. Please try again.',
+  )
+
+  for (const query of [
+    'error=access_denied',
+    'error=access_denied&state=',
+    'error=access_denied&state=one&state=two',
+    'error=access_denied&state=one&code=unexpected',
+  ]) {
+    assert.equal(
+      parseGarminCallbackParams(new URLSearchParams(query)).kind,
+      'invalid',
+    )
+  }
 
   assert.deepEqual(
     parseGarminCallbackParams(new URLSearchParams('code=a&code=b&state=single')),
@@ -133,7 +160,7 @@ test('Garmin callback handoff scrubs OAuth values and resumes exactly once', asy
   assert.equal(consumeGarminCallbackHandoff(storage, 1_002).kind, 'invalid')
 })
 
-test('Garmin callback handoff scrubs provider errors and rejects expired or malformed state', async () => {
+test('Garmin callback handoff scrubs state-bound provider errors exactly once', async () => {
   const {
     GARMIN_CALLBACK_HANDOFF_MAX_AGE_MS,
     captureGarminCallbackHandoff,
@@ -142,7 +169,7 @@ test('Garmin callback handoff scrubs provider errors and rejects expired or malf
   const storage = memoryStorage()
   const history = {
     state: null,
-    url: '/settings/garmin-callback?error=access_denied&error_description=cancelled',
+    url: '/settings/garmin-callback?error=access_denied&error_description=cancelled&state=provider-error-state',
     replaceState(state, _unused, url) {
       this.state = state
       this.url = url
@@ -151,7 +178,9 @@ test('Garmin callback handoff scrubs provider errors and rejects expired or malf
 
   captureGarminCallbackHandoff(
     '/settings/garmin-callback',
-    new URLSearchParams('error=access_denied&error_description=cancelled'),
+    new URLSearchParams(
+      'error=access_denied&error_description=cancelled&state=provider-error-state',
+    ),
     storage,
     history,
     5_000,
@@ -160,8 +189,9 @@ test('Garmin callback handoff scrubs provider errors and rejects expired or malf
   assert.deepEqual(consumeGarminCallbackHandoff(storage, 5_001), {
     kind: 'providerError',
     error: 'access_denied',
-    errorDescription: 'cancelled',
+    state: 'provider-error-state',
   })
+  assert.equal(consumeGarminCallbackHandoff(storage, 5_002).kind, 'invalid')
 
   captureGarminCallbackHandoff(
     '/settings/garmin-callback',
@@ -195,6 +225,24 @@ test('Garmin callback flow uses only tab-local handoff storage', async () => {
   assert.doesNotMatch(handoffSource, /localStorage|document\.cookie|console\./)
   assert.match(callbackSource, /consumeGarminCallbackHandoff\(window\.sessionStorage\)/)
   assert.doesNotMatch(callbackSource, /parseGarminCallbackParams\(searchParams\)/)
+  assert.match(callbackSource, /if \(parsed\.kind === 'providerError'\)/)
+  assert.match(
+    callbackSource,
+    /await graphqlRequest\(CANCEL_GARMIN_AUTHORIZATION_MUTATION, \{[\s\S]*state: parsed\.state/,
+  )
+  assert.match(
+    callbackSource,
+    /setError\(garminProviderErrorMessage\(parsed\.error\)\)/,
+  )
+  assert.ok(
+    callbackSource.indexOf(
+      'await graphqlRequest(CANCEL_GARMIN_AUTHORIZATION_MUTATION',
+    ) < callbackSource.indexOf(
+      'setError(garminProviderErrorMessage(parsed.error))',
+    ),
+    'provider-safe errors must render only after cancellation is attempted',
+  )
+  assert.doesNotMatch(callbackSource, /errorDescription|error_description|console\./)
 })
 
 test('Garmin GraphQL documents match backend schema contracts', async () => {
@@ -210,22 +258,29 @@ test('Garmin GraphQL documents match backend schema contracts', async () => {
     '../src/app/settings/garmin-callback/page.tsx',
     'COMPLETE_GARMIN_AUTHORIZATION_MUTATION',
   )
+  const cancelMutation = await readOperation(
+    '../src/app/settings/garmin-callback/page.tsx',
+    'CANCEL_GARMIN_AUTHORIZATION_MUTATION',
+  )
   const disconnectMutation = await readOperation(
     '../src/components/GarminConnect.tsx',
     'DISCONNECT_GARMIN_MUTATION',
   )
   assert.equal(beginMutation.includes('beginGarminAuthorization'), true)
   assert.equal(completeMutation.includes('completeGarminAuthorization'), true)
+  assert.equal(cancelMutation.includes('cancelGarminAuthorization'), true)
   assert.equal(disconnectMutation.includes('disconnectGarmin'), true)
 
   const beginValidation = validate(garminSchema, parse(beginMutation))
   const completeValidation = validate(garminSchema, parse(completeMutation))
+  const cancelValidation = validate(garminSchema, parse(cancelMutation))
   const disconnectValidation = validate(
     garminSchema,
     parse(disconnectMutation),
   )
   assert.deepEqual(beginValidation.map((error) => error.message), [])
   assert.deepEqual(completeValidation.map((error) => error.message), [])
+  assert.deepEqual(cancelValidation.map((error) => error.message), [])
   assert.deepEqual(disconnectValidation.map((error) => error.message), [])
 
   assert.match(statusQuery, /query GarminSettingsStatusQuery/)

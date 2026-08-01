@@ -355,14 +355,19 @@ def _request_json(
 
         chunks: list[bytes] = []
         total_bytes = 0
-        for chunk in response.iter_content(chunk_size=1024):
-            if not chunk:
-                continue
+        try:
+            for chunk in response.iter_content(chunk_size=1024):
+                if not chunk:
+                    continue
 
-            total_bytes += len(chunk)
-            if total_bytes > max_response_bytes:
-                raise ValueError(f"Garmin {operation} response exceeded limit")
-            chunks.append(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > max_response_bytes:
+                    raise ValueError(
+                        f"Garmin {operation} response exceeded limit"
+                    )
+                chunks.append(chunk)
+        except requests.RequestException as exc:
+            raise ValueError(f"Garmin {operation} failed") from exc
 
         payload_bytes = b"".join(chunks)
         try:
@@ -426,14 +431,19 @@ def _request_json_with_size(
 
         chunks: list[bytes] = []
         total_bytes = 0
-        for chunk in response.iter_content(chunk_size=1024):
-            if not chunk:
-                continue
+        try:
+            for chunk in response.iter_content(chunk_size=1024):
+                if not chunk:
+                    continue
 
-            total_bytes += len(chunk)
-            if total_bytes > max_response_bytes:
-                raise ValueError(f"Garmin {operation} response exceeded limit")
-            chunks.append(chunk)
+                total_bytes += len(chunk)
+                if total_bytes > max_response_bytes:
+                    raise ValueError(
+                        f"Garmin {operation} response exceeded limit"
+                    )
+                chunks.append(chunk)
+        except requests.RequestException as exc:
+            raise ValueError(f"Garmin {operation} failed") from exc
 
         payload_bytes = b"".join(chunks)
         try:
@@ -1104,7 +1114,10 @@ def _iter_activity_payloads(
 
 
 def _token_request_payload(
-    payload: dict[str, str], config: dict[str, Any]
+    payload: dict[str, str],
+    config: dict[str, Any],
+    *,
+    require_refresh_token: bool = False,
 ) -> GarminTokenPair:
     response = _request_json(
         "POST",
@@ -1115,10 +1128,17 @@ def _token_request_payload(
         headers={"Accept": "application/json"},
         data=payload,
     )
-    return _parse_token_payload(response)
+    return _parse_token_payload(
+        response,
+        require_refresh_token=require_refresh_token,
+    )
 
 
-def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
+def _parse_token_payload(
+    payload: dict[str, object],
+    *,
+    require_refresh_token: bool = False,
+) -> GarminTokenPair:
     access_token = payload.get("access_token")
     if not isinstance(access_token, str) or not access_token:
         raise ValueError("Garmin token response has invalid access_token")
@@ -1149,12 +1169,14 @@ def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
     if max_ttl > 0 and int(expires_in_float) > max_ttl:
         raise ValueError("Garmin token response has invalid expires_in")
 
-    refresh_token = payload.get("refresh_token")
-    refresh_token_value = (
-        str(refresh_token)
-        if isinstance(refresh_token, str) and refresh_token
-        else None
-    )
+    refresh_token_value = None
+    if "refresh_token" in payload:
+        refresh_token = payload["refresh_token"]
+        if not isinstance(refresh_token, str) or not refresh_token:
+            raise ValueError("Garmin token response has invalid refresh_token")
+        refresh_token_value = refresh_token
+    elif require_refresh_token:
+        raise ValueError("Garmin token response has invalid refresh_token")
 
     scope = payload.get("scope")
     scope_value = str(scope) if isinstance(scope, str) else None
@@ -1244,6 +1266,7 @@ def exchange_code_for_tokens(code: str) -> GarminTokenPair:
             "client_secret": config["client_secret"],
         },
         config,
+        require_refresh_token=True,
     )
 
 

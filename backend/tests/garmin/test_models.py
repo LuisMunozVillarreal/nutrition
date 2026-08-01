@@ -1,16 +1,25 @@
 """Garmin model persistence and crypto/state tests."""
 
-from datetime import timedelta
+from datetime import date, time, timedelta
+from decimal import Decimal
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
-from apps.garmin.models import GarminConnection, GarminOAuthState
+from apps.exercises.models import Exercise
+from apps.garmin.models import (
+    GarminActivity,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.garmin.services import GarminTokenPair
+from apps.measurements.models import Measurement
+from apps.plans.models import Day, WeekPlan
 
 User = get_user_model()
 
@@ -31,6 +40,89 @@ def _create_user(email: str):
         date_of_birth="2000-01-01",
         height=170.0,
     )
+
+
+def _create_user_with_day(email: str):
+    user = _create_user(email)
+    measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80.0"),
+        body_fat_perc=Decimal("20.0"),
+    )
+    plan = WeekPlan.objects.create(
+        user=user,
+        measurement=measurement,
+        start_date=date.today(),
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+    day = Day.objects.filter(plan=plan).first()
+    assert day is not None
+    return user, day
+
+
+def _create_provider_activity(connection, day):
+    exercise = Exercise.objects.create(
+        day=day,
+        time=time(9),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=100,
+        duration=timedelta(minutes=20),
+        distance=Decimal("5.00"),
+    )
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="deletion-boundary",
+        provider_activity_type="cycle",
+        day=day,
+        exercise=exercise,
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=1200,
+        distance=Decimal("5.00"),
+    )
+    return activity, exercise
+
+
+def test_direct_connection_delete_is_protected_from_orphaning_provider_data():
+    """Deleting a connection directly must preserve its provenance and exercise."""
+    user, day = _create_user_with_day(
+        "connection-delete-protected@example.com"
+    )
+    connection = GarminConnection.objects.create(user=user)
+    activity, exercise = _create_provider_activity(connection, day)
+
+    with pytest.raises(ProtectedError, match="Disconnect Garmin instead"):
+        connection.delete()
+
+    assert GarminConnection.objects.filter(pk=connection.pk).exists()
+    assert GarminActivity.objects.filter(pk=activity.pk).exists()
+    assert Exercise.objects.filter(pk=exercise.pk).exists()
+
+
+def test_user_delete_cascades_connection_and_provider_data_without_cross_user_loss():
+    """Account deletion remains complete while unrelated users remain untouched."""
+    user, day = _create_user_with_day("connection-user-cascade@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    activity, exercise = _create_provider_activity(connection, day)
+    other_user, other_day = _create_user_with_day(
+        "connection-user-cascade-other@example.com"
+    )
+    other_exercise = Exercise.objects.create(
+        day=other_day,
+        time=time(10),
+        type=Exercise.EXERCISE_WALK,
+        kcals=50,
+    )
+
+    user.delete()
+
+    assert not GarminConnection.objects.filter(pk=connection.pk).exists()
+    assert not GarminActivity.objects.filter(pk=activity.pk).exists()
+    assert not Exercise.objects.filter(pk=exercise.pk).exists()
+    assert User.objects.filter(pk=other_user.pk).exists()
+    assert Exercise.objects.filter(pk=other_exercise.pk).exists()
 
 
 def test_state_hash_is_sha256_hex_and_owner_bound(monkeypatch):

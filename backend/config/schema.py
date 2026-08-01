@@ -191,6 +191,29 @@ class GarminMutation:
         )
 
     @strawberry.mutation
+    def cancel_garmin_authorization(self, info: Info, state: str) -> bool:
+        """Consume a provider-error callback state without token exchange."""
+        user = authenticated_bearer_user(info.context)
+        if user is None:
+            raise PermissionError("Authentication required")
+
+        error_message = "OAuth state is invalid or expired"
+        if not state:
+            raise ValueError(error_message)
+
+        using = router.db_for_write(GarminOAuthState, instance=user)
+        try:
+            GarminOAuthState.consume_for_user(
+                user=user,
+                raw_state=state,
+                provider=GARMIN_PROVIDER,
+                using=using,
+            )
+        except (GarminOAuthState.DoesNotExist, ValueError) as exc:
+            raise ValueError(error_message) from exc
+        return True
+
+    @strawberry.mutation
     def complete_garmin_authorization(
         self,
         info: Info,
@@ -274,7 +297,10 @@ class GarminMutation:
                     and not placeholder.last_sync_summary
                     and not placeholder.activities.exists()
                 ):
-                    placeholder.delete(using=using)
+                    GarminConnection.objects.using(using).filter(
+                        pk=placeholder.pk,
+                        authorization_placeholder=True,
+                    ).delete()
             raise ValueError(
                 "Garmin connection state changed during authorization"
             ) from exc

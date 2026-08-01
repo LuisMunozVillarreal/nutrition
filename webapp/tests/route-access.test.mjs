@@ -111,24 +111,32 @@ test('backend reauthentication gates rolling sessions without creating a login l
 
 test('expired Garmin callbacks redirect through login without OAuth parameters', async () => {
   const { buildCallbackPath, decideRouteAccess } = await routePolicy()
-  const callbackPath = buildCallbackPath(
-    '/settings/garmin-callback',
+  for (const encodedQuery of [
     'code=one-time-code&state=one-time-state',
-  )
+    'error=access_denied&error_description=private-detail&state=one-time-state',
+  ]) {
+    const callbackPath = buildCallbackPath(
+      '/settings/garmin-callback',
+      encodedQuery,
+    )
 
-  assert.equal(callbackPath, '/settings/garmin-callback')
-  const decision = decideRouteAccess(
-    '/settings/garmin-callback',
-    'authenticated',
-    false,
-    callbackPath,
-    true,
-  )
-  assert.deepEqual(decision, {
-    kind: 'redirect',
-    destination: '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
-  })
-  assert.doesNotMatch(decision.destination, /one-time-(?:code|state)/)
+    assert.equal(callbackPath, '/settings/garmin-callback')
+    const decision = decideRouteAccess(
+      '/settings/garmin-callback',
+      'authenticated',
+      false,
+      callbackPath,
+      true,
+    )
+    assert.deepEqual(decision, {
+      kind: 'redirect',
+      destination: '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
+    })
+    assert.doesNotMatch(
+      decision.destination,
+      /one-time-(?:code|state)|access_denied|private-detail/,
+    )
+  }
 })
 
 test('login and public landing routes remain available without a session', async () => {

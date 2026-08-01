@@ -6,11 +6,14 @@ import io
 import json
 
 import pytest
+import requests
 from django.contrib.auth import get_user_model
 from django.core.management.base import CommandError
 
+import apps.garmin.services as services
 from apps.garmin.management.commands.sync_garmin import Command
 from apps.garmin.models import GarminConnection
+from apps.garmin.services import GarminSyncSummary
 
 User = get_user_model()
 
@@ -371,3 +374,66 @@ def test_sync_command_ignores_active_rows_without_usable_credentials(
 
     assert json.loads(output.getvalue()) == []
     assert calls == []
+
+
+def test_sync_command_contains_midstream_failure_and_continues(monkeypatch):
+    """A redacted streaming failure must not prevent a later connection sync."""
+    first_user = _create_user("command-stream-first@example.com")
+    second_user = _create_user("command-stream-second@example.com")
+    first = _usable_connection(first_user)
+    second = _usable_connection(second_user)
+
+    class MidstreamFailureResponse:
+        status_code = 200
+        headers = {}
+        encoding = "utf-8"
+        closed = False
+
+        def iter_content(self, chunk_size=1):  # noqa: ARG002
+            yield b'{"activities":'
+            raise requests.exceptions.ChunkedEncodingError(
+                "bearer-secret https://garmin.example.com/activities"
+            )
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):  # noqa: ARG002
+            self.close()
+
+    response = MidstreamFailureResponse()
+    monkeypatch.setattr(requests, "request", lambda *_, **__: response)
+
+    def _sync(connection):
+        if connection.pk == first.pk:
+            services._request_json_with_size(
+                "GET",
+                "https://garmin.example.com/activities",
+                "activity fetch",
+                timeout=10,
+                max_response_bytes=1024,
+            )
+        assert connection.pk == second.pk
+        return GarminSyncSummary(1, 0, 0, 0)
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _sync,
+    )
+    output = io.StringIO()
+
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=None)
+
+    serialized = output.getvalue()
+    rows = json.loads(serialized)
+    assert rows[0]["connection_id"] == first.pk
+    assert rows[0]["error"] == "sync_failed"
+    assert rows[1]["connection_id"] == second.pk
+    assert rows[1]["imported"] == 1
+    assert "bearer-secret" not in serialized
+    assert "garmin.example.com" not in serialized
+    assert response.closed is True

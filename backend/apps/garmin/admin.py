@@ -4,6 +4,21 @@ from django.contrib import admin
 
 from .models import GarminActivity, GarminConnection
 
+_CONNECTION_FIELDS = (
+    "user",
+    "provider",
+    "provider_account_id",
+    "provider_scopes",
+    "status",
+    "connection_generation",
+    "authorization_placeholder",
+    "access_token_expires_at",
+    "last_synced_at",
+    "last_sync_summary",
+    "created_at",
+    "updated_at",
+)
+
 
 @admin.register(GarminConnection)
 class GarminConnectionAdmin(admin.ModelAdmin):
@@ -18,23 +33,25 @@ class GarminConnectionAdmin(admin.ModelAdmin):
         "last_synced_at",
     ]
 
-    readonly_fields = [
-        "created_at",
-        "updated_at",
-        "access_token_expires_at",
-        "last_synced_at",
-        "last_sync_summary",
-    ]
+    fields = list(_CONNECTION_FIELDS)
+    readonly_fields = _CONNECTION_FIELDS
+    actions = None
 
-    fields = [
-        "user",
-        "provider",
-        "provider_account_id",
-        "provider_scopes",
-        "access_token_expires_at",
-        "last_synced_at",
-        "last_sync_summary",
-    ]
+    def has_add_permission(self, request):  # type: ignore[override]
+        """Disallow creating token-bearing rows in the admin."""
+        return False
+
+    def has_change_permission(
+        self, request, obj=None  # type: ignore[override]
+    ):
+        """Disallow changing token-bearing rows in the admin."""
+        return False
+
+    def has_delete_permission(
+        self, request, obj=None  # type: ignore[override]
+    ):
+        """Disallow deleting token-bearing rows in the admin."""
+        return False
 
 
 @admin.register(GarminActivity)

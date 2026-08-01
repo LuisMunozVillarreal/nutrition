@@ -98,6 +98,18 @@ def _is_complete_runtime_url(value: str) -> bool:
         )
         and parsed.username is None
         and parsed.password is None
+        and not parsed.fragment
+    )
+
+
+def _is_complete_runtime_origin(value: str) -> bool:
+    """Return whether a runtime URL is a strict scheme-and-authority origin."""
+    parsed = urlparse(value)
+    return (
+        _is_complete_runtime_url(value)
+        and not parsed.path
+        and not parsed.query
+        and not parsed.fragment
     )
 
 
@@ -115,14 +127,12 @@ def _validate_scheduler_activation(documents: list[dict[str, Any]]) -> None:
             assert name in environment
             assert "value" in environment[name]
             values = environment[name]["value"].split(",")
-            assert values and all(
-                _is_complete_runtime_url(value.strip()) for value in values
+            validator = (
+                _is_complete_runtime_origin
+                if name.endswith("ORIGINS")
+                else _is_complete_runtime_url
             )
-            if name.endswith("ORIGINS"):
-                assert all(
-                    urlparse(value.strip()).path in ("", "/")
-                    for value in values
-                )
+            assert values and all(validator(value.strip()) for value in values)
 
 
 def _synthetic_documents(
@@ -137,7 +147,7 @@ def _synthetic_documents(
                 "value": (
                     f"https://{name.lower().replace('_', '-')}"
                     ".runtime.internal"
-                    f"{'/' if name.endswith('ORIGINS') else '/path'}"
+                    f"{'' if name.endswith('ORIGINS') else '/path'}"
                 ),
             }
             for name in ACTIVE_GARMIN_URL_SETTINGS
@@ -252,6 +262,38 @@ def test_active_scheduler_rejects_incomplete_provider_configuration(
     )
     workload = _workload(documents, workload_kind, name)
     _environment(workload)["GARMIN_TOKEN_URL"]["value"] = placeholder
+
+    with pytest.raises(AssertionError):
+        _validate_scheduler_activation(documents)
+
+
+@pytest.mark.parametrize(
+    "invalid_origin",
+    [
+        "https://provider.runtime.internal/path",
+        "https://provider.runtime.internal?mode=cancel",
+        "https://provider.runtime.internal#callback",
+    ],
+)
+def test_active_scheduler_rejects_origin_url_components(
+    invalid_origin: str,
+) -> None:
+    """Origins cannot include path, query, or fragment components."""
+    documents = _synthetic_documents(suspended=False, enabled="true")
+    backend = _workload(documents, "Deployment", "nutrition-backend")
+    _environment(backend)["GARMIN_PROVIDER_ORIGINS"]["value"] = invalid_origin
+
+    with pytest.raises(AssertionError):
+        _validate_scheduler_activation(documents)
+
+
+def test_active_scheduler_rejects_endpoint_fragment() -> None:
+    """Endpoint URLs cannot carry browser-only fragment data."""
+    documents = _synthetic_documents(suspended=False, enabled="true")
+    scheduler = _workload(documents, "CronJob", "nutrition-garmin-sync")
+    _environment(scheduler)["GARMIN_TOKEN_URL"][
+        "value"
+    ] = "https://token.runtime.internal/path#fragment"
 
     with pytest.raises(AssertionError):
         _validate_scheduler_activation(documents)
