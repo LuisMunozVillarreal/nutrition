@@ -1,5 +1,6 @@
 'use client'
 
+import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
@@ -26,10 +27,12 @@ const MEAL_CHOICES = [
 ]
 
 export default function NewIntakePage() {
-  const [form, setForm] = useState({
-    dayId: '', meal: 'breakfast', numServings: '1.0',
+  const searchParams = useSearchParams()
+  const dayIdFromQuery = searchParams.get('dayId')
+  const [form, setForm] = useState(() => ({
+    dayId: dayIdFromQuery ?? '', meal: 'breakfast', numServings: '1.0',
     energyKcal: '', proteinG: '', fatG: '', carbsG: ''
-  })
+  }))
   const [saving, setSaving] = useState(false)
 
   const handleChange = (name: string, value: string) => { setForm(prev => ({ ...prev, [name]: value })) }
