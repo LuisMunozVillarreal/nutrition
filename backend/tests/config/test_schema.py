@@ -319,8 +319,8 @@ def test_me_query_rejects_bearer_for_inactive_user():
 
 
 @pytest.mark.django_db
-def test_user_dashboard():
-    """Test dashboard resolver in UserType."""
+def test_user_dashboard(week_plan_factory, intake_factory):
+    """Dashboard returns bounded trend and today's actionable nutrition data."""
     # Given a user with measurements and goals
     user = User.objects.create_user(
         email="dash@example.com",
@@ -331,36 +331,76 @@ def test_user_dashboard():
 
     # When querying for the user's dashboard (without actual data yet)
     query = """
-        query {
+        query Dashboard($timezoneOffsetMinutes: Int!) {
             me {
-                dashboard {
+                dashboard(timezoneOffsetMinutes: $timezoneOffsetMinutes) {
                     latestWeight
                     latestBodyFat
                     goalBodyFat
+                    recentMeasurements {
+                        id
+                        weight
+                        bodyFatPerc
+                        createdAt
+                    }
+                    todayNutrition {
+                        id
+                        day
+                        energyKcal
+                        energyKcalGoal
+                        intakeCount
+                    }
                 }
             }
         }
     """
     # Use an authenticated session context
     mock_context = SimpleNamespace(user=user)
+    variables = {"timezoneOffsetMinutes": 0}
 
-    result = schema.execute_sync(query, context_value=mock_context)
+    result = schema.execute_sync(
+        query, context_value=mock_context, variable_values=variables
+    )
 
     # Then we get null values since no measurements exist
     assert result.data["me"]["dashboard"]["latestWeight"] is None
 
-    # When we add a measurement and a goal
-    Measurement.objects.create(user=user, weight=80.5, body_fat_perc=20.0)
+    # When we add measurements, a goal, and a plan containing today
+    measurement = Measurement.objects.create(
+        user=user, weight=80.5, body_fat_perc=20.0
+    )
+    for index in range(15):
+        Measurement.objects.create(
+            user=user,
+            weight=80.0 - index / 10,
+            body_fat_perc=20.0 - index / 10,
+        )
     FatPercGoal.objects.create(user=user, body_fat_perc=15.0)
+    today = datetime.now(timezone.utc).date()
+    plan = week_plan_factory(
+        user=user,
+        measurement=measurement,
+        start_date=today,
+    )
+    today_day = plan.days.get(day=today)
+    intake_factory(day=today_day)
 
     # And query again
-    result = schema.execute_sync(query, context_value=mock_context)
+    result = schema.execute_sync(
+        query, context_value=mock_context, variable_values=variables
+    )
 
-    # Then we get the real values
+    # Then the response is actionable and history is bounded
+    assert result.errors is None
     dash = result.data["me"]["dashboard"]
-    assert dash["latestWeight"] == 80.5
-    assert dash["latestBodyFat"] == 20.0
+    assert dash["latestWeight"] == 78.6
+    assert dash["latestBodyFat"] == 18.6
     assert dash["goalBodyFat"] == 15.0
+    assert len(dash["recentMeasurements"]) == 14
+    assert dash["recentMeasurements"][-1]["weight"] == 78.6
+    assert dash["todayNutrition"]["id"] == str(today_day.id)
+    assert dash["todayNutrition"]["day"] == today.isoformat()
+    assert dash["todayNutrition"]["intakeCount"] == 1
 
 
 @pytest.mark.django_db
