@@ -66,7 +66,23 @@ def test_admin_endpoints_allow_non_production_ssl_relaxed_mode(client):
     SECURE_HSTS_SECONDS=86400,
     SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
     SECURE_HSTS_PRELOAD=True,
-    SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"),
+    SECURE_REDIRECT_EXEMPT=[r"^healthz/$"],
+)
+def test_healthz_endpoint_bypasses_ssl_redirect(client):
+    """Health checks stay reachable when HTTPS redirect is enabled."""
+    response = client.get("/healthz/", secure=False)
+    assert response.status_code == 200
+    assert response.content == b"ok"
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    SECURE_SSL_REDIRECT=True,
+    SECURE_HSTS_SECONDS=86400,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
     ALLOWED_HOSTS=["example.com"],
     CSRF_TRUSTED_ORIGINS=["https://example.com"],
     DEBUG=False,
@@ -76,6 +92,6 @@ def test_deploy_check_is_clean_with_hardened_security_settings() -> None:
     """Deploy checks should not raise security warnings with hardened settings."""
     messages = checks.run_checks(include_deployment_checks=True)
     security_messages = [
-        msg.id for msg in messages if msg.id.startswith("security.")
+        msg.id for msg in messages if msg.id and msg.id.startswith("security.")
     ]
     assert security_messages == []
