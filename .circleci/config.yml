@@ -367,7 +367,7 @@ jobs:
               kubectl describe kustomization "${KUSTOMIZATION_NAME}" -n flux-system || true
               kubectl get kustomization "${KUSTOMIZATION_NAME}" -n flux-system -o wide || true
               kubectl get pods -n "${TARGET_NAMESPACE}" -o wide || true
-              kubectl describe pods -n "${TARGET_NAMESPACE}" --all-containers=true || true
+              kubectl describe pods -n "${TARGET_NAMESPACE}" || true
             }
 
             echo "Triggering reconciliation for ${KUSTOMIZATION_NAME}..."
