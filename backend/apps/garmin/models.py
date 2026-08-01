@@ -103,6 +103,7 @@ class GarminConnection(BaseModel):
     refresh_token_encrypted = models.TextField(blank=True, default="")
     access_token_expires_at = models.DateTimeField(null=True, blank=True)
     connection_generation = models.PositiveBigIntegerField(default=1)
+    authorization_placeholder = models.BooleanField(default=False)
 
     last_synced_at = models.DateTimeField(null=True, blank=True)
     last_sync_summary = models.JSONField(default=dict, blank=True)
@@ -201,6 +202,7 @@ class GarminConnection(BaseModel):
             )
 
         self.status = self.Status.ACTIVE
+        self.authorization_placeholder = False
         self.connection_generation += 1
 
     def clear_tokens(self) -> None:
@@ -214,6 +216,7 @@ class GarminConnection(BaseModel):
         self.last_synced_at = None
         self.last_sync_summary = {}
         self.status = self.Status.DISCONNECTED
+        self.authorization_placeholder = False
         self.connection_generation += 1
 
     def clean(self) -> None:

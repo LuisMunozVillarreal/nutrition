@@ -44,7 +44,7 @@ function referencedSecretKeys(document, secretName) {
   )
 }
 
-test('Kustomize Garmin scheduler has production-only activation and full backend parity', async () => {
+test('Kustomize Garmin scheduler is safely suspended with full backend parity', async () => {
   const [backendSource, schedulerSource, kustomizationSource, productionSource, settingsSource] =
     await Promise.all([
       repoFile('platform/k8s/base/backend.yaml'),
@@ -83,7 +83,16 @@ test('Kustomize Garmin scheduler has production-only activation and full backend
   const baseKustomization = yamlDocuments(kustomizationSource)[0]
   assert.ok(baseKustomization.resources.includes('garmin-sync-cronjob.yaml'))
   const productionKustomization = yamlDocuments(productionSource)[0]
-  assert.ok(productionKustomization.patches.some(({ path }) => path === 'garmin-sync-enable-patch.yaml'))
+  assert.ok(
+    productionKustomization.patches.some(
+      ({ path }) => path === 'garmin-sync-production-env-patch.yaml',
+    ),
+  )
+  assert.ok(
+    productionKustomization.patches.every(
+      ({ path }) => path !== 'garmin-sync-enable-patch.yaml',
+    ),
+  )
 })
 
 test('disabled Garmin rollout uses optional Secret refs and documents every referenced key', async () => {
