@@ -235,8 +235,10 @@ jobs:
       - run:
           name: Run Frontend Production Dependency Audit
           command: |
+            set +e
             npm audit --omit=dev --audit-level=high --json > /tmp/npm-audit-report.json
             AUDIT_EXIT_CODE=$?
+            set -e
             python3 ../.circleci/scripts/check_frontend_dependency_audit.py \
               --audit-report /tmp/npm-audit-report.json \
               --allowlist ../.circleci/dependency-audit-npm-allowlist.txt \
