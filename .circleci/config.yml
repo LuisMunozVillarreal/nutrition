@@ -281,6 +281,17 @@ jobs:
              apk add --no-cache make
              TAG=$CIRCLE_SHA1 make docker-build-tag-push
 
+  chart-contract-tests:
+    working_directory: ~/project
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - run:
+          name: Run Helm chart contract tests
+          working_directory: ~/project/backend
+          command: make chart-contract-test
+
   deploy-preview:
     working_directory: ~/project
     docker:
@@ -474,6 +485,7 @@ workflows:
       - backend-dependency-audit
       - webapp-dependency-audit
       - webapp-checks
+      - chart-contract-tests
       - backend-docker-build-tag-push:
           context:
             - Docker
@@ -498,6 +510,7 @@ workflows:
           context:
             - kubeconfig
           requires:
+            - chart-contract-tests
             - backend-docker-build-tag-push
             - webapp-docker-build-tag-push
           filters:
@@ -508,6 +521,7 @@ workflows:
           context:
             - kubeconfig
           requires:
+            - chart-contract-tests
             - backend-docker-build-tag-push
             - webapp-docker-build-tag-push
           filters:
@@ -518,6 +532,7 @@ workflows:
           context:
             - kubeconfig
           requires:
+            - chart-contract-tests
             - backend-docker-build-tag-push
             - webapp-docker-build-tag-push
           filters:

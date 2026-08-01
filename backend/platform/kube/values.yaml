@@ -32,9 +32,7 @@ podSecurityContext:
   fsGroup: 1001
 
 securityContext:
-  runAsNonRoot: true
   allowPrivilegeEscalation: false
-  noNewPrivileges: true
   # capabilities:
   #   drop:
   #   - ALL
