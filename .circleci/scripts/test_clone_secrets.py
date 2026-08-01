@@ -7,7 +7,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 from clone_preview_secrets import (
-    OPTIONAL_SECRETS,
     REQUIRED_SECRETS,
     clone_secrets,
     main,
@@ -38,8 +37,8 @@ def _secret_references(value):
     return references
 
 
-def test_preview_secret_inventory_matches_rendered_workload_optionality():
-    """Preview inventory exactly matches base workload Secret semantics."""
+def test_preview_secret_inventory_clones_required_secrets_only():
+    """Optional workload refs do not authorize staging credential cloning."""
     references = {}
     for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob("*.yaml"):
         for document in yaml.safe_load_all(manifest_path.read_text()):
@@ -54,8 +53,8 @@ def test_preview_secret_inventory_matches_rendered_workload_optionality():
     }
 
     assert set(REQUIRED_SECRETS) == rendered_required
-    assert set(OPTIONAL_SECRETS) == rendered_optional
     assert rendered_optional == {"nutrition-garmin-config"}
+    assert set(REQUIRED_SECRETS).isdisjoint(rendered_optional)
 
 
 @pytest.fixture
@@ -77,49 +76,21 @@ def _secret_result(mocker, *, name="example-secret"):
     return result
 
 
-def test_optional_secret_absence_is_skipped_cleanly(mock_run, mocker):
-    """An absent optional Garmin Secret does not block preview rollout."""
+def test_disabled_preview_never_queries_or_copies_staging_garmin_secret(
+    mock_run, mocker
+):
+    """Default previews clone required Secrets without looking up Garmin."""
     present = _secret_result(mocker)
-    absent = mocker.MagicMock(returncode=0, stdout=b"")
     applied = mocker.MagicMock(returncode=0)
-    mock_run.side_effect = [present, applied] * len(REQUIRED_SECRETS) + [
-        absent
-    ]
+    mock_run.side_effect = [present, applied] * len(REQUIRED_SECRETS)
 
     clone_secrets("preview-example")
 
-    assert mock_run.call_count == len(REQUIRED_SECRETS) * 2 + 1
-
-
-def test_optional_secret_present_is_cloned(mock_run, mocker):
-    """A present optional Garmin Secret is applied to the preview namespace."""
-    present = _secret_result(mocker)
-    applied = mocker.MagicMock(returncode=0)
-    mock_run.side_effect = [present, applied] * (
-        len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
-    )
-
-    clone_secrets("preview-example")
-
-    assert mock_run.call_count == 2 * (
-        len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
-    )
-
-
-@pytest.mark.parametrize("returncode", [1, 126])
-def test_optional_secret_lookup_errors_fail(mock_run, mocker, returncode):
-    """Forbidden and other lookup errors are never treated as absence."""
-    present = _secret_result(mocker)
-    failed = mocker.MagicMock(returncode=returncode, stdout=b"")
-    applied = mocker.MagicMock(returncode=0)
-    mock_run.side_effect = [present, applied] * len(REQUIRED_SECRETS) + [
-        failed
-    ]
-
-    with pytest.raises(SystemExit) as raised:
-        clone_secrets("preview-example")
-
-    assert raised.value.code == 1
+    assert mock_run.call_count == len(REQUIRED_SECRETS) * 2
+    commands = [call.args[0] for call in mock_run.call_args_list]
+    assert all("nutrition-garmin-config" not in command for command in commands)
+    queried_names = [command[3] for command in commands if command[:3] == ["kubectl", "get", "secret"]]
+    assert queried_names == list(REQUIRED_SECRETS)
 
 
 def test_required_secret_absence_fails(mock_run, mocker):
@@ -179,7 +150,7 @@ def test_main_success(mock_run, mocker):
     mock_run.side_effect = [mock_get_ns] + [
         mock_get_secret,
         mock_apply,
-    ] * (len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS))
+    ] * len(REQUIRED_SECRETS)
 
     # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
@@ -198,7 +169,7 @@ def test_main_success(mock_run, mocker):
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
 
     # And it should call kubectl get namespace once, plus get+apply per secret.
-    secret_count = len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
+    secret_count = len(REQUIRED_SECRETS)
     assert mock_run.call_count == 1 + (secret_count * 2)
 
     # And it should remove unwanted metadata fields

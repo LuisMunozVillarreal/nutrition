@@ -15,10 +15,6 @@ REQUIRED_SECRETS = (
     "nutrition-gemini-api-key",
     "nutrition-gcp-db-backup-credentials",
 )
-OPTIONAL_SECRETS = (
-    "nutrition-garmin-config",
-)
-SECRETS = REQUIRED_SECRETS + OPTIONAL_SECRETS
 SOURCE_NS = "nutrition-staging"
 
 
@@ -50,15 +46,13 @@ def wait_for_namespace(namespace: str, timeout_seconds: int = 300) -> None:
     sys.exit(1)
 
 
-def _clone_secret(
-    secret: str, target_namespace: str, *, optional: bool
-) -> None:
-    """Clone one Secret while distinguishing absence from lookup errors.
+def _clone_secret(secret: str, target_namespace: str) -> None:
+    """Clone one required Secret while failing closed on lookup problems.
 
     Args:
         secret: Source Secret object name.
         target_namespace: Namespace receiving the cloned Secret.
-        optional: Whether a genuinely absent source Secret may be skipped.
+
     """
     click.echo(f"Copying {secret} from {SOURCE_NS} to {target_namespace}...")
     lookup = subprocess.run(
@@ -80,9 +74,6 @@ def _clone_secret(
         click.echo(f"Error looking up Secret {secret}.", err=True)
         sys.exit(1)
     if not lookup.stdout.strip():
-        if optional:
-            click.echo(f"Optional Secret {secret} is absent; skipping.")
-            return
         click.echo(f"Required Secret {secret} is absent.", err=True)
         sys.exit(1)
 
@@ -120,9 +111,7 @@ def clone_secrets(target_namespace: str) -> None:
         target_namespace (str): The namespace to clone secrets to.
     """
     for secret in REQUIRED_SECRETS:
-        _clone_secret(secret, target_namespace, optional=False)
-    for secret in OPTIONAL_SECRETS:
-        _clone_secret(secret, target_namespace, optional=True)
+        _clone_secret(secret, target_namespace)
 
 
 @click.command()

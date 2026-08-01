@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import jwt
 import pytest
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 import config.schema as schema_module
-from apps.garmin.models import GarminConnection
+from apps.garmin.models import GarminActivity, GarminConnection
 from apps.garmin.services import GarminTokenPair
 
 User = get_user_model()
@@ -128,6 +131,35 @@ def _token_pair(account: str) -> GarminTokenPair:
         expires_in=3600,
         provider_account_id=account,
         scope="read",
+    )
+
+
+def _create_historical_activity(
+    connection: GarminConnection,
+    *,
+    account: str,
+    activity_id: str = "history-1",
+) -> GarminActivity:
+    """Create durable provider provenance without requiring a plan fixture."""
+    return GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id=activity_id,
+        provider_activity_type="cycle",
+        provider_account_id=account,
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+
+
+def _disconnect(context):
+    """Execute the credential-erasing disconnect mutation."""
+    return schema_module.schema.execute_sync(
+        "mutation { disconnectGarmin }",
+        context_value=context,
     )
 
 
@@ -641,6 +673,209 @@ def test_complete_garmin_authorization_uses_router_alias_with_user_instance(
         and instance.pk == user.pk
         for _, instance in db_calls
     )
+
+
+def test_disconnected_account_switch_with_history_is_rejected_without_side_effects(
+    monkeypatch,
+):
+    """Historical account A provenance blocks reconnecting as account B."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-history-switch@example.com")
+    other_user = _create_user("garmin-history-switch-other@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+    activity = _create_historical_activity(
+        connection,
+        account="provider-user",
+    )
+    other_connection = _create_connection_with_tokens(other_user)
+    other_snapshot = (
+        other_connection.provider_account_id,
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.connection_generation,
+    )
+    activity_snapshot = tuple(
+        GarminActivity.objects.filter(pk=activity.pk).values_list(
+            "provider_account_id",
+            "provider_activity_id",
+            "day_id",
+            "exercise_id",
+            "kcals",
+            "duration_seconds",
+            "distance",
+        )[0]
+    )
+
+    disconnected = _disconnect(context)
+    assert disconnected.errors is None
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-account-b"),
+    )
+
+    result = _complete_authorization(context, code="code-b", state=state)
+
+    assert result.errors is not None
+    assert result.errors[0].message == (
+        "Garmin provider account cannot change while historical activities exist"
+    )
+    connection.refresh_from_db()
+    assert connection.status == GarminConnection.Status.DISCONNECTED
+    assert connection.provider_account_id == "provider-user"
+    assert connection.access_token_encrypted == ""
+    assert connection.refresh_token_encrypted == ""
+    assert (
+        tuple(
+            GarminActivity.objects.filter(pk=activity.pk).values_list(
+                "provider_account_id",
+                "provider_activity_id",
+                "day_id",
+                "exercise_id",
+                "kcals",
+                "duration_seconds",
+                "distance",
+            )[0]
+        )
+        == activity_snapshot
+    )
+    other_connection.refresh_from_db()
+    assert (
+        other_connection.provider_account_id,
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.connection_generation,
+    ) == other_snapshot
+
+
+def test_same_account_reconnect_with_history_succeeds(monkeypatch):
+    """Disconnecting and reconnecting account A preserves its provenance."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-history-reconnect@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+    activity = _create_historical_activity(
+        connection,
+        account="provider-user",
+    )
+    assert _disconnect(context).errors is None
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-user"),
+    )
+
+    result = _complete_authorization(context, code="code-a", state=state)
+
+    assert result.errors is None
+    connection.refresh_from_db()
+    assert connection.is_connected is True
+    assert connection.provider_account_id == "provider-user"
+    assert GarminActivity.objects.filter(pk=activity.pk).exists()
+
+
+def test_account_switch_without_history_is_allowed_and_resets_sync_metadata(
+    monkeypatch,
+):
+    """A connection without provenance may transactionally switch accounts."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-no-history-switch@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+    connection.last_synced_at = timezone.now()
+    connection.last_sync_summary = {"imported": 4}
+    connection.save(update_fields=["last_synced_at", "last_sync_summary"])
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-account-b"),
+    )
+
+    result = _complete_authorization(context, code="code-b", state=state)
+
+    assert result.errors is None
+    connection.refresh_from_db()
+    assert connection.provider_account_id == "provider-account-b"
+    assert connection.last_synced_at is None
+    assert connection.last_sync_summary == {}
+    assert connection.is_connected is True
+
+
+def test_active_account_switch_with_history_is_rejected(monkeypatch):
+    """An active connection cannot mix another account into historical rows."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-active-history-switch@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+    activity = _create_historical_activity(
+        connection,
+        account="provider-user",
+    )
+    token_snapshot = (
+        connection.access_token_encrypted,
+        connection.refresh_token_encrypted,
+        connection.connection_generation,
+    )
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-account-b"),
+    )
+
+    result = _complete_authorization(context, code="code-b", state=state)
+
+    assert result.errors is not None
+    connection.refresh_from_db()
+    assert connection.provider_account_id == "provider-user"
+    assert connection.status == GarminConnection.Status.ACTIVE
+    assert (
+        connection.access_token_encrypted,
+        connection.refresh_token_encrypted,
+        connection.connection_generation,
+    ) == (token_snapshot[0], token_snapshot[1], token_snapshot[2] + 1)
+    assert GarminActivity.objects.filter(pk=activity.pk).exists()
+
+
+def test_disconnected_status_retains_identity_only_internally(monkeypatch):
+    """Public status stays disconnected without exposing identity or secrets."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-status-identity@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+
+    assert _disconnect(context).errors is None
+    result = schema_module.schema.execute_sync(
+        """
+            query {
+                garminStatus {
+                    connected
+                    hasRefreshToken
+                    lastSyncedAt
+                    lastSyncSummary { imported }
+                }
+            }
+        """,
+        context_value=context,
+    )
+
+    assert result.errors is None
+    assert result.data["garminStatus"] == {
+        "connected": False,
+        "hasRefreshToken": False,
+        "lastSyncedAt": None,
+        "lastSyncSummary": None,
+    }
+    connection.refresh_from_db()
+    assert connection.provider_account_id == "provider-user"
+    rendered = repr(result.data)
+    assert "provider-user" not in rendered
+    assert "access-token" not in rendered
+    assert "refresh-token" not in rendered
 
 
 def test_garmin_manual_sync_mutation_is_not_exposed():

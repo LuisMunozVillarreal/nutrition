@@ -163,7 +163,6 @@ class MeasurementMutation:
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation
-    @transaction.atomic
     def update_measurement(
         self,
         info: Info,
@@ -198,60 +197,68 @@ class MeasurementMutation:
         validated_weight = validated_positive_decimal(
             weight, "weight", Measurement._meta.get_field("weight")
         )
-        try:
-            obj = Measurement.objects.select_for_update().get(pk=id, user=user)
-        except Measurement.DoesNotExist as e:
-            raise ValueError("Measurement not found") from e
-
-        plan_ids = tuple(
-            WeekPlan.objects.filter(measurement=obj)
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
-        day_ids = tuple(
-            Day.objects.filter(plan_id__in=plan_ids)
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
-        aggregate_locks = lock_plan_aggregate_rows(
-            using=router.db_for_write(Measurement, instance=obj),
-            plan_ids=plan_ids,
-            day_ids=day_ids,
-        )
-        plans = aggregate_locks.plans
-        days = aggregate_locks.days
-        proposed_measurement = Measurement(
-            user=user,
-            body_fat_perc=validated_body_fat_perc,
-            weight=validated_weight,
-        )
-        for plan in plans:
-            plan_days = [day for day in days if day.plan_id == plan.id]
-            proposed_tdee_values = [
-                (
-                    proposed_measurement.bmr + day.neat + day.tef + day.eat
-                    if day.tracked
-                    else proposed_measurement.bmr * plan.EXERCISE_RATE
+        using = router.db_for_write(Measurement, instance=user)
+        with transaction.atomic(using=using):
+            try:
+                obj = (
+                    Measurement.objects.using(using)
+                    .select_for_update()
+                    .get(pk=id, user=user)
                 )
-                for day in plan_days
-            ]
-            _validated_week_plan_parameters(
-                proposed_measurement,
-                float(plan.protein_g_kg),
-                float(plan.fat_perc),
-                plan.deficit,
-                proposed_tdee_values,
-                [Decimal(day.deficit) for day in plan_days],
-            )
+            except Measurement.DoesNotExist as e:
+                raise ValueError("Measurement not found") from e
 
-        try:
-            obj.body_fat_perc = validated_body_fat_perc
-            obj.weight = validated_weight
-            obj.save()
-            for day in days:
-                day.save()
-        finally:
-            aggregate_locks.clear_markers()
+            plan_ids = tuple(
+                WeekPlan.objects.using(using)
+                .filter(measurement=obj)
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
+            day_ids = tuple(
+                Day.objects.using(using)
+                .filter(plan_id__in=plan_ids)
+                .order_by("pk")
+                .values_list("pk", flat=True)
+            )
+            aggregate_locks = lock_plan_aggregate_rows(
+                using=using,
+                plan_ids=plan_ids,
+                day_ids=day_ids,
+            )
+            plans = aggregate_locks.plans
+            days = aggregate_locks.days
+            proposed_measurement = Measurement(
+                user=user,
+                body_fat_perc=validated_body_fat_perc,
+                weight=validated_weight,
+            )
+            for plan in plans:
+                plan_days = [day for day in days if day.plan_id == plan.id]
+                proposed_tdee_values = [
+                    (
+                        proposed_measurement.bmr + day.neat + day.tef + day.eat
+                        if day.tracked
+                        else proposed_measurement.bmr * plan.EXERCISE_RATE
+                    )
+                    for day in plan_days
+                ]
+                _validated_week_plan_parameters(
+                    proposed_measurement,
+                    float(plan.protein_g_kg),
+                    float(plan.fat_perc),
+                    plan.deficit,
+                    proposed_tdee_values,
+                    [Decimal(day.deficit) for day in plan_days],
+                )
+
+            try:
+                obj.body_fat_perc = validated_body_fat_perc
+                obj.weight = validated_weight
+                obj.save(using=using)
+                for day in days:
+                    day.save(using=using)
+            finally:
+                aggregate_locks.clear_markers()
         return MeasurementType.from_model(obj)
 
     @strawberry.mutation

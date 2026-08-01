@@ -212,7 +212,6 @@ class GarminConnection(BaseModel):
         self.refresh_token_encrypted = ""  # nosec B105
         self.access_token_expires_at = None
         self.provider_scopes = []
-        self.provider_account_id = ""
         self.last_synced_at = None
         self.last_sync_summary = {}
         self.status = self.Status.DISCONNECTED

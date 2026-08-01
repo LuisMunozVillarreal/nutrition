@@ -122,6 +122,56 @@ class GarminQuery:
         )
 
 
+def _provider_account_switches_without_history(
+    connection: GarminConnection,
+    incoming_account_id: str | None,
+    *,
+    using: str,
+) -> bool:
+    """Validate account continuity and report a safe history-free switch."""
+    historical_account_ids = list(
+        connection.activities.using(using).values_list(
+            "provider_account_id", flat=True
+        )
+    )
+    previous_account_id = connection.provider_account_id
+    if not historical_account_ids:
+        return bool(
+            previous_account_id
+            and incoming_account_id
+            and incoming_account_id != previous_account_id
+        )
+
+    known_historical_ids = {
+        account_id for account_id in historical_account_ids if account_id
+    }
+    if previous_account_id:
+        if known_historical_ids - {previous_account_id}:
+            raise ValueError(
+                "Garmin provider account cannot change while historical "
+                "activities exist"
+            )
+        if incoming_account_id and incoming_account_id != previous_account_id:
+            raise ValueError(
+                "Garmin provider account cannot change while historical "
+                "activities exist"
+            )
+        return False
+
+    if len(known_historical_ids) == 1:
+        historical_account_id = next(iter(known_historical_ids))
+        if (
+            not incoming_account_id
+            or incoming_account_id == historical_account_id
+        ):
+            connection.provider_account_id = historical_account_id
+            return False
+
+    raise ValueError(
+        "Garmin provider account cannot change while historical activities exist"
+    )
+
+
 @strawberry.type
 class GarminMutation:
     """Mutation mixin for Garmin OAuth lifecycle."""
@@ -250,13 +300,13 @@ class GarminMutation:
 
             if connection.provider != GARMIN_PROVIDER:
                 connection.provider = GARMIN_PROVIDER
-            previous_account = connection.provider_account_id
+            account_switched = _provider_account_switches_without_history(
+                connection,
+                token_pair.provider_account_id,
+                using=using,
+            )
             connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
-            if (
-                previous_account
-                and token_pair.provider_account_id
-                and token_pair.provider_account_id != previous_account
-            ):
+            if account_switched:
                 connection.last_sync_summary = {}
                 connection.last_synced_at = None
 
@@ -328,7 +378,6 @@ class GarminMutation:
                     "access_token_encrypted",
                     "refresh_token_encrypted",
                     "provider_scopes",
-                    "provider_account_id",
                     "provider",
                     "access_token_expires_at",
                     "status",

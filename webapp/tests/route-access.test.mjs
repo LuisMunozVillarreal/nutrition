@@ -109,6 +109,28 @@ test('backend reauthentication gates rolling sessions without creating a login l
   )
 })
 
+test('expired Garmin callbacks redirect through login without OAuth parameters', async () => {
+  const { buildCallbackPath, decideRouteAccess } = await routePolicy()
+  const callbackPath = buildCallbackPath(
+    '/settings/garmin-callback',
+    'code=one-time-code&state=one-time-state',
+  )
+
+  assert.equal(callbackPath, '/settings/garmin-callback')
+  const decision = decideRouteAccess(
+    '/settings/garmin-callback',
+    'authenticated',
+    false,
+    callbackPath,
+    true,
+  )
+  assert.deepEqual(decision, {
+    kind: 'redirect',
+    destination: '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
+  })
+  assert.doesNotMatch(decision.destination, /one-time-(?:code|state)/)
+})
+
 test('login and public landing routes remain available without a session', async () => {
   const { decideRouteAccess } = await routePolicy()
 
@@ -171,6 +193,9 @@ test('AppShell applies route policy before rendering protected children', async 
   assert.match(source, /usePathname\(\)/)
   assert.match(source, /useSearchParams\(\)/)
   assert.match(source, /buildCallbackPath\(pathname, searchParams\.toString\(\)\)/)
+  assert.match(source, /captureGarminCallbackHandoff\(/)
+  assert.match(source, /window\.sessionStorage/)
+  assert.match(source, /window\.history/)
   assert.match(source, /BACKEND_REAUTHENTICATION_REQUIRED/)
   assert.match(source, /decideRouteAccess\(/)
   assert.match(source, /router\.replace\(access\.destination\)/)

@@ -493,7 +493,6 @@ class PlanMutation:
     """Plan mutations."""
 
     @strawberry.mutation
-    @transaction.atomic
     def create_week_plan(
         self,
         info: Info,
@@ -525,34 +524,34 @@ class PlanMutation:
             raise PermissionError("Authentication required")
 
         using = router.db_for_write(WeekPlan, instance=user)
-        _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+        with transaction.atomic(using=using):
+            _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
 
-        try:
-            measurement = Measurement.objects.using(using).get(
-                pk=measurement_id,
+            try:
+                measurement = Measurement.objects.using(using).get(
+                    pk=measurement_id,
+                    user=user,
+                )
+            except Measurement.DoesNotExist as e:
+                raise ValueError("Measurement not found") from e
+
+            validated_protein, validated_fat, validated_deficit = (
+                _validated_week_plan_parameters(
+                    measurement, protein_g_kg, fat_perc, deficit
+                )
+            )
+
+            obj = WeekPlan.objects.using(using).create(
                 user=user,
+                measurement_id=measurement_id,
+                start_date=datetime.date.fromisoformat(start_date),
+                protein_g_kg=validated_protein,
+                fat_perc=validated_fat,
+                deficit=validated_deficit,
             )
-        except Measurement.DoesNotExist as e:
-            raise ValueError("Measurement not found") from e
-
-        validated_protein, validated_fat, validated_deficit = (
-            _validated_week_plan_parameters(
-                measurement, protein_g_kg, fat_perc, deficit
-            )
-        )
-
-        obj = WeekPlan.objects.using(using).create(
-            user=user,
-            measurement_id=measurement_id,
-            start_date=datetime.date.fromisoformat(start_date),
-            protein_g_kg=validated_protein,
-            fat_perc=validated_fat,
-            deficit=validated_deficit,
-        )
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation
-    @transaction.atomic
     def update_week_plan(
         self,
         info: Info,
@@ -581,38 +580,44 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        try:
-            obj = WeekPlan.objects.get(pk=id, user=user)
-        except WeekPlan.DoesNotExist as e:
-            raise ValueError("WeekPlan not found") from e
+        using = router.db_for_write(WeekPlan, instance=user)
+        with transaction.atomic(using=using):
+            try:
+                obj = WeekPlan.objects.using(using).get(pk=id, user=user)
+            except WeekPlan.DoesNotExist as e:
+                raise ValueError("WeekPlan not found") from e
 
-        day_ids = tuple(obj.days.order_by("pk").values_list("pk", flat=True))
-        aggregate_locks = lock_plan_aggregate_rows(
-            using=router.db_for_write(WeekPlan, instance=obj),
-            plan_ids=(obj.pk,),
-            day_ids=day_ids,
-        )
-        obj = aggregate_locks.plans_by_pk[obj.pk]
-        days = sorted(aggregate_locks.days, key=lambda day: day.day_num)
-        try:
-            validated_protein, validated_fat, validated_deficit = (
-                _validated_week_plan_parameters(
-                    obj.measurement,
-                    protein_g_kg,
-                    fat_perc,
-                    deficit,
-                    [day.tdee for day in days],
-                )
+            day_ids = tuple(
+                obj.days.using(using)
+                .order_by("pk")
+                .values_list("pk", flat=True)
             )
-            obj.protein_g_kg = validated_protein
-            obj.fat_perc = validated_fat
-            obj.deficit = validated_deficit
-            obj.save()
-            for day, deficit_perc in zip(days, obj.DEFICIT_DISTRIBUTION):
-                day.deficit = obj.deficit * deficit_perc / 100
-                day.save()
-        finally:
-            aggregate_locks.clear_markers()
+            aggregate_locks = lock_plan_aggregate_rows(
+                using=using,
+                plan_ids=(obj.pk,),
+                day_ids=day_ids,
+            )
+            obj = aggregate_locks.plans_by_pk[obj.pk]
+            days = sorted(aggregate_locks.days, key=lambda day: day.day_num)
+            try:
+                validated_protein, validated_fat, validated_deficit = (
+                    _validated_week_plan_parameters(
+                        obj.measurement,
+                        protein_g_kg,
+                        fat_perc,
+                        deficit,
+                        [day.tdee for day in days],
+                    )
+                )
+                obj.protein_g_kg = validated_protein
+                obj.fat_perc = validated_fat
+                obj.deficit = validated_deficit
+                obj.save(using=using)
+                for day, deficit_perc in zip(days, obj.DEFICIT_DISTRIBUTION):
+                    day.deficit = obj.deficit * deficit_perc / 100
+                    day.save(using=using)
+            finally:
+                aggregate_locks.clear_markers()
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation

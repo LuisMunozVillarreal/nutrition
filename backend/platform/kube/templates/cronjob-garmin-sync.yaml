@@ -1,4 +1,4 @@
-{{- $sync := .Values.garminSync | default dict -}}
+{{- $sync := .Values.garminSync | default dict -}}{{- include "nutrition.validateGarminSchedulerActivation" . -}}
 {{- if (default false $sync.enabled) }}
 apiVersion: batch/v1
 kind: CronJob
