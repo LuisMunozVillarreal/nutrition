@@ -93,6 +93,22 @@ def test_clean_report_passes(tmp_path: Path) -> None:
         raise AssertionError("Expected audit exit code 0")
 
 
+def test_clean_report_non_vulnerability_failure_status_fails(tmp_path: Path) -> None:
+    """A clean report with non-vulnerability exit code must still fail."""
+    exit_code = _run(
+        tmp_path,
+        {
+            "auditReportVersion": 3,
+            "vulnerabilities": {},
+            "metadata": {"vulnerabilities": {"high": 0, "critical": 0}},
+        },
+        [],
+        exit_code=2,
+    )
+    if exit_code != 1:
+        raise AssertionError("Expected audit exit code 1")
+
+
 def test_unwaived_high_or_critical_report_fails(tmp_path: Path) -> None:
     """Unwaived high/critical issues should fail audit evaluation.
 
