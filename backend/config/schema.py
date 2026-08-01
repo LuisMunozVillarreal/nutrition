@@ -22,7 +22,9 @@ from apps.foods.schema import (
 )
 from apps.goals.schema import GoalMutation, GoalQuery
 from apps.libs.graphql import get_request_user
+from apps.measurements.models import Measurement
 from apps.measurements.schema import MeasurementMutation, MeasurementQuery
+from apps.plans.models import Day
 from apps.plans.schema import PlanMutation, PlanQuery
 from config.middleware import authenticated_request_user
 
@@ -58,12 +60,35 @@ def authenticated_user(context: Any) -> Any:
 
 
 @strawberry.type
+class DashboardMeasurement:
+    """A bounded measurement point for the dashboard trend."""
+
+    id: strawberry.ID
+    weight: float
+    body_fat_perc: float
+    created_at: str
+
+
+@strawberry.type
+class DashboardNutrition:
+    """The current user's nutrition totals for one local calendar day."""
+
+    id: strawberry.ID
+    day: str
+    energy_kcal: float
+    energy_kcal_goal: float
+    intake_count: int
+
+
+@strawberry.type
 class DashboardData:
     """Dashboard specific data."""
 
     latest_weight: float | None
     latest_body_fat: float | None
     goal_body_fat: float | None
+    recent_measurements: list[DashboardMeasurement]
+    today_nutrition: DashboardNutrition | None
 
 
 @strawberry.type
@@ -77,7 +102,7 @@ class UserType:
     is_staff: bool
 
     @strawberry.field
-    def dashboard(self) -> DashboardData:
+    def dashboard(self, timezone_offset_minutes: int = 0) -> DashboardData:
         """Get dashboard data.
 
         Returns:
@@ -94,8 +119,25 @@ class UserType:
         # Let's use the ID to be safe and clear.
 
         user_model = User.objects.get(pk=self.id)
-        measurement = user_model.measurements.last()  # type: ignore
-        goal = user_model.fat_perc_goals.last()  # type: ignore
+        measurements = list(
+            Measurement.objects.filter(user=user_model).order_by(
+                "-created_at", "-id"
+            )[:14]
+        )
+        measurement = measurements[0] if measurements else None
+        goal = user_model.fat_perc_goals.order_by(  # type: ignore
+            "-created_at", "-id"
+        ).first()
+
+        safe_offset = max(-14 * 60, min(14 * 60, timezone_offset_minutes))
+        local_today = (
+            datetime.now(timezone.utc) - timedelta(minutes=safe_offset)
+        ).date()
+        today = (
+            Day.objects.filter(plan__user=user_model, day=local_today)
+            .order_by("-plan__start_date", "-plan_id")
+            .first()
+        )
 
         return DashboardData(
             latest_weight=float(measurement.weight) if measurement else None,
@@ -103,6 +145,26 @@ class UserType:
                 float(measurement.body_fat_perc) if measurement else None
             ),
             goal_body_fat=float(goal.body_fat_perc) if goal else None,
+            recent_measurements=[
+                DashboardMeasurement(
+                    id=strawberry.ID(str(item.id)),
+                    weight=float(item.weight),
+                    body_fat_perc=float(item.body_fat_perc),
+                    created_at=item.created_at.isoformat(),
+                )
+                for item in reversed(measurements)
+            ],
+            today_nutrition=(
+                DashboardNutrition(
+                    id=strawberry.ID(str(today.id)),
+                    day=today.day.isoformat(),
+                    energy_kcal=float(today.energy_kcal),
+                    energy_kcal_goal=float(today.energy_kcal_goal),
+                    intake_count=today.intakes.count(),
+                )
+                if today
+                else None
+            ),
         )
 
 
