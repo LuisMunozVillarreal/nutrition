@@ -5,7 +5,7 @@ SECRET_KEY?=insecure-local-test-secret
 GEMINI_API_KEY?=local-test-gemini-key
 DATABASE_URL?=sqlite:///db.sqlite3
 
-.PHONY: install python-checks pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push restore-db migrations-check migrate ci-migrations chart-contract-test docker-contract-test contract-tests
+.PHONY: install python-checks pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push docker-build-contract-tag-push restore-db migrations-check migrate ci-migrations chart-contract-test docker-contract-test contract-tests
 
 install:
 	uv sync
@@ -57,6 +57,11 @@ docker-push:
 	docker push $(IMAGE_NAME):latest
 
 docker-build-tag-push: docker-build docker-tag docker-push
+
+docker-build-contract-tag-push:
+	IMAGE_NAME=$(IMAGE_NAME) TAG=$(TAG) IMAGE_TAG=$(TAG) $(MAKE) docker-build
+	IMAGE_NAME=$(IMAGE_NAME) IMAGE_TAG=$(TAG) SKIP_IMAGE_BUILD=1 PRESERVE_IMAGE=1 $(MAKE) docker-contract-test
+	IMAGE_NAME=$(IMAGE_NAME) TAG=$(TAG) $(MAKE) docker-tag docker-push
 
 chart-contract-test:
 	./platform/kube/tests/chart-contract-test.sh
