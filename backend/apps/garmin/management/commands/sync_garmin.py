@@ -6,12 +6,15 @@ import json
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, router
+from django.db.models import Q
 
 from apps.garmin.models import GarminConnection
 from apps.garmin.services import (
     reconcile_pending_garmin_activities,
     sync_connection,
 )
+
+_EMPTY_CIPHERTEXT = str()
 
 
 class Command(BaseCommand):
@@ -36,7 +39,13 @@ class Command(BaseCommand):
         queryset = GarminConnection.objects.using(using).all()
         if user_id is not None:
             queryset = queryset.filter(user_id=user_id)
-        queryset = queryset.filter(status=GarminConnection.Status.ACTIVE)
+        queryset = queryset.filter(
+            Q(status=GarminConnection.Status.ACTIVE)
+            & (
+                Q(access_token_encrypted__gt=_EMPTY_CIPHERTEXT)
+                | Q(refresh_token_encrypted__gt=_EMPTY_CIPHERTEXT)
+            )
+        )
 
         failures = 0
 
