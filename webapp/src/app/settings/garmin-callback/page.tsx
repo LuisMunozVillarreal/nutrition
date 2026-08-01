@@ -3,10 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
-import {
-  GarminCallbackInvalidError,
-  GarminCallbackProviderError,
-} from '@/lib/garminCallback'
+import { garminProviderErrorMessage } from '@/lib/garminCallback'
 import { consumeGarminCallbackHandoff } from '@/lib/garminCallbackHandoff'
 
 const COMPLETE_GARMIN_AUTHORIZATION_MUTATION = gql`
@@ -26,20 +23,11 @@ const COMPLETE_GARMIN_AUTHORIZATION_MUTATION = gql`
   }
 `
 
-function parseErrorMessage(
-  result:
-    | GarminCallbackInvalidError
-    | GarminCallbackProviderError,
-): string {
-  if (result.kind === 'providerError') {
-    const suffix = result.errorDescription
-      ? `: ${result.errorDescription}`
-      : ''
-    return `Garmin sign-in failed (${result.error}${suffix})`
+const CANCEL_GARMIN_AUTHORIZATION_MUTATION = gql`
+  mutation CancelGarminAuthorization($state: String!) {
+    cancelGarminAuthorization(state: $state)
   }
-
-  return result.message
-}
+`
 
 function ErrorPanel({ message }: { message: string }) {
   const router = useRouter()
@@ -82,8 +70,18 @@ function GarminCallbackFlow() {
 
     const parsed = consumeGarminCallbackHandoff(window.sessionStorage)
 
-    if (parsed.kind !== 'success') {
-      setError(parseErrorMessage(parsed))
+    if (parsed.kind === 'providerError') {
+      void (async () => {
+        await graphqlRequest(CANCEL_GARMIN_AUTHORIZATION_MUTATION, {
+          state: parsed.state,
+        }).catch(() => undefined)
+        setError(garminProviderErrorMessage(parsed.error))
+      })()
+      return
+    }
+
+    if (parsed.kind === 'invalid') {
+      setError(parsed.message)
       return
     }
 

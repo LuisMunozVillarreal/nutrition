@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+import requests
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -168,6 +169,68 @@ class _FakeStreamingResponse:
 
     def __exit__(self, *args) -> None:  # noqa: ARG002
         self.close()
+
+
+class _MidstreamFailureResponse(_FakeStreamingResponse):
+    """Streaming response that fails after returning a partial body."""
+
+    def __init__(self, *, leaked_detail: str) -> None:
+        super().__init__(status_code=200, chunks=[])
+        self.leaked_detail = leaked_detail
+
+    def iter_content(self, chunk_size: int = 1):  # noqa: ARG002
+        yield b'{"partial":'
+        raise requests.exceptions.ChunkedEncodingError(self.leaked_detail)
+
+
+def test_token_exchange_normalizes_midstream_transport_failure(monkeypatch):
+    """A token body failure must close the response and redact transport details."""
+    _configure_garmin(monkeypatch)
+    leaked_detail = "sensitive-code https://garmin.example.com/token"
+    response = _MidstreamFailureResponse(leaked_detail=leaked_detail)
+    monkeypatch.setattr(requests, "request", lambda *_, **__: response)
+
+    with pytest.raises(ValueError) as error:
+        services.exchange_code_for_tokens("sensitive-code")
+
+    assert str(error.value) == "Garmin token exchange failed"
+    assert leaked_detail not in str(error.value)
+    assert "sensitive-code" not in str(error.value)
+    assert response.closed is True
+
+
+def test_activity_fetch_normalizes_midstream_transport_failure(monkeypatch):
+    """A paginated body failure must remain a stable redacted operation error."""
+    leaked_detail = (
+        "bearer-secret https://garmin.example.com/activities?cursor=secret"
+    )
+    first_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b'{"activities": [], "next": "page-two"}'],
+    )
+    failed_response = _MidstreamFailureResponse(leaked_detail=leaked_detail)
+    responses = iter((first_response, failed_response))
+    monkeypatch.setattr(requests, "request", lambda *_, **__: next(responses))
+
+    with pytest.raises(ValueError) as error:
+        list(
+            services._iter_activity_payloads(
+                "bearer-secret",
+                max_pages=3,
+                page_limit=100,
+                timeout=10,
+                activities_url="https://garmin.example.com/activities",
+                response_max_bytes=1024,
+                activity_max_total_items=100,
+                activity_total_response_max_bytes=2048,
+            )
+        )
+
+    assert str(error.value) == "Garmin activity fetch failed"
+    assert leaked_detail not in str(error.value)
+    assert "bearer-secret" not in str(error.value)
+    assert first_response.closed is True
+    assert failed_response.closed is True
 
 
 def _activity_payload(
@@ -874,6 +937,82 @@ def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
 
     assert token.access_token == "rotated-access"
     assert token.refresh_token == "refresh-token"
+
+
+@pytest.mark.parametrize(
+    "refresh_value",
+    [
+        pytest.param(None, id="missing"),
+        pytest.param("", id="blank"),
+        pytest.param([], id="wrong-type"),
+    ],
+)
+def test_authorization_code_exchange_requires_nonempty_refresh_token(
+    monkeypatch,
+    refresh_value,
+):
+    """Initial authorization must fail closed without a valid refresh token."""
+    _configure_garmin(monkeypatch)
+    payload = {
+        "access_token": "new-access",
+        "expires_in": 1800,
+    }
+    if refresh_value is not None:
+        payload["refresh_token"] = refresh_value
+    monkeypatch.setattr(services, "_request_json", lambda *_, **__: payload)
+
+    with pytest.raises(
+        ValueError,
+        match="^Garmin token response has invalid refresh_token$",
+    ):
+        services.exchange_code_for_tokens("authorization-code")
+
+
+@pytest.mark.parametrize(
+    "refresh_value",
+    [pytest.param("", id="blank"), pytest.param([], id="wrong-type")],
+)
+def test_refresh_rejects_invalid_present_refresh_without_persisting(
+    monkeypatch,
+    refresh_value,
+):
+    """An invalid rotation value must not change any encrypted credential state."""
+    _configure_garmin(monkeypatch)
+    user = _create_user(
+        f"refresh-invalid-{type(refresh_value).__name__}@example.com"
+    )
+    connection = _connection_with_token(user, access_token="stable-access")
+    before = {
+        "access": connection.access_token_encrypted,
+        "refresh": connection.refresh_token_encrypted,
+        "expires_at": connection.access_token_expires_at,
+        "generation": connection.connection_generation,
+        "scopes": connection.provider_scopes,
+    }
+    monkeypatch.setattr(
+        services,
+        "_request_json",
+        lambda *_, **__: {
+            "access_token": "must-not-persist",
+            "refresh_token": refresh_value,
+            "expires_in": 1800,
+            "scope": "changed",
+        },
+    )
+    using = router.db_for_write(type(connection), instance=connection)
+
+    with pytest.raises(
+        ValueError,
+        match="^Garmin token response has invalid refresh_token$",
+    ):
+        services._refresh_access_token_with_retry(connection, using)
+
+    connection.refresh_from_db()
+    assert connection.access_token_encrypted == before["access"]
+    assert connection.refresh_token_encrypted == before["refresh"]
+    assert connection.access_token_expires_at == before["expires_at"]
+    assert connection.connection_generation == before["generation"]
+    assert connection.provider_scopes == before["scopes"]
 
 
 def test_refresh_access_token_with_retry_stores_rotated_refresh_token(

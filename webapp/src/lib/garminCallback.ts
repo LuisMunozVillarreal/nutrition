@@ -1,7 +1,7 @@
 export type GarminCallbackProviderError = {
   kind: 'providerError'
   error: string
-  errorDescription: string | null
+  state: string
 }
 
 export type GarminCallbackSuccess = {
@@ -19,6 +19,17 @@ export type GarminCallbackParseResult =
   | GarminCallbackSuccess
   | GarminCallbackProviderError
   | GarminCallbackInvalidError
+
+const invalidCallback = (): GarminCallbackInvalidError => ({
+  kind: 'invalid',
+  message:
+    'Expected exactly one Garmin OAuth code and state parameter on callback.',
+})
+
+export function garminProviderErrorMessage(error: string): string {
+  if (error === 'access_denied') return 'Garmin sign-in was cancelled.'
+  return 'Garmin sign-in failed. Please try again.'
+}
 
 function getSingleValue(
   params: SearchParamsLike,
@@ -43,29 +54,30 @@ type SearchParamsLike = {
 export function parseGarminCallbackParams(
   params: SearchParamsLike,
 ): GarminCallbackParseResult {
-  const providerError = valueOrNull(getSingleValue(params, 'error'))
-  const providerErrorDescription = valueOrNull(
-    getSingleValue(params, 'error_description'),
-  )
-  if (providerError) {
+  const providerErrorValues = params.getAll('error')
+  if (providerErrorValues.length > 0) {
+    const providerError = valueOrNull(getSingleValue(params, 'error'))
+    const state = valueOrNull(getSingleValue(params, 'state'))
+    if (
+      !providerError ||
+      !state ||
+      params.getAll('code').length > 0 ||
+      params.getAll('error_description').length > 1
+    ) {
+      return invalidCallback()
+    }
     return {
       kind: 'providerError',
       error: providerError,
-      errorDescription: providerErrorDescription
-        ? providerErrorDescription
-        : null,
+      state,
     }
   }
 
   const code = valueOrNull(getSingleValue(params, 'code'))
   const state = valueOrNull(getSingleValue(params, 'state'))
 
-  if (!code || !state) {
-    return {
-      kind: 'invalid',
-      message:
-        'Expected exactly one Garmin OAuth code and state parameter on callback.',
-    }
+  if (!code || !state || params.getAll('error_description').length > 0) {
+    return invalidCallback()
   }
 
   return { kind: 'success', code, state }

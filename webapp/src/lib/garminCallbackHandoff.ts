@@ -70,8 +70,8 @@ function isStoredCallbackResult(value: unknown): value is StoredCallbackResult {
     return (
       typeof candidate.error === 'string' &&
       candidate.error.trim().length > 0 &&
-      (candidate.errorDescription === null ||
-        typeof candidate.errorDescription === 'string')
+      typeof candidate.state === 'string' &&
+      candidate.state.trim().length > 0
     )
   }
   return false

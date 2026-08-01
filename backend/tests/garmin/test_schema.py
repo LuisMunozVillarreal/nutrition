@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 import jwt
@@ -12,7 +13,12 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 import config.schema as schema_module
-from apps.garmin.models import GarminActivity, GarminConnection
+from apps.garmin.models import (
+    GARMIN_PROVIDER,
+    GarminActivity,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.garmin.services import GarminTokenPair
 
 User = get_user_model()
@@ -123,6 +129,19 @@ def _complete_authorization(context, *, code: str, state: str):
     )
 
 
+def _cancel_authorization(context, *, state: str):
+    """Execute the state-only Garmin cancellation mutation."""
+    return schema_module.schema.execute_sync(
+        """
+            mutation($state: String!) {
+                cancelGarminAuthorization(state: $state)
+            }
+        """,
+        variable_values={"state": state},
+        context_value=context,
+    )
+
+
 def _token_pair(account: str) -> GarminTokenPair:
     """Return deterministic provider-free callback credentials."""
     return GarminTokenPair(
@@ -202,6 +221,126 @@ def test_begin_garmin_authorization_requires_authentication():
 
     assert result.errors is not None
     assert "Authentication required" in result.errors[0].message
+
+
+def test_cancel_garmin_authorization_consumes_state_without_token_exchange(
+    monkeypatch,
+):
+    """Provider cancellation consumes its slot and rejects state replay."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(settings, "GARMIN_STATE_MAX_IN_FLIGHT", 1)
+    user = _create_user("garmin-cancel@example.com")
+    context = _request_context(user, bearer=True)
+    state = _begin_state(context)
+
+    def _unexpected_exchange(_code: str) -> GarminTokenPair:
+        raise AssertionError("cancellation must not exchange a provider code")
+
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        _unexpected_exchange,
+    )
+    blocked = schema_module.schema.execute_sync(
+        "mutation { beginGarminAuthorization { state } }",
+        context_value=context,
+    )
+    assert blocked.errors is not None
+
+    cancelled = _cancel_authorization(context, state=state)
+
+    assert cancelled.errors is None
+    assert cancelled.data == {"cancelGarminAuthorization": True}
+    consumed = GarminOAuthState.objects.get(
+        user=user,
+        provider=GARMIN_PROVIDER,
+        state_hash=GarminOAuthState.hash_state(state),
+    )
+    assert consumed.consumed_at is not None
+    replay = _cancel_authorization(context, state=state)
+    assert replay.errors is not None
+    assert replay.errors[0].message == "OAuth state is invalid or expired"
+    replacement = _begin_state(context)
+    assert replacement != state
+
+
+@pytest.mark.parametrize("state", ["", "unknown-state"])
+def test_cancel_garmin_authorization_rejects_invalid_state_with_redacted_error(
+    monkeypatch,
+    state,
+):
+    """Malformed and missing cancellation state fail with one safe message."""
+    _configure_garmin(monkeypatch)
+    user = _create_user(
+        f"garmin-cancel-invalid-{state or 'empty'}@example.com"
+    )
+
+    result = _cancel_authorization(
+        _request_context(user, bearer=True),
+        state=state,
+    )
+
+    assert result.errors is not None
+    assert result.errors[0].message == "OAuth state is invalid or expired"
+    assert result.data is None
+
+
+def test_cancel_garmin_authorization_rejects_expired_state_with_redacted_error(
+    monkeypatch,
+):
+    """Expired cancellation state does not reveal why matching failed."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-cancel-expired@example.com")
+    state = "expired-provider-error-state"
+    GarminOAuthState.create_for_user(
+        user=user,
+        raw_state=state,
+        provider=GARMIN_PROVIDER,
+        expires_at=timezone.now() - timedelta(seconds=1),
+    )
+
+    result = _cancel_authorization(
+        _request_context(user, bearer=True),
+        state=state,
+    )
+
+    assert result.errors is not None
+    assert result.errors[0].message == "OAuth state is invalid or expired"
+    oauth_state = GarminOAuthState.objects.get(user=user)
+    assert oauth_state.consumed_at is None
+
+
+def test_cancel_garmin_authorization_is_bearer_authenticated_and_owner_bound(
+    monkeypatch,
+):
+    """Session auth and another owner cannot consume a callback state."""
+    _configure_garmin(monkeypatch)
+    owner = _create_user("garmin-cancel-owner@example.com")
+    other = _create_user("garmin-cancel-other@example.com")
+    state = _begin_state(_request_context(owner, bearer=True))
+
+    session_only = _cancel_authorization(
+        _request_context(owner, bearer=False),
+        state=state,
+    )
+    wrong_owner = _cancel_authorization(
+        _request_context(other, bearer=True),
+        state=state,
+    )
+
+    assert session_only.errors is not None
+    assert session_only.errors[0].message == "Authentication required"
+    assert wrong_owner.errors is not None
+    assert wrong_owner.errors[0].message == "OAuth state is invalid or expired"
+    oauth_state = GarminOAuthState.objects.get(user=owner)
+    assert oauth_state.consumed_at is None
+    assert (
+        _cancel_authorization(
+            _request_context(owner, bearer=True),
+            state=state,
+        ).errors
+        is None
+    )
 
 
 def test_complete_garmin_authorization_replays_state_once(monkeypatch):

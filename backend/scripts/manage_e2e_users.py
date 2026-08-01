@@ -81,12 +81,13 @@ def _remove_garmin_fixture(user: User) -> None:
             "exercise_id", flat=True
         )
     )
-    connection.delete()
     if exercise_ids:
         Exercise.objects.filter(
             pk__in=exercise_ids,
             day__plan__user=user,
         ).delete()
+    connection.activities.all().delete()
+    GarminConnection.objects.filter(pk=connection.pk).delete()
 
 
 def reset_garmin_connection(payload: LifecyclePayload) -> None:
