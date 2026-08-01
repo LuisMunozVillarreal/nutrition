@@ -23,7 +23,10 @@ def _create_user(email: str):
 
 
 def test_sync_command_returns_summary_for_selected_user(monkeypatch):
-    """Command should support user-id filtering and emit per-connection json output."""
+    """Command should support user-id filtering.
+
+    Emits per-connection JSON output.
+    """
     _user_one = _create_user("command-one@example.com")
     _user_two = _create_user("command-two@example.com")
 
@@ -61,7 +64,10 @@ def test_sync_command_returns_summary_for_selected_user(monkeypatch):
 
 
 def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
-    """Errors should be emitted per failing connection while continuing others."""
+    """Emit errors per failing connection.
+
+    Continue to process remaining connections.
+    """
     user_one = _create_user("command-fail-one@example.com")
     user_two = _create_user("command-fail-two@example.com")
 
@@ -82,4 +88,4 @@ def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
 
     assert len(rows) == 2
     assert all("error" in row for row in rows)
-    assert {row["error"] for row in rows} == {"boom"}
+    assert {row["error"] for row in rows} == {"sync_failed"}

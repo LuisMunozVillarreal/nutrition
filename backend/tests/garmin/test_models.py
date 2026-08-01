@@ -2,12 +2,12 @@
 
 from datetime import timedelta
 
+import pytest
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-import pytest
 
 from apps.garmin.models import GarminConnection, GarminOAuthState
 from apps.garmin.services import GarminTokenPair
@@ -15,7 +15,9 @@ from apps.garmin.services import GarminTokenPair
 User = get_user_model()
 
 
-def _set_encryption_key(monkeypatch: object, *, value: str | None = None) -> str:
+def _set_encryption_key(
+    monkeypatch: object, *, value: str | None = None
+) -> str:
     if value is None:
         value = Fernet.generate_key().decode()
     monkeypatch.setattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEY", value)
@@ -32,7 +34,7 @@ def _create_user(email: str):
 
 
 def test_state_hash_is_sha256_hex_and_owner_bound(monkeypatch):
-    """OAuth state must be stored as SHA-256 only."""
+    """The OAuth state must be stored as SHA-256 only."""
     user = _create_user("state-hash@example.com")
     state = "my-raw-state"
 
@@ -89,8 +91,10 @@ def test_state_is_consumed_once_and_checks_expiration(monkeypatch):
 
 
 def test_connection_tokens_are_encrypted_with_fernet(monkeypatch):
-    """Access/refresh tokens must be stored encrypted and decrypted
-    only through accessors."""
+    """Store access and refresh tokens encrypted.
+
+    Decrypt them only through the model accessors.
+    """
     _set_encryption_key(monkeypatch)
     user = _create_user("connection-tokens@example.com")
 
@@ -111,7 +115,9 @@ def test_connection_tokens_are_encrypted_with_fernet(monkeypatch):
     assert connection.provider_scopes == ["read", "write"]
 
 
-def test_connection_tokens_fail_gracefully_on_wrong_encryption_key(monkeypatch):
+def test_connection_tokens_fail_gracefully_on_wrong_encryption_key(
+    monkeypatch,
+):
     """Corrupting encryption key must fail token read validation deterministically."""
     _set_encryption_key(monkeypatch)
     user = _create_user("connection-key-rotation@example.com")

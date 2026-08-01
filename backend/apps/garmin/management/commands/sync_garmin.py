@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 
 from django.core.management.base import BaseCommand
-from django.db import OperationalError, router, transaction
+from django.db import OperationalError, router
 
-from apps.garmin.services import sync_connection
 from apps.garmin.models import GarminConnection
+from apps.garmin.services import sync_connection
 
 
 class Command(BaseCommand):
@@ -17,6 +17,7 @@ class Command(BaseCommand):
     help = "Synchronize Garmin activities for one or all connected users."
 
     def add_arguments(self, parser):  # type: ignore[override]
+        """Register the optional user filter."""
         parser.add_argument(
             "--user-id",
             type=int,
@@ -26,6 +27,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):  # type: ignore[override]
+        """Synchronize selected connections and emit a redacted summary."""
         user_id = options.get("user_id")
         using = router.db_for_write(GarminConnection)
         queryset = GarminConnection.objects.using(using).all()
@@ -35,35 +37,33 @@ class Command(BaseCommand):
         outcomes = []
         for connection in queryset.order_by("pk"):
             try:
-                with transaction.atomic(using=using):
-                    locked = GarminConnection.objects.select_for_update().using(
-                        using
-                    ).get(pk=connection.pk)
-                    summary = sync_connection(locked)
-                    outcomes.append(
-                        {
-                            "connection_id": locked.pk,
-                            "user_id": locked.user_id,
-                            "imported": summary.imported,
-                            "duplicates": summary.duplicates,
-                            "unsupported": summary.unsupported,
-                            "invalid": summary.invalid,
-                        }
-                    )
-            except ValueError as exc:
+                summary = sync_connection(connection)
                 outcomes.append(
                     {
                         "connection_id": connection.pk,
                         "user_id": connection.user_id,
-                        "error": str(exc),
+                        "imported": summary.imported,
+                        "duplicates": summary.duplicates,
+                        "unsupported": summary.unsupported,
+                        "invalid": summary.invalid,
+                    }
+                )
+            except ValueError as exc:
+                _ = exc
+                outcomes.append(
+                    {
+                        "connection_id": connection.pk,
+                        "user_id": connection.user_id,
+                        "error": "sync_failed",
                     }
                 )
             except OperationalError as exc:
+                _ = exc
                 outcomes.append(
                     {
                         "connection_id": connection.pk,
                         "user_id": connection.user_id,
-                        "error": str(exc),
+                        "error": "database_error",
                     }
                 )
 

@@ -1,18 +1,15 @@
-"""Garmin persistence models.
-
-This module stores OAuth credentials and per-connection import provenance without
-persisting raw OAuth state or private activity payloads.
-"""
+"""Garmin persistence models."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
-from django.db import models, transaction
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.db import models, router, transaction
 from django.utils import timezone
 
 from apps.libs.basemodel import BaseModel
@@ -21,26 +18,44 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
 GARMIN_PROVIDER = "garmin"
+_TOKEN_ACCESS_SKEW = timedelta(seconds=30)
+
+
+def _encryption_keys() -> list[bytes]:
+    """Return validated Fernet keys for token encryption/decryption."""
+    configured_keys: list[str] = []
+    legacy_key = getattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEY", "")
+    ring = getattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEYS", "")
+
+    if legacy_key:
+        configured_keys.append(str(legacy_key))
+    if ring:
+        configured_keys.extend(
+            str(item).strip()
+            for item in str(ring).split(",")
+            if str(item).strip()
+        )
+
+    if not configured_keys:
+        raise ImproperlyConfigured("GARMIN_TOKEN_ENCRYPTION_KEY is required")
+
+    keys: list[bytes] = []
+    for key in configured_keys:
+        raw_key = key.encode()
+        Fernet(raw_key)
+        if raw_key not in keys:
+            keys.append(raw_key)
+    return keys
 
 
 def _encryption_key() -> bytes:
-    """Return the configured Fernet key for token encryption.
+    """Return primary Fernet key."""
+    return _encryption_keys()[0]
 
-    Returns:
-        bytes: encrypted key bytes.
 
-    Raises:
-        ImproperlyConfigured: when the key is missing or invalid.
-    """
-    raw_key = getattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEY", "")
-    if not raw_key:
-        raise ImproperlyConfigured("GARMIN_TOKEN_ENCRYPTION_KEY is required")
-
-    if isinstance(raw_key, str):
-        raw_key = raw_key.encode()
-
-    Fernet(raw_key)
-    return raw_key
+def ensure_token_encryption_available() -> None:
+    """Validate encryption keys are present and parseable."""
+    _encryption_keys()
 
 
 @dataclass(frozen=True)
@@ -57,6 +72,12 @@ class GarminTokenPair:
 class GarminConnection(BaseModel):
     """Per-user encrypted Garmin OAuth credentials and metadata."""
 
+    class Status(models.TextChoices):
+        """Garmin connection lifecycle state."""
+
+        ACTIVE = "active", "Active"
+        DISCONNECTED = "disconnected", "Disconnected"
+
     user = models.OneToOneField(
         "users.User",
         on_delete=models.CASCADE,
@@ -64,85 +85,121 @@ class GarminConnection(BaseModel):
     )
 
     provider = models.CharField(max_length=32, default=GARMIN_PROVIDER)
-    provider_account_id = models.CharField(max_length=255, blank=True, default="")
+    provider_account_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
     provider_scopes = models.JSONField(
         default=list,
         blank=True,
         help_text="OAuth scopes granted by Garmin.",
     )
+    status = models.CharField(
+        max_length=16,
+        choices=Status,
+        default=Status.ACTIVE,
+    )
 
     access_token_encrypted = models.TextField(blank=True, default="")
     refresh_token_encrypted = models.TextField(blank=True, default="")
     access_token_expires_at = models.DateTimeField(null=True, blank=True)
+    connection_generation = models.PositiveBigIntegerField(default=1)
 
     last_synced_at = models.DateTimeField(null=True, blank=True)
     last_sync_summary = models.JSONField(default=dict, blank=True)
 
     def __str__(self) -> str:
+        """Return a non-sensitive connection label."""
         return f"Garmin connection for {self.user_id}"
+
+    @property
+    def is_active(self) -> bool:
+        """Whether the link is currently active."""
+        return self.status == self.Status.ACTIVE
 
     @property
     def has_refresh_token(self) -> bool:
         """Whether an encrypted refresh token exists."""
-        return bool(self.refresh_token_encrypted)
+        try:
+            return bool(self.refresh_token_encrypted)
+        except ImproperlyConfigured:
+            return False
 
     @property
-    def is_connected(self) -> bool:
-        """Whether a usable access token is currently available."""
+    def has_unexpired_access_token(self) -> bool:
+        """Whether an access token is available and still valid."""
         if not self.access_token_encrypted:
             return False
         if self.access_token_expires_at is None:
             return True
-        return self.access_token_expires_at > timezone.now()
+        return (
+            self.access_token_expires_at > timezone.now() + _TOKEN_ACCESS_SKEW
+        )
+
+    @property
+    def can_sync(self) -> bool:
+        """Whether credentials can be used for sync attempts."""
+        return bool(self.has_refresh_token or self.has_unexpired_access_token)
+
+    @property
+    def is_connected(self) -> bool:
+        """Whether an active link with credentials exists."""
+        return self.is_active and self.can_sync
 
     @staticmethod
     def _encrypt_value(value: str | None) -> str:
         """Encrypt a token string with the configured Fernet key."""
+        ensure_token_encryption_available()
         if not value:
             return ""
         return Fernet(_encryption_key()).encrypt(value.encode()).decode()
 
     @staticmethod
     def _decrypt_value(value: str | None) -> str:
-        """Decrypt a stored token value.
-
-        Raises:
-            ValueError: when decryption fails.
-        """
+        """Decrypt a stored token value or fail with a stable message."""
+        ensure_token_encryption_available()
         if not value:
             return ""
-        try:
-            return Fernet(_encryption_key()).decrypt(value.encode()).decode()
-        except (InvalidToken, ValueError) as exc:
-            raise ValueError("Stored OAuth token is invalid") from exc
+        for key in _encryption_keys():
+            try:
+                return Fernet(key).decrypt(value.encode()).decode()
+            except InvalidToken:
+                continue
+        raise ValueError("Stored OAuth token is invalid")
 
     @property
     def access_token(self) -> str | None:
         """Return the decrypted access token if present."""
-        value = self._decrypt_value(self.access_token_encrypted)
-        return value or None
+        return self._decrypt_value(self.access_token_encrypted) or None
 
     @property
     def refresh_token(self) -> str | None:
         """Return the decrypted refresh token if present."""
-        value = self._decrypt_value(self.refresh_token_encrypted)
-        return value or None
+        return self._decrypt_value(self.refresh_token_encrypted) or None
 
-    def set_tokens(self, token_pair: GarminTokenPair, *, expires_in: int) -> None:
-        """Persist a fresh OAuth token pair on this connection."""
-        self.access_token_encrypted = self._encrypt_value(token_pair.access_token)
-        self.refresh_token_encrypted = self._encrypt_value(token_pair.refresh_token)
-        self.access_token_expires_at = timezone.now() + timezone.timedelta(
-            seconds=max(int(expires_in), 0)
+    def set_tokens(
+        self, token_pair: GarminTokenPair, *, expires_in: int
+    ) -> None:
+        """Persist a fresh OAuth token pair for this connection."""
+        self.access_token_encrypted = self._encrypt_value(
+            token_pair.access_token
         )
-        self.provider_account_id = token_pair.provider_account_id or ""
+        self.refresh_token_encrypted = self._encrypt_value(
+            token_pair.refresh_token
+        )
+        self.access_token_expires_at = timezone.now() + timedelta(
+            seconds=expires_in
+        )
 
-        if token_pair.scope:
-            self.provider_scopes = token_pair.scope.split()
-        else:
-            self.provider_scopes = []
+        if token_pair.provider_account_id is not None:
+            self.provider_account_id = token_pair.provider_account_id
+        if token_pair.scope is not None:
+            self.provider_scopes = (
+                token_pair.scope.split() if token_pair.scope.strip() else []
+            )
 
+        self.status = self.Status.ACTIVE
         self.last_synced_at = None
+        self.connection_generation += 1
 
     def clear_tokens(self) -> None:
         """Drop all secrets and derived fields from this connection."""
@@ -153,10 +210,27 @@ class GarminConnection(BaseModel):
         self.provider_account_id = ""
         self.last_synced_at = None
         self.last_sync_summary = {}
+        self.status = self.Status.DISCONNECTED
+        self.connection_generation += 1
 
-    def clear_activity_link(self, *fields: str) -> None:
-        """No-op compatibility helper."""
-        self.save(update_fields=list(fields) if fields else None)
+    def clean(self) -> None:
+        """Validate owner relationships for direct DB writes."""
+        if self.id is None:
+            return
+        for activity in self.activities.all():
+            if (
+                activity.day is not None
+                and activity.day.plan.user_id != self.user_id
+            ):
+                raise ValidationError(
+                    "Garmin activity day must belong to the same user"
+                )
+            if activity.exercise is not None and (
+                activity.exercise.day.plan.user_id != self.user_id
+            ):
+                raise ValidationError(
+                    "Garmin exercise must belong to the same user"
+                )
 
 
 class GarminOAuthState(BaseModel):
@@ -191,6 +265,37 @@ class GarminOAuthState(BaseModel):
         return hashlib.sha256(raw_state.encode()).hexdigest()
 
     @classmethod
+    def prune_expired(
+        cls,
+        *,
+        now,
+        user: "AbstractUser",
+        provider: str,
+        retention_seconds: int = 3600,
+    ) -> None:
+        """Delete stale rows and bound operational table growth."""
+        cls.objects.filter(
+            user=user,
+            provider=provider,
+            consumed_at__isnull=False,
+            consumed_at__lt=timezone.now()
+            - timedelta(seconds=retention_seconds),
+        ).delete()
+        cls.objects.filter(
+            user=user, provider=provider, expires_at__lt=now
+        ).delete()
+
+    @classmethod
+    def count_active(cls, *, user: "AbstractUser", provider: str, now) -> int:
+        """Count unconsumed, unexpired state rows for a user/provider."""
+        return cls.objects.filter(
+            user=user,
+            provider=provider,
+            consumed_at__isnull=True,
+            expires_at__gt=now,
+        ).count()
+
+    @classmethod
     def create_for_user(
         cls,
         user: "AbstractUser",
@@ -218,28 +323,34 @@ class GarminOAuthState(BaseModel):
     ) -> "GarminOAuthState":
         """Consume a state row for the user and provider, one-time only."""
         if using is None:
-            from django.db import router
-
             using = router.db_for_write(cls)
 
+        now = timezone.now()
         with transaction.atomic(using=using):
             state = (
                 cls.objects.using(using)
                 .select_for_update(of=("self",))
-                .get(user=user, provider=provider, state_hash=cls.hash_state(raw_state))
+                .get(
+                    user=user,
+                    provider=provider,
+                    state_hash=cls.hash_state(raw_state),
+                )
             )
-            if not state.is_valid:
-                raise ValueError("OAuth state is invalid or expired")
-            if state.expires_at <= timezone.now():
+            if state.expires_at <= now:
                 raise ValueError("OAuth state is expired")
+            if state.consumed_at is not None:
+                raise ValueError("OAuth state is invalid or expired")
 
-            state.consumed_at = timezone.now()
+            state.consumed_at = now
             state.save(update_fields=["consumed_at"])
             return state
 
 
 class GarminActivity(BaseModel):
-    """Imported Garmin activity with deterministic provenance row and dedupe key."""
+    """Imported Garmin activity with deterministic provenance row.
+
+    Uses a dedupe key to avoid duplicates.
+    """
 
     connection = models.ForeignKey(
         GarminConnection,
@@ -248,7 +359,12 @@ class GarminActivity(BaseModel):
     )
     provider_activity_id = models.CharField(max_length=255)
     provider_activity_type = models.CharField(max_length=64)
-    provider_account_id = models.CharField(max_length=255, blank=True, default="")
+    provider_account_id = models.CharField(
+        max_length=255, blank=True, default=""
+    )
+    provider_local_started_date = models.DateField(blank=True, null=True)
+    provider_local_started_time = models.TimeField(blank=True, null=True)
+    provider_timezone_offset_minutes = models.SmallIntegerField(default=0)
 
     day = models.ForeignKey(
         "plans.Day",
@@ -261,6 +377,10 @@ class GarminActivity(BaseModel):
     kcals = models.PositiveIntegerField()
     duration_seconds = models.PositiveIntegerField()
     distance = models.DecimalField(max_digits=10, decimal_places=2)
+    pending_reconciliation = models.BooleanField(
+        default=False,
+        help_text="Whether day resolution is still pending.",
+    )
 
     exercise = models.OneToOneField(
         "exercises.Exercise",
@@ -272,9 +392,29 @@ class GarminActivity(BaseModel):
 
     class Meta:
         unique_together = [
-            ("connection", "provider_activity_id"),
+            ("connection", "provider_account_id", "provider_activity_id"),
         ]
         indexes = [
             models.Index(fields=["connection", "provider_activity_id"]),
             models.Index(fields=["day"]),
+            models.Index(fields=["provider_account_id"]),
+            models.Index(fields=["connection", "pending_reconciliation"]),
         ]
+
+    def clean(self) -> None:
+        """Validate owning user integrity between connection and links."""
+        day = self.day
+        exercise = self.exercise
+        if (
+            self.connection_id
+            and day is not None
+            and day.plan.user_id != self.connection.user_id
+        ):
+            raise ValidationError(
+                "Garmin activity day must belong to the same user"
+            )
+        if self.connection_id and exercise is not None and exercise.day_id:
+            if exercise.day.plan.user_id != self.connection.user_id:
+                raise ValidationError(
+                    "Garmin activity exercise must belong to the same user"
+                )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from cryptography.fernet import Fernet
@@ -13,7 +14,11 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import apps.garmin.services as services
-from apps.garmin.models import GarminActivity, GarminConnection, GarminOAuthState
+from apps.garmin.models import (
+    GarminActivity,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.garmin.services import GarminSyncSummary
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, WeekPlan
@@ -28,16 +33,33 @@ def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         settings, "GARMIN_AUTHORIZATION_URL", "https://garmin.example.com/auth"
     )
-    monkeypatch.setattr(settings, "GARMIN_TOKEN_URL", "https://garmin.example.com/token")
     monkeypatch.setattr(
-        settings, "GARMIN_ACTIVITIES_URL", "https://garmin.example.com/activities"
+        settings, "GARMIN_TOKEN_URL", "https://garmin.example.com/token"
     )
-    monkeypatch.setattr(settings, "GARMIN_CALLBACK_URL", "https://app.example.com/callback")
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_ACTIVITIES_URL",
+        "https://garmin.example.com/activities",
+    )
+    monkeypatch.setattr(
+        settings, "GARMIN_CALLBACK_URL", "https://app.example.com/callback"
+    )
     monkeypatch.setattr(settings, "GARMIN_SCOPES", "read write")
     monkeypatch.setattr(settings, "GARMIN_REQUEST_TIMEOUT_SECONDS", 10)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITY_MAX_PAGES", 3)
     monkeypatch.setattr(settings, "GARMIN_ACTIVITIES_LIMIT", 100)
     monkeypatch.setattr(settings, "GARMIN_STATE_TTL_SECONDS", 300)
+    monkeypatch.setattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", 3600)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES",
+        1024 * 1024,
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES",
+        512 * 1024,
+    )
     monkeypatch.setattr(
         settings, "GARMIN_TOKEN_ENCRYPTION_KEY", Fernet.generate_key().decode()
     )
@@ -52,7 +74,7 @@ def _create_user(email: str):
     )
 
 
-def _create_user_with_day(email: str) -> tuple[User, Day]:
+def _create_user_with_day(email: str) -> tuple[Any, Day]:
     user = _create_user(email)
     measurement = Measurement.objects.create(
         user=user,
@@ -73,7 +95,7 @@ def _create_user_with_day(email: str) -> tuple[User, Day]:
 
 
 def _connection_with_token(
-    user: User, *, access_token: str = "access-token"
+    user: Any, *, access_token: str = "access-token"
 ) -> GarminConnection:
     connection = GarminConnection.objects.create(user=user)
     token_pair = services.GarminTokenPair(
@@ -96,17 +118,42 @@ def _connection_with_token(
     return connection
 
 
-def _activity_payload(*, activity_id: str, activity_type: str, started_at: str) -> dict:
-    return {
+def _activity_payload(
+    *,
+    activity_id: str,
+    activity_type: str,
+    started_at: str,
+    start_time_local: str | None = None,
+    distance: object = 12.5,
+    distance_unit: str | None = "km",
+    distance_source: str | None = None,
+    user_id: str = "provider-user",
+    include_local_fields: bool = True,
+) -> dict:
+    local = start_time_local if start_time_local is not None else started_at
+    payload: dict[str, object] = {
         "activityId": activity_id,
         "activityType": activity_type,
         "startTime": started_at,
         "duration": 30,
         "activeKcal": 250,
-        "distance": 12.5,
-        "distanceUnit": "km",
-        "userId": "provider-user",
+        "userId": user_id,
     }
+    if include_local_fields:
+        payload["startTimeLocal"] = local
+    if distance_unit is not None:
+        payload["distanceUnit"] = distance_unit
+    if distance_source == "distanceMiles":
+        payload["distanceMiles"] = distance
+    elif distance_source == "distanceMeters":
+        payload["distanceMeters"] = distance
+    else:
+        payload["distance"] = distance
+
+    if include_local_fields and start_time_local is None:
+        payload["timezoneOffsetMinutes"] = 0
+
+    return payload
 
 
 def test_iter_activity_payloads_follows_cursors(requests_mock, monkeypatch):
@@ -148,6 +195,7 @@ def test_iter_activity_payloads_follows_cursors(requests_mock, monkeypatch):
         page_limit=100,
         timeout=10.0,
         activities_url="https://garmin.example.com/activities",
+        response_max_bytes=1024 * 1024,
     )
 
     assert [row["activityId"] for row in payloads] == ["1", "2"]
@@ -187,13 +235,16 @@ def test_iter_activity_payloads_detects_loop(requests_mock, monkeypatch):
         ],
     )
 
-    with pytest.raises(ValueError, match="Garmin activity pagination loop detected"):
+    with pytest.raises(
+        ValueError, match="Garmin activity pagination loop detected"
+    ):
         services._iter_activity_payloads(
             "access-token",
             max_pages=3,
             page_limit=100,
             timeout=10.0,
             activities_url="https://garmin.example.com/activities",
+            response_max_bytes=1024 * 1024,
         )
 
 
@@ -228,7 +279,46 @@ def test_iter_activity_payloads_exceeds_max_pages(requests_mock, monkeypatch):
             page_limit=100,
             timeout=10.0,
             activities_url="https://garmin.example.com/activities",
+            response_max_bytes=1024 * 1024,
         )
+
+
+def test_iter_activity_payloads_extracts_nested_data_payloads(
+    requests_mock, monkeypatch
+):
+    """Nested provider payload shapes should be supported."""
+    _configure_garmin(monkeypatch)
+
+    nested_activity = _activity_payload(
+        activity_id="nested-1",
+        activity_type="cycle",
+        started_at="2026-08-01T10:00:00+00:00",
+    )
+
+    requests_mock.get(
+        "https://garmin.example.com/activities",
+        [
+            {
+                "json": {
+                    "data": {
+                        "activities": [nested_activity],
+                    }
+                }
+            },
+        ],
+    )
+
+    payloads = services._iter_activity_payloads(
+        "access-token",
+        max_pages=1,
+        page_limit=100,
+        timeout=10.0,
+        activities_url="https://garmin.example.com/activities",
+        response_max_bytes=1024 * 1024,
+    )
+
+    assert len(payloads) == 1
+    assert payloads[0]["activityId"] == "nested-1"
 
 
 def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
@@ -240,7 +330,10 @@ def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
     monkeypatch.setattr(
         services,
         "_request_json",
-        lambda *_, **__: {"access_token": "rotated-access", "expires_in": 1800},
+        lambda *_, **__: {
+            "access_token": "rotated-access",
+            "expires_in": 1800,
+        },
     )
 
     token = services.refresh_access_token(connection)
@@ -249,8 +342,13 @@ def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
     assert token.refresh_token == "refresh-token"
 
 
-def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(monkeypatch):
-    """Sync must only attach activities to user-owned days and count anomalies."""
+def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(
+    monkeypatch,
+):
+    """Sync only attaches to user-owned days.
+
+    It also counts unsupported and invalid activities.
+    """
     _configure_garmin(monkeypatch)
     user, day = _create_user_with_day("sync-owned@example.com")
     connection = _connection_with_token(user)
@@ -276,6 +374,8 @@ def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(monke
             "activityId": "unsupported-1",
             "activityType": "walk",
             "startTime": "2026-08-01T12:00:00+00:00",
+            "startTimeLocal": "2026-08-01T12:00:00+00:00",
+            "timezoneOffsetMinutes": 0,
             "duration": 40,
             "activeKcal": 400,
             "distance": 3.3,
@@ -288,12 +388,14 @@ def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(monke
         },
     ]
 
-    monkeypatch.setattr(services, "_iter_activity_payloads", lambda *_, **__: payloads)
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
 
     summary = services.sync_connection(connection)
 
     assert summary == GarminSyncSummary(
-        imported=1,
+        imported=2,
         duplicates=0,
         unsupported=1,
         invalid=1,
@@ -303,6 +405,75 @@ def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(monke
         provider_activity_id="owned-1",
     )
     assert imported.day == day
+    pending = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="orphan-1",
+    )
+    assert pending.pending_reconciliation is True
+    assert pending.day is None
+
+
+def test_sync_connection_stores_unmatched_activity_without_day_as_pending(
+    monkeypatch,
+):
+    """Persist unmatched activities with no day.
+
+    Queue them for later matching.
+    """
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-pending@example.com")
+    connection = _connection_with_token(user)
+
+    missing_day = day.day + timedelta(days=60)
+
+    payloads = [
+        _activity_payload(
+            activity_id="pending-day-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(missing_day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="pending-day-1",
+    )
+    assert activity.day is None
+    assert activity.pending_reconciliation is True
+
+    measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80.0"),
+        body_fat_perc=Decimal("20.0"),
+    )
+    WeekPlan.objects.create(
+        user=user,
+        measurement=measurement,
+        start_date=missing_day,
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+    assert services.reconcile_pending_garmin_activities(connection) == 1
+
+    activity.refresh_from_db()
+    assert activity.day is not None
+    assert activity.day.day == missing_day
+    assert activity.pending_reconciliation is False
+    assert activity.exercise is not None
 
 
 def test_sync_connection_is_idempotent_for_duplicate_payload_ids(monkeypatch):
@@ -330,7 +501,9 @@ def test_sync_connection_is_idempotent_for_duplicate_payload_ids(monkeypatch):
             started_at="2026-08-01T10:00:00+00:00",
         )
     ]
-    monkeypatch.setattr(services, "_iter_activity_payloads", lambda *_, **__: payloads)
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
 
     summary = services.sync_connection(connection)
 
@@ -340,10 +513,189 @@ def test_sync_connection_is_idempotent_for_duplicate_payload_ids(monkeypatch):
         unsupported=0,
         invalid=0,
     )
-    assert GarminActivity.objects.filter(
+    assert (
+        GarminActivity.objects.filter(
+            connection=connection,
+            provider_activity_id="dup-1",
+        ).count()
+        == 1
+    )
+
+
+def test_sync_connection_rejects_ambiguous_day_matches(monkeypatch):
+    """Treat overlapping plans for a day as ambiguous."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-ambiguous@example.com")
+    connection = _connection_with_token(user)
+
+    second_measurement = Measurement.objects.create(
+        user=user,
+        weight=Decimal("80.0"),
+        body_fat_perc=Decimal("20.0"),
+    )
+    WeekPlan.objects.create(
+        user=user,
+        measurement=second_measurement,
+        start_date=day.day,
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+
+    payloads = [
+        _activity_payload(
+            activity_id="ambiguous-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+
+
+def test_sync_connection_quantizes_meters_before_validation(monkeypatch):
+    """Quantize raw meter distances.
+
+    Conversion rounds to exercise precision.
+    """
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-distance-meters@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="distance-meters-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+            distance_source="distanceMeters",
+            distance=Decimal("12345"),
+        ),
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    activity = GarminActivity.objects.get(
         connection=connection,
-        provider_activity_id="dup-1",
-    ).count() == 1
+        provider_activity_id="distance-meters-1",
+    )
+    assert activity.distance == Decimal("12.35")
+
+
+def test_sync_connection_rejects_provider_account_mismatch(monkeypatch):
+    """Provider rows for a different Garmin account should not import."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-account-mismatch@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="account-mismatch-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+            user_id="other-account",
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+    assert not GarminActivity.objects.filter(
+        connection=connection,
+        provider_activity_id="account-mismatch-1",
+    ).exists()
+
+
+def test_sync_connection_rejects_unknown_distance_unit(monkeypatch):
+    """A distance without parseable units must be rejected as invalid."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-distance-unit@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="distance-unknown-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, datetime.min.time())
+            ).isoformat(),
+            distance_unit="furlongs",
+        ),
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+
+
+def test_sync_connection_rejects_payloads_missing_local_start(monkeypatch):
+    """Local-start metadata must be explicit and not inferred from UTC."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("sync-missing-local@example.com")
+    connection = _connection_with_token(user)
+
+    payloads = [
+        _activity_payload(
+            activity_id="missing-local-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(_day.day, datetime.min.time())
+            ).isoformat(),
+            include_local_fields=False,
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
 
 
 def test_sync_connection_rolls_back_on_activity_error(monkeypatch):
@@ -359,7 +711,9 @@ def test_sync_connection_rolls_back_on_activity_error(monkeypatch):
             started_at="2026-08-01T10:00:00+00:00",
         )
     ]
-    monkeypatch.setattr(services, "_iter_activity_payloads", lambda *_, **__: payloads)
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
 
     def _never_create(*args, **kwargs):
         raise IntegrityError("broken")

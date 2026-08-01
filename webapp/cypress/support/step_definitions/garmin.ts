@@ -39,19 +39,17 @@ function registerGarminIntercepts({
   beginUrl = '/settings/garmin-callback?code=unit-code&state=unit-state',
   completeStatus = garminConnectedStatus,
   disconnectStatus = garminDefaultStatus,
-  syncSummary = { imported: 12, duplicates: 1, unsupported: 0, invalid: 0 },
 }: {
   status?: GarminStatusFixture | GarminStatusFixture[]
   beginUrl?: string
   completeStatus?: GarminStatusFixture
   disconnectStatus?: GarminStatusFixture
-  syncSummary?: { imported: number; duplicates: number; unsupported: number; invalid: number }
 }) {
   const queue = Array.isArray(status)
     ? [...status]
     : [status]
 
-  cy.intercept('POST', '/api/graphql', (req) => {
+  cy.intercept('POST', '/graphql', (req) => {
     const body = req.body as { operationName?: string }
     const operation = body?.operationName
     if (!operation) return
@@ -90,24 +88,11 @@ function registerGarminIntercepts({
     }
 
     if (operation === 'DisconnectGarmin') {
+      const disconnectResult = disconnectStatus.connected || disconnectStatus.hasRefreshToken
       req.reply({
         statusCode: 200,
         body: {
-          data: {
-            disconnectGarmin: true,
-          },
-        },
-      })
-      return
-    }
-
-    if (operation === 'SyncGarmin') {
-      req.reply({
-        statusCode: 200,
-        body: {
-          data: {
-            syncGarmin: syncSummary,
-          },
+          data: { disconnectGarmin: disconnectResult },
         },
       })
       return
@@ -158,19 +143,9 @@ When('I click the Garmin disconnect button', () => {
     .click()
 })
 
-When('I click the Garmin sync button', () => {
-  cy.get('[data-testid="garmin-sync-btn"]', { timeout: 10000 }).click()
-})
-
 Then('I should see Garmin as disconnected', () => {
   cy.get('[data-testid="garmin-connected"]', { timeout: 10000 })
     .should('contain.text', 'No')
-})
-
-Then('I should see a Garmin sync summary', () => {
-  cy.get('[data-testid="garmin-sync-summary"]', { timeout: 10000 })
-    .should('be.visible')
-    .and('contain.text', '12 imported')
 })
 
 Then('I should be redirected to the Garmin callback page', () => {
