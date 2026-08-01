@@ -46,6 +46,22 @@ class _ScraperHTTPSAdapter(HTTPAdapter):
         proxies: Mapping[str, str] | None = None,
         cert: str | tuple[str, str] | None = None,
     ) -> urllib3.connectionpool.ConnectionPool:
+        """Create a connection pool using previously validated host resolution.
+
+        Args:
+            request: Prepared request object to resolve transport details from.
+            verify: TLS verification mode passed through requests.
+            proxies: Environment or call-site proxy mapping (ignored for safety).
+            cert: Optional client certificate tuple or path.
+
+        Returns:
+            The HTTPS connection pool configured to connect by resolved IP while
+            preserving TLS hostname checks.
+
+        Raises:
+            NutritionFactsFetchError: When request validation or destination
+                resolution blocks the fetch.
+        """
         # Disable environment proxy influence and explicit overrides for scraper
         # requests to avoid DNS/SSRF ambiguity.
         resolved_host = self._parse_host(request.url)
