@@ -83,6 +83,120 @@ test('Garmin callback parser validates success, duplicates, and provider errors'
   )
 })
 
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial))
+  return {
+    getItem(key) {
+      return values.get(key) ?? null
+    },
+    setItem(key, value) {
+      values.set(key, value)
+    },
+    removeItem(key) {
+      values.delete(key)
+    },
+  }
+}
+
+test('Garmin callback handoff scrubs OAuth values and resumes exactly once', async () => {
+  const {
+    captureGarminCallbackHandoff,
+    consumeGarminCallbackHandoff,
+  } = await import('../src/lib/garminCallbackHandoff.ts')
+  const storage = memoryStorage()
+  const history = {
+    state: { navigation: 'preserved' },
+    url: '/settings/garmin-callback?code=one-time-code&state=one-time-state',
+    replaceState(state, _unused, url) {
+      this.state = state
+      this.url = url
+    },
+  }
+
+  assert.equal(
+    captureGarminCallbackHandoff(
+      '/settings/garmin-callback',
+      new URLSearchParams('code=one-time-code&state=one-time-state'),
+      storage,
+      history,
+      1_000,
+    ),
+    true,
+  )
+  assert.equal(history.url, '/settings/garmin-callback')
+  assert.doesNotMatch(history.url, /one-time-(?:code|state)/)
+  assert.deepEqual(consumeGarminCallbackHandoff(storage, 1_001), {
+    kind: 'success',
+    code: 'one-time-code',
+    state: 'one-time-state',
+  })
+  assert.equal(consumeGarminCallbackHandoff(storage, 1_002).kind, 'invalid')
+})
+
+test('Garmin callback handoff scrubs provider errors and rejects expired or malformed state', async () => {
+  const {
+    GARMIN_CALLBACK_HANDOFF_MAX_AGE_MS,
+    captureGarminCallbackHandoff,
+    consumeGarminCallbackHandoff,
+  } = await import('../src/lib/garminCallbackHandoff.ts')
+  const storage = memoryStorage()
+  const history = {
+    state: null,
+    url: '/settings/garmin-callback?error=access_denied&error_description=cancelled',
+    replaceState(state, _unused, url) {
+      this.state = state
+      this.url = url
+    },
+  }
+
+  captureGarminCallbackHandoff(
+    '/settings/garmin-callback',
+    new URLSearchParams('error=access_denied&error_description=cancelled'),
+    storage,
+    history,
+    5_000,
+  )
+  assert.equal(history.url, '/settings/garmin-callback')
+  assert.deepEqual(consumeGarminCallbackHandoff(storage, 5_001), {
+    kind: 'providerError',
+    error: 'access_denied',
+    errorDescription: 'cancelled',
+  })
+
+  captureGarminCallbackHandoff(
+    '/settings/garmin-callback',
+    new URLSearchParams('code=expired-code&state=expired-state'),
+    storage,
+    history,
+    10_000,
+  )
+  assert.equal(
+    consumeGarminCallbackHandoff(
+      storage,
+      10_000 + GARMIN_CALLBACK_HANDOFF_MAX_AGE_MS + 1,
+    ).kind,
+    'invalid',
+  )
+
+  storage.setItem('nutrition.garmin.callback-handoff.v1', '{malformed')
+  assert.equal(consumeGarminCallbackHandoff(storage, 20_000).kind, 'invalid')
+})
+
+test('Garmin callback flow uses only tab-local handoff storage', async () => {
+  const handoffSource = await readFile(
+    new URL('../src/lib/garminCallbackHandoff.ts', import.meta.url),
+    'utf8',
+  )
+  const callbackSource = await readFile(
+    new URL('../src/app/settings/garmin-callback/page.tsx', import.meta.url),
+    'utf8',
+  )
+
+  assert.doesNotMatch(handoffSource, /localStorage|document\.cookie|console\./)
+  assert.match(callbackSource, /consumeGarminCallbackHandoff\(window\.sessionStorage\)/)
+  assert.doesNotMatch(callbackSource, /parseGarminCallbackParams\(searchParams\)/)
+})
+
 test('Garmin GraphQL documents match backend schema contracts', async () => {
   const statusQuery = await readOperation(
     '../src/app/settings/page.tsx',
@@ -207,6 +321,6 @@ test('settings route and sidebar source contracts include Garmin item and title'
   assert.match(sidebar, /href: '\/settings'/)
   assert.match(pageSource, /data-testid="settings-title"/)
   assert.match(pageSource, /useCallback\(/)
-  assert.match(callbackSource, /parseGarminCallbackParams/)
+  assert.match(callbackSource, /consumeGarminCallbackHandoff/)
   assert.match(callbackSource, /data-testid="garmin-callback-error"/)
 })

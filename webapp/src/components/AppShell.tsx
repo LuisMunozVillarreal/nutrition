@@ -1,9 +1,10 @@
 'use client'
 
-import { Suspense, useEffect, useMemo } from 'react'
+import { Suspense, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { BACKEND_REAUTHENTICATION_REQUIRED } from '@/lib/sessionCapabilities'
+import { captureGarminCallbackHandoff } from '@/lib/garminCallbackHandoff'
 import { buildCallbackPath, decideRouteAccess, safeCallbackPath } from '@/lib/routeAccess'
 import Sidebar from './Sidebar'
 
@@ -20,6 +21,16 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
+
+  useLayoutEffect(() => {
+    captureGarminCallbackHandoff(
+      pathname,
+      searchParams,
+      window.sessionStorage,
+      window.history,
+    )
+  }, [pathname, searchParams])
+
   const callbackPath = useMemo(
     () =>
       pathname === '/login' || pathname === '/login/'

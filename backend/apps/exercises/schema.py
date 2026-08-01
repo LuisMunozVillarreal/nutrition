@@ -361,20 +361,22 @@ class ExerciseMutation:
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
 
-        try:
-            stale_obj = Exercise.objects.get(pk=id, day__plan__user=user)
-        except Exercise.DoesNotExist as e:
-            raise ValueError("Exercise not found") from e
-        if stale_obj.day_id is None:
-            raise ValueError("Exercise not found")
+        using = router.db_for_write(Exercise, instance=user)
+        with transaction.atomic(using=using):
+            try:
+                stale_obj = Exercise.objects.using(using).get(
+                    pk=id, day__plan__user=user
+                )
+            except Exercise.DoesNotExist as e:
+                raise ValueError("Exercise not found") from e
+            if stale_obj.day_id is None:
+                raise ValueError("Exercise not found")
 
-        using = router.db_for_write(Exercise, instance=stale_obj)
-        _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
-        day_locks = lock_plan_aggregate_rows(
-            using=using, day_ids=(stale_obj.day_id,)
-        )
-        try:
-            with transaction.atomic(using=using):
+            _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            day_locks = lock_plan_aggregate_rows(
+                using=using, day_ids=(stale_obj.day_id,)
+            )
+            try:
                 obj = (
                     Exercise.objects.using(using)
                     .filter(pk=stale_obj.pk, day__plan__user=user)
@@ -419,8 +421,8 @@ class ExerciseMutation:
 
                 if changed_fields:
                     obj.save(using=using, update_fields=changed_fields)
-        finally:
-            day_locks.clear_markers()
+            finally:
+                day_locks.clear_markers()
 
         return ExerciseType.from_model(obj)
 

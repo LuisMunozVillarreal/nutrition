@@ -115,6 +115,32 @@ def test_connection_tokens_are_encrypted_with_fernet(monkeypatch):
     assert connection.provider_scopes == ["read", "write"]
 
 
+def test_clear_tokens_preserves_provider_identity_but_erases_secrets(
+    monkeypatch,
+):
+    """Disconnect metadata retains identity without retaining credentials."""
+    _set_encryption_key(monkeypatch)
+    user = _create_user("connection-clear-identity@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    token_pair = GarminTokenPair(
+        access_token="access-plain",
+        refresh_token="refresh-plain",
+        expires_in=3600,
+        scope="read write",
+        provider_account_id="provider-account-a",
+    )
+    connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
+
+    connection.clear_tokens()
+
+    assert connection.provider_account_id == "provider-account-a"
+    assert connection.access_token_encrypted == ""
+    assert connection.refresh_token_encrypted == ""
+    assert connection.provider_scopes == []
+    assert connection.status == GarminConnection.Status.DISCONNECTED
+    assert connection.is_connected is False
+
+
 def test_connection_tokens_fail_gracefully_on_wrong_encryption_key(
     monkeypatch,
 ):

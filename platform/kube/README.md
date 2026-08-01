@@ -67,8 +67,12 @@ Remove the password from the file.
 
 Garmin is disabled by default (`GARMIN_ENABLED=false`). In that state the
 `nutrition-garmin-config` Secret may be absent because every Garmin Secret
-reference is optional, and no Helm Garmin sync CronJob is rendered. Provider
-endpoints/origins and the application callback URL/origin are separate values.
+reference is optional, and no Helm Garmin sync CronJob is rendered. Optional
+workload references do not authorize copying credentials into preview
+namespaces: the preview clone job never queries or clones the staging Garmin
+Secret. Any future preview Garmin testing must use separately provisioned,
+preview-scoped credentials with no staging fallback. Provider endpoints/origins
+and the application callback URL/origin are separate values.
 
 The supported Helm path runs synchronization from the backend chart with the
 same image, service account, and environment as the backend Deployment. The

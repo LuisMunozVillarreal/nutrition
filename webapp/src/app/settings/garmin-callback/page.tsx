@@ -1,13 +1,13 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import {
   GarminCallbackInvalidError,
   GarminCallbackProviderError,
-  parseGarminCallbackParams,
 } from '@/lib/garminCallback'
+import { consumeGarminCallbackHandoff } from '@/lib/garminCallbackHandoff'
 
 const COMPLETE_GARMIN_AUTHORIZATION_MUTATION = gql`
   mutation CompleteGarminAuthorization($code: String!, $state: String!) {
@@ -71,20 +71,16 @@ function ErrorPanel({ message }: { message: string }) {
 
 function GarminCallbackFlow() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   const [message, setMessage] = useState('Completing Garmin setup...')
   const [error, setError] = useState<string | null>(null)
   const [isDone, setIsDone] = useState(false)
-  const [hasStarted, setHasStarted] = useState(false)
+  const hasStarted = useRef(false)
 
   useEffect(() => {
-    if (hasStarted) return
-    setHasStarted(true)
+    if (hasStarted.current) return
+    hasStarted.current = true
 
-    const parsed = parseGarminCallbackParams(searchParams)
-    if (typeof window !== 'undefined') {
-      window.history.replaceState({}, '', '/settings/garmin-callback')
-    }
+    const parsed = consumeGarminCallbackHandoff(window.sessionStorage)
 
     if (parsed.kind !== 'success') {
       setError(parseErrorMessage(parsed))
@@ -104,7 +100,7 @@ function GarminCallbackFlow() {
         setError('Garmin connection failed during completion.')
       }
     })()
-  }, [hasStarted, searchParams, router])
+  }, [router])
 
   if (error) {
     return <ErrorPanel message={error} />
