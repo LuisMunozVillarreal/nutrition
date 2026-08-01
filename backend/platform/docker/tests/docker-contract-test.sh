@@ -8,8 +8,16 @@ IMAGE_NAME="${IMAGE_NAME:-nutrition-backend-contract-test}"
 IMAGE_TAG="${IMAGE_TAG:-ci}"
 IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 DOCKERFILE_PATH="${SCRIPT_DIR}/../Dockerfile"
+SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
 
-docker build -f "$DOCKERFILE_PATH" -t "$IMAGE" "$PROJECT_ROOT"
+if [ "$SKIP_IMAGE_BUILD" = "1" ]; then
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "Contract image ${IMAGE} is not available and SKIP_IMAGE_BUILD is enabled." >&2
+    exit 1
+  fi
+else
+  docker build -f "$DOCKERFILE_PATH" -t "$IMAGE" "$PROJECT_ROOT"
+fi
 
 trap 'docker image rm -f "$IMAGE" >/dev/null 2>&1 || true' EXIT
 

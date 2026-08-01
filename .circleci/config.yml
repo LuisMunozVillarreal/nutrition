@@ -262,7 +262,9 @@ jobs:
           name: Build, Tag and Push Backend
           command: |
              apk add --no-cache make
-             TAG=$CIRCLE_SHA1 make docker-build-tag-push
+             TAG=$CIRCLE_SHA1 make docker-build
+             IMAGE_NAME=luismunozvillarreal/nutrition-backend IMAGE_TAG=$CIRCLE_SHA1 SKIP_IMAGE_BUILD=1 make docker-contract-test
+             TAG=$CIRCLE_SHA1 make docker-push
 
   webapp-docker-build-tag-push:
     working_directory: ~/project/webapp
