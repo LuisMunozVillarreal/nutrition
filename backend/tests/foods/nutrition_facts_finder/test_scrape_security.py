@@ -473,6 +473,11 @@ class MonotonicClock:
         self._time = start
 
     def __call__(self) -> float:
+        """Return the current synthetic monotonic timestamp.
+
+        Returns:
+            float: The current monotonic timestamp value.
+        """
         return self._time
 
     def advance(self, seconds: float) -> None:
