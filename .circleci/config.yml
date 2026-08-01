@@ -238,52 +238,12 @@ jobs:
       - run:
           name: Run Frontend Production Dependency Audit
           command: |
-<<<<<<< HEAD
             npm audit --omit=dev --audit-level=high --json > /tmp/npm-audit-report.json
             AUDIT_EXIT_CODE=$?
             python3 .circleci/scripts/check_frontend_dependency_audit.py \
               --audit-report /tmp/npm-audit-report.json \
               --allowlist ../.circleci/dependency-audit-npm-allowlist.txt \
               --exit-code "$AUDIT_EXIT_CODE"
-=======
-            npm audit --omit=dev --audit-level=high --json > /tmp/npm-audit-report.json || true
-            python3 - \<<'PY'
-            import json
-            import re
-
-            report = json.load(open("/tmp/npm-audit-report.json"))
-            allowlist = set()
-            with open("../.circleci/dependency-audit-npm-allowlist.txt", "r", encoding="utf-8") as handle:
-              for line in handle:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                  allowlist.add(line)
-
-            advisories = set()
-            metadata = report.get("metadata", {}).get("vulnerabilities", {})
-            if metadata.get("high", 0) == 0 and metadata.get("critical", 0) == 0:
-              print("Frontend production dependency audit passed with no high/critical vulnerabilities.")
-              raise SystemExit(0)
-
-            for name, detail in report.get("vulnerabilities", {}).items():
-              if not isinstance(detail, dict):
-                continue
-              severity = str(detail.get("severity", "")).lower()
-              if severity not in {"high", "critical"}:
-                continue
-              advisory_ids = set(re.findall(r"(GHSA-[A-Za-z0-9-]+|CVE-\d{4}-\d+)", json.dumps(detail)))
-              advisory_ids.add(name)
-              advisories.update(advisory_ids - allowlist)
-
-            if advisories:
-              print("Frontend production dependency audit failed due to unwaived high/critical vulnerabilities:")
-              for advisory in sorted(advisories):
-                print(f"  - {advisory}")
-              raise SystemExit(1)
-
-            print("Frontend production dependency audit passed with only allowlisted high/critical vulnerabilities.")
-            PY
->>>>>>> 9e0c7c6 (Fix CircleCI heredoc escaping for config parser)
 
   backend-docker-build-tag-push:
     working_directory: ~/project/backend

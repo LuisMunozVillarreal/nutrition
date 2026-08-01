@@ -8,7 +8,6 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Iterable
 
 ADVISORY_ID_RE = re.compile(r"(GHSA-[A-Za-z0-9-]+|CVE-\d{4}-\d+)")
 
@@ -93,7 +92,12 @@ def evaluate_frontend_audit(
     allowlist: set[str],
     audit_exit_code: int,
 ) -> int:
-    vulnerabilities, _metadata = _validate_and_extract(report)
+    try:
+        vulnerabilities, _ = _validate_and_extract(report)
+    except ValueError as exc:
+        print(f"Frontend production dependency audit failed: {exc}", file=sys.stderr)
+        return 1
+
     unwaived_advisories: set[str] = set()
 
     for vulnerability in vulnerabilities.values():
