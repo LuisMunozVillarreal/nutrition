@@ -5,8 +5,10 @@
 import datetime
 import re
 from decimal import Decimal
+from typing import Annotated
 
 import strawberry
+from django.db import router, transaction
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
@@ -14,6 +16,10 @@ from apps.libs.graphql import (
     get_request_user,
     validated_decimal_field,
     validated_non_negative_decimal,
+)
+from apps.plans.locks import (
+    lock_plan_aggregate_rows,
+    lock_user_for_garmin_sync,
 )
 
 MAX_DISTANCE = Decimal("99999999.99")
@@ -260,8 +266,8 @@ class ExerciseMutation:
         self,
         info: Info,
         day_id: int,
-        type: str,
         kcals: int,
+        type_: Annotated[str, strawberry.argument(name="type")],
         time: str = "00:00",
         duration: str | None = None,
         distance: float | None = None,
@@ -289,7 +295,7 @@ class ExerciseMutation:
             raise PermissionError("Authentication required")
 
         validated_type, validated_kcals, validated_distance = (
-            _validated_exercise_values(type, kcals, distance)
+            _validated_exercise_values(type_, kcals, distance)
         )
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
@@ -316,8 +322,8 @@ class ExerciseMutation:
         self,
         info: Info,
         id: strawberry.ID,
-        type: str,
         kcals: int,
+        type_: Annotated[str, strawberry.argument(name="type")],
         time: str = "00:00",
         duration: str | None = None,
         distance: float | None = None,
@@ -344,23 +350,78 @@ class ExerciseMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        validated_type, validated_kcals, validated_distance = (
-            _validated_exercise_values(type, kcals, distance)
+        exercise_type_input = type_
+        exercise_type, validated_kcals, validated_distance = (
+            _validated_exercise_values(
+                exercise_type_input,
+                kcals,
+                distance,
+            )
         )
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
 
         try:
-            obj = Exercise.objects.get(pk=id, day__plan__user=user)
+            stale_obj = Exercise.objects.get(pk=id, day__plan__user=user)
         except Exercise.DoesNotExist as e:
             raise ValueError("Exercise not found") from e
+        if stale_obj.day_id is None:
+            raise ValueError("Exercise not found")
 
-        obj.time = parsed_time
-        obj.type = validated_type
-        obj.kcals = validated_kcals
-        obj.duration = parsed_duration
-        obj.distance = validated_distance
-        obj.save()
+        using = router.db_for_write(Exercise, instance=stale_obj)
+        _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+        day_locks = lock_plan_aggregate_rows(
+            using=using, day_ids=(stale_obj.day_id,)
+        )
+        try:
+            with transaction.atomic(using=using):
+                obj = (
+                    Exercise.objects.using(using)
+                    .filter(pk=stale_obj.pk, day__plan__user=user)
+                    .select_for_update(of=("self",))
+                    .select_related("day")
+                    .get()
+                )
+                obj.day = day_locks.days_by_pk[obj.day_id]
+
+                changed_fields: list[str] = []
+                if obj.time != parsed_time and stale_obj.time != parsed_time:
+                    obj.time = parsed_time
+                    changed_fields.append("time")
+
+                if (
+                    obj.type != exercise_type
+                    and stale_obj.type != exercise_type
+                ):
+                    obj.type = exercise_type
+                    changed_fields.append("type")
+
+                if (
+                    obj.kcals != validated_kcals
+                    and stale_obj.kcals != validated_kcals
+                ):
+                    obj.kcals = validated_kcals
+                    changed_fields.append("kcals")
+
+                if (
+                    obj.duration != parsed_duration
+                    and stale_obj.duration != parsed_duration
+                ):
+                    obj.duration = parsed_duration
+                    changed_fields.append("duration")
+
+                if (
+                    obj.distance != validated_distance
+                    and stale_obj.distance != validated_distance
+                ):
+                    obj.distance = validated_distance
+                    changed_fields.append("distance")
+
+                if changed_fields:
+                    obj.save(using=using, update_fields=changed_fields)
+        finally:
+            day_locks.clear_markers()
+
         return ExerciseType.from_model(obj)
 
     @strawberry.mutation

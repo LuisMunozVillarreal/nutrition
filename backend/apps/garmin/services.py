@@ -8,7 +8,7 @@ import math
 import secrets
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, cast
+from typing import Any, Iterator, cast
 from urllib.parse import urlencode, urlsplit
 
 import requests
@@ -24,7 +24,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.exercises.models import Exercise
-from apps.plans.locks import lock_plan_aggregate_rows
+from apps.plans.locks import (
+    lock_plan_aggregate_rows,
+    lock_user_for_garmin_sync,
+)
 from apps.plans.models import Day
 
 from .models import (
@@ -264,6 +267,11 @@ def _provider_config() -> dict[str, Any]:
             minimum=1,
             maximum=1000,
         ),
+        "activity_max_total_items": _required_positive_int(
+            "GARMIN_ACTIVITY_MAX_TOTAL_ITEMS",
+            minimum=1,
+            maximum=50_000,
+        ),
         "state_ttl_seconds": _required_positive_int(
             "GARMIN_STATE_TTL_SECONDS",
             minimum=30,
@@ -283,6 +291,11 @@ def _provider_config() -> dict[str, Any]:
             "GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES",
             minimum=1024,
             maximum=10 * 1024 * 1024,
+        ),
+        "activity_total_response_max_bytes": _required_positive_int(
+            "GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES",
+            minimum=1024,
+            maximum=50 * 1024 * 1024,
         ),
         "token_response_max_bytes": _required_positive_int(
             "GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES",
@@ -319,7 +332,7 @@ def _request_json(
         raise ValueError(f"Garmin {operation} failed") from exc
 
     with response:
-        if response.status_code >= 400:
+        if response.status_code < 200 or response.status_code >= 300:
             raise ValueError(
                 _provider_error_message(operation, response.status_code)
             )
@@ -367,6 +380,77 @@ def _request_json(
     return payload
 
 
+def _request_json_with_size(
+    method: str,
+    url: str,
+    operation: str,
+    *,
+    timeout: float,
+    max_response_bytes: int,
+    **kwargs: Any,
+) -> tuple[dict[str, object], int]:
+    """Like ``_request_json`` but also return the consumed body byte count."""
+    try:
+        response = requests.request(
+            method,
+            url,
+            timeout=timeout,
+            allow_redirects=False,
+            stream=True,
+            **kwargs,
+        )
+    except requests.RequestException as exc:
+        raise ValueError(f"Garmin {operation} failed") from exc
+
+    with response:
+        if response.status_code < 200 or response.status_code >= 300:
+            raise ValueError(
+                _provider_error_message(operation, response.status_code)
+            )
+
+        content_length = response.headers.get("Content-Length")
+        if content_length:
+            try:
+                if int(content_length) > max_response_bytes:
+                    raise ValueError(
+                        f"Garmin {operation} response exceeded limit"
+                    )
+            except ValueError as exc:
+                raise ValueError(
+                    f"Garmin {operation} response invalid content length"
+                ) from exc
+
+        chunks: list[bytes] = []
+        total_bytes = 0
+        for chunk in response.iter_content(chunk_size=1024):
+            if not chunk:
+                continue
+
+            total_bytes += len(chunk)
+            if total_bytes > max_response_bytes:
+                raise ValueError(f"Garmin {operation} response exceeded limit")
+            chunks.append(chunk)
+
+        payload_bytes = b"".join(chunks)
+        try:
+            payload_text = payload_bytes.decode(response.encoding or "utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"Garmin {operation} returned invalid JSON"
+            ) from exc
+
+        try:
+            payload = json.loads(payload_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"Garmin {operation} returned invalid JSON"
+            ) from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Garmin {operation} response invalid JSON")
+    return payload, total_bytes
+
+
 def _coerce_non_negative_int(value: object, field_name: str) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{field_name} must be non-negative")
@@ -405,6 +489,8 @@ def _normalize_distance_unit(value: object | None) -> str:
         return "km"
 
     unit = str(value).strip().lower()
+    if unit in {"mi", "mile", "miles"}:
+        return "mile"
     if unit in {"m", "meter", "meters", "metre", "metres"}:
         return "m"
     if unit in {
@@ -424,14 +510,24 @@ def _validate_distance_km(
 ) -> Decimal:
     distance = _coerce_decimal(raw_distance, "distance")
 
-    unit = _normalize_distance_unit(raw_unit)
+    if source == "distanceMiles":
+        unit = _normalize_distance_unit(raw_unit or "mile")
+        if unit != "mile":
+            raise ValueError("distance unit is unsupported")
+    else:
+        unit = _normalize_distance_unit(raw_unit)
+
     if source == "distanceMeters":
         unit = "m"
 
+    if source == "distanceMiles" and distance > (
+        _ACTIVITY_DISTANCE_MAX / _ACTIVITY_DISTANCE_MILES_TO_KM
+    ):
+        raise ValueError("distance out of supported bounds")
+
     if unit == "m":
         distance = distance / Decimal("1000")
-
-    if source == "distanceMiles":
+    elif unit == "mile":
         distance = distance * _ACTIVITY_DISTANCE_MILES_TO_KM
 
     distance = distance.quantize(
@@ -554,6 +650,17 @@ def _normalize_payload_id(
     if not text:
         raise ValueError(f"{field_name} is missing")
     return text
+
+
+def _normalize_optional_payload_id(
+    value: object, *, field_name: str, max_length: int
+) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if len(text) > max_length:
+        raise ValueError(f"{field_name} is too long")
+    return text or None
 
 
 def _extract_payload_distance(
@@ -712,11 +819,13 @@ def _normalize_activity(payload: object) -> NormalizedActivity:
     kcals = _validate_kcals(_extract_payload_kcal(payload))
     distance = _validate_distance_payload(payload)
 
-    provider_account_id = str(
-        _extract_payload_provider_account(payload) or ""
-    ).strip()
-    if provider_account_id and len(provider_account_id) > 255:
-        raise ValueError("provider_account_id is too long")
+    provider_account_id = _normalize_optional_payload_id(
+        _extract_payload_provider_account(payload),
+        field_name="provider_account_id",
+        max_length=255,
+    )
+    if provider_account_id is None:
+        provider_account_id = ""
 
     if not activity_type:
         raise ValueError("activityType is missing")
@@ -762,6 +871,63 @@ def _extract_activity_items(
     return [item for item in raw if isinstance(item, dict)]
 
 
+def _is_garmin_derived_exercise(
+    *,
+    exercise: Exercise,
+    activity: NormalizedActivity,
+) -> bool:
+    """Return whether an exercise appears to originate from normalized activity data."""
+    expected_time = (
+        activity.started_at_local_time
+        if activity.started_at_local_time is not None
+        else datetime.time(0, 0)
+    )
+    expected_duration = datetime.timedelta(seconds=activity.duration_seconds)
+    return (
+        exercise.type == Exercise.EXERCISE_CYCLE
+        and exercise.time == expected_time
+        and exercise.kcals == activity.kcals
+        and exercise.duration == expected_duration
+        and exercise.distance == activity.distance
+    )
+
+
+def _retire_garmin_derived_exercise(
+    *,
+    garmin_activity: GarminActivity,
+    activity: NormalizedActivity,
+    using: str,
+) -> int | None:
+    """Delete a derived Garmin exercise and return the previously linked day id."""
+    if garmin_activity.exercise_id is None:
+        return None
+
+    exercise = (
+        Exercise.objects.using(using)
+        .select_related("day")
+        .select_for_update(of=("self",))
+        .filter(pk=garmin_activity.exercise_id)
+        .first()
+    )
+    if exercise is None:
+        return None
+    if exercise.day is None:
+        return None
+    if exercise.day.plan_id is None or exercise.day.plan.user_id != (
+        garmin_activity.connection.user_id
+    ):
+        return None
+
+    if exercise.day_id is None or not _is_garmin_derived_exercise(
+        exercise=exercise, activity=activity
+    ):
+        return None
+
+    day_id = exercise.day_id
+    exercise.delete(using=using)
+    return day_id
+
+
 def _extract_next_cursor(payload: dict[str, object]) -> str | None:
     cursor = (
         payload.get("next")
@@ -787,9 +953,21 @@ def _iter_activity_payloads(
     timeout: float,
     activities_url: str,
     response_max_bytes: int,
-) -> list[dict[str, object]]:
+    activity_max_total_items: int | None = None,
+    activity_total_response_max_bytes: int | None = None,
+) -> Iterator[dict[str, object]]:
     """Fetch a paginated Garmin activity payload set."""
-    payloads: list[dict[str, object]] = []
+    if activity_max_total_items is None:
+        activity_max_total_items = int(
+            _provider_config()["activity_max_total_items"]
+        )
+    if activity_total_response_max_bytes is None:
+        activity_total_response_max_bytes = int(
+            _provider_config()["activity_total_response_max_bytes"]
+        )
+
+    total_items = 0
+    total_response_bytes = 0
     seen_cursors: set[str] = set()
     next_cursor: str | None = None
 
@@ -798,7 +976,7 @@ def _iter_activity_payloads(
         if next_cursor is not None:
             params["cursor"] = next_cursor
 
-        payload = _request_json(
+        payload, response_bytes = _request_json_with_size(
             "GET",
             activities_url,
             "activity fetch",
@@ -810,8 +988,20 @@ def _iter_activity_payloads(
             },
             params=params,
         )
+        total_response_bytes += response_bytes
+        if total_response_bytes > activity_total_response_max_bytes:
+            raise ValueError(
+                "Garmin activity responses exceeded total byte limit"
+            )
 
-        payloads.extend(_extract_activity_items(payload))
+        for payload_item in _extract_activity_items(payload):
+            total_items += 1
+            if total_items > activity_max_total_items:
+                raise ValueError(
+                    "Garmin activity payloads exceeded total item limit"
+                )
+            yield payload_item
+
         next_cursor = _extract_next_cursor(payload)
         if not next_cursor:
             break
@@ -823,8 +1013,6 @@ def _iter_activity_payloads(
             raise ValueError(
                 "Garmin activity pagination exceeded maximum pages"
             )
-
-    return payloads
 
 
 def _token_request_payload(
@@ -865,8 +1053,12 @@ def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
     if not math.isfinite(expires_in_float) or expires_in_float < 0:
         raise ValueError("Garmin token response has invalid expires_in")
 
-    config = _provider_config()
-    if int(expires_in_float) > int(config["token_ttl_seconds"]):
+    try:
+        max_ttl = int(getattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS"))
+    except (TypeError, ValueError):
+        max_ttl = 0
+
+    if max_ttl > 0 and int(expires_in_float) > max_ttl:
         raise ValueError("Garmin token response has invalid expires_in")
 
     refresh_token = payload.get("refresh_token")
@@ -880,11 +1072,11 @@ def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
     scope_value = str(scope) if isinstance(scope, str) else None
 
     provider_account_id = payload.get("userId")
-    provider_account_id_value = (
-        str(provider_account_id) if provider_account_id is not None else None
+    provider_account_id_value = _normalize_optional_payload_id(
+        provider_account_id,
+        field_name="provider_account_id",
+        max_length=255,
     )
-    if provider_account_id_value is not None:
-        provider_account_id_value = provider_account_id_value[:255]
 
     return GarminTokenPair(
         access_token=access_token,
@@ -899,41 +1091,52 @@ def begin_authorization(user) -> tuple[str, datetime.datetime, str]:
     """Generate a short-lived one-time state and authorization URL."""
     config = _provider_config()
 
+    using = router.db_for_write(GarminOAuthState, instance=user)
     now = timezone.now()
-    GarminOAuthState.prune_expired(
-        now=now,
-        user=user,
-        provider=GARMIN_PROVIDER,
-    )
-    if (
-        GarminOAuthState.count_active(
+    with transaction.atomic(using=using):
+        type(user).objects.using(using).select_for_update(of=("self",)).get(
+            pk=user.pk
+        )
+        GarminOAuthState.prune_expired(
+            now=now,
             user=user,
             provider=GARMIN_PROVIDER,
-            now=now,
+            retention_seconds=config["state_ttl_seconds"],
+            using=using,
         )
-        >= config["state_max_in_flight"]
-    ):
-        raise ValueError("Too many Garmin OAuth sessions in flight")
+        if (
+            GarminOAuthState.count_active(
+                user=user,
+                provider=GARMIN_PROVIDER,
+                now=now,
+                using=using,
+            )
+            >= config["state_max_in_flight"]
+        ):
+            raise ValueError("Too many Garmin OAuth sessions in flight")
 
-    state = secrets.token_urlsafe(24)
-    expires_at = now + datetime.timedelta(
-        seconds=int(config["state_ttl_seconds"])
+        state = secrets.token_urlsafe(24)
+        expires_at = now + datetime.timedelta(
+            seconds=int(config["state_ttl_seconds"])
+        )
+
+        GarminOAuthState.create_for_user(
+            user=user,
+            raw_state=state,
+            provider=GARMIN_PROVIDER,
+            expires_at=expires_at,
+            using=using,
+        )
+    authorization_query = urlencode(
+        {
+            "response_type": "code",
+            "client_id": config["client_id"],
+            "redirect_uri": config["callback_url"],
+            "scope": config["scopes"],
+            "state": state,
+        }
     )
-
-    GarminOAuthState.create_for_user(
-        user=user,
-        raw_state=state,
-        provider=GARMIN_PROVIDER,
-        expires_at=expires_at,
-    )
-
-    authorization_url = f"{config['authorization_url']}?{urlencode({
-        'response_type': 'code',
-        'client_id': config['client_id'],
-        'redirect_uri': config['callback_url'],
-        'scope': config['scopes'],
-        'state': state,
-    })}"
+    authorization_url = f"{config['authorization_url']}?{authorization_query}"
 
     return authorization_url, expires_at, state
 
@@ -1030,11 +1233,6 @@ def _refresh_access_token_with_retry(
             generation = current.connection_generation
             account_id_snapshot = current.provider_account_id
 
-            if current.has_unexpired_access_token and not force_refresh:
-                token = current.access_token
-                if token:
-                    return token, generation, account_id_snapshot
-
             refresh_token = current.refresh_token
             if not refresh_token:
                 raise ValueError("Garmin refresh token is missing")
@@ -1066,8 +1264,11 @@ def _refresh_access_token_with_retry(
             current.set_tokens(
                 GarminTokenPair(
                     access_token=token_pair.access_token,
-                    refresh_token=current.refresh_token
-                    or token_pair.refresh_token,
+                    refresh_token=(
+                        token_pair.refresh_token
+                        if token_pair.refresh_token is not None
+                        else current.refresh_token
+                    ),
                     expires_in=token_pair.expires_in,
                     provider_account_id=(
                         token_pair.provider_account_id
@@ -1126,7 +1327,7 @@ def _ensure_access_token(
 
     if connection.has_unexpired_access_token:
         if force_refresh:
-            using = router.db_for_write(type(connection), instance=connection)
+            using = router.db_for_write(GarminConnection, instance=connection)
             return _refresh_access_token_with_retry(
                 connection,
                 using,
@@ -1140,7 +1341,7 @@ def _ensure_access_token(
                 connection.provider_account_id,
             )
 
-    using = router.db_for_write(type(connection), instance=connection)
+    using = router.db_for_write(GarminConnection, instance=connection)
     return _refresh_access_token_with_retry(connection, using)
 
 
@@ -1210,6 +1411,19 @@ def _ensure_exercise(
         )
         return
 
+    if exercise.type != Exercise.EXERCISE_CYCLE:
+        return
+
+    if not _is_garmin_derived_exercise(
+        exercise=exercise,
+        activity=activity,
+    ):
+        if exercise.day_id == day.pk:
+            return
+        exercise.day = day
+        exercise.save(using=using, update_fields=["day"])
+        return
+
     updated: list[str] = []
     exercise_fields = {
         "day": day,
@@ -1266,7 +1480,7 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
     if not connection.user_id:
         raise ValueError("Garmin connection is missing user")
 
-    using = router.db_for_write(type(connection), instance=connection)
+    using = router.db_for_write(GarminConnection, instance=connection)
     config = _provider_config()
 
     (
@@ -1284,6 +1498,12 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                 timeout=float(config["request_timeout"]),
                 activities_url=str(config["activities_url"]),
                 response_max_bytes=int(config["activity_response_max_bytes"]),
+                activity_max_total_items=int(
+                    config["activity_max_total_items"]
+                ),
+                activity_total_response_max_bytes=int(
+                    config["activity_total_response_max_bytes"]
+                ),
             )
             break
         except ValueError as exc:
@@ -1305,296 +1525,34 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
     unsupported = 0
     invalid = 0
 
-    candidate_activities: dict[
-        tuple[str, str], tuple[NormalizedActivity, Day | None, str]
-    ] = {}
-
-    for raw_activity in raw_activities:
-        try:
-            normalized = _normalize_activity(raw_activity)
-        except ValueError:
-            invalid += 1
-            continue
-
-        if normalized.provider_activity_type != _ACTIVITY_TYPE_CYCLE:
-            unsupported += 1
-            continue
-
-        if connection.provider_account_id and normalized.provider_account_id:
-            if (
-                normalized.provider_account_id
-                != connection.provider_account_id
-            ):
-                invalid += 1
-                continue
-
-        provider_account_id = (
-            normalized.provider_account_id or connection.provider_account_id
-        )
-
-        resolve_error = ""
-        try:
-            day = _resolve_day_for_activity(
-                connection,
-                normalized.started_at_local_date,
-                using=using,
-            )
-        except ValueError:
-            day = None
-            resolve_error = _PENDING_RECONCILIATION_REASON_AMBIGUOUS_DAY
-
-        key = (provider_account_id, normalized.provider_activity_id)
-        candidate_activities.setdefault(
-            key,
-            (normalized, day, resolve_error),
-        )
-
-    candidates = sorted(
-        candidate_activities.items(),
-        key=lambda item: item[0],
-    )
     batch_size = int(config["activity_batch_size"])
-    connection_model_pk = connection.pk
-
     if batch_size <= 0:
         batch_size = 1
 
-    try:
-        for batch_offset in range(0, len(candidates), batch_size):
-            batch = candidates[slice(batch_offset, batch_offset + batch_size)]
-            batch_filters = Q()
-            for provider_account_id, provider_activity_id in (
-                key for key, _ in batch
-            ):
-                batch_filters |= Q(
-                    provider_account_id=provider_account_id,
-                    provider_activity_id=provider_activity_id,
-                )
+    connection_model_pk = connection.pk
 
-            with transaction.atomic(using=using):
-                connection = (
-                    GarminConnection.objects.using(using)
-                    .select_for_update(of=("self",))
-                    .get(pk=connection_model_pk)
-                )
-                if not connection.is_active:
-                    raise ValueError("Garmin connection is not active")
-                if (
-                    connection.connection_generation != expected_generation
-                    or connection.provider_account_id
-                    != expected_provider_account_id
-                ):
-                    raise ValueError(
-                        "Garmin connection state changed during sync"
-                    )
+    def _flush_batch(
+        batch: dict[tuple[str, str], NormalizedActivity],
+    ) -> tuple[int, int, int, int]:
+        imported_count = 0
+        duplicates_count = 0
+        unsupported_count = 0
+        invalid_count = 0
 
-                resolved_existing = {
-                    (
-                        row.provider_account_id,
-                        row.provider_activity_id,
-                    ): row
-                    for row in GarminActivity.objects.using(using)
-                    .filter(
-                        connection=connection,
-                    )
-                    .filter(batch_filters)
-                    .select_related("exercise")
-                }
+        if not batch:
+            return (
+                imported_count,
+                duplicates_count,
+                unsupported_count,
+                invalid_count,
+            )
 
-                day_ids: set[int] = {
-                    row.day_id
-                    for row in resolved_existing.values()
-                    if row.day_id is not None
-                }
-
-                for row in resolved_existing.values():
-                    exercise = row.exercise
-                    if exercise is not None:
-                        day_ids.add(exercise.day_id)
-
-                for _, (_, resolved_day, _) in batch:
-                    if resolved_day is not None:
-                        day_ids.add(resolved_day.pk)
-
-                locks = None
-                if day_ids:
-                    locks = lock_plan_aggregate_rows(
-                        using=using,
-                        day_ids=tuple(sorted(day_ids)),
-                    )
-
-                locked_days = locks.days_by_pk if locks is not None else {}
-                try:
-                    for key, (
-                        normalized,
-                        resolved_day,
-                        resolve_error,
-                    ) in batch:
-                        provider_account_id = key[0]
-                        if resolved_day is not None:
-                            normalized_day = locked_days.get(
-                                resolved_day.pk,
-                                resolved_day,
-                            )
-                        else:
-                            normalized_day = None
-
-                        pending_reason = _determine_pending_reason(
-                            normalized_day,
-                            normalized,
-                            resolve_error,
-                        )
-
-                        existing = resolved_existing.get(key)
-                        if existing is None:
-                            provider_timezone_offset_minutes = (
-                                normalized.provider_timezone_offset_minutes
-                            )
-                            pending_reconciliation = bool(pending_reason)
-                            garmin_activity = (
-                                GarminActivity.objects.db_manager(
-                                    using
-                                ).create(
-                                    connection=connection,
-                                    provider_activity_id=(
-                                        normalized.provider_activity_id
-                                    ),
-                                    provider_activity_type=(
-                                        normalized.provider_activity_type
-                                    ),
-                                    provider_account_id=provider_account_id,
-                                    day=normalized_day,
-                                    provider_local_started_date=(
-                                        normalized.started_at_local_date
-                                    ),
-                                    provider_local_started_time=(
-                                        normalized.started_at_local_time
-                                    ),
-                                    provider_timezone_offset_minutes=(
-                                        provider_timezone_offset_minutes
-                                    ),
-                                    started_at=normalized.started_at,
-                                    kcals=normalized.kcals,
-                                    duration_seconds=(
-                                        normalized.duration_seconds
-                                    ),
-                                    distance=normalized.distance,
-                                    pending_reconciliation=(
-                                        pending_reconciliation
-                                    ),
-                                    pending_reconciliation_reason=(
-                                        pending_reason
-                                    ),
-                                )
-                            )
-                            imported += 1
-
-                            if normalized_day is not None:
-                                _ensure_exercise(
-                                    garmin_activity,
-                                    day=normalized_day,
-                                    activity=normalized,
-                                    using=using,
-                                )
-                            continue
-
-                        garmin_activity = (
-                            GarminActivity.objects.using(using)
-                            .select_for_update(of=("self",))
-                            .get(pk=existing.pk)
-                        )
-                        previous_day_id = garmin_activity.day_id
-                        previous_exercise_day_id = None
-                        if garmin_activity.exercise_id is not None:
-                            previous_exercise_day_id = (
-                                Exercise.objects.using(using)
-                                .filter(pk=garmin_activity.exercise_id)
-                                .values_list("day_id", flat=True)
-                                .first()
-                            )
-
-                        garmin_activity.provider_activity_type = (
-                            normalized.provider_activity_type
-                        )
-                        garmin_activity.provider_account_id = (
-                            provider_account_id
-                        )
-                        garmin_activity.day = (
-                            normalized_day if not pending_reason else None
-                        )
-                        if pending_reason:
-                            garmin_activity.exercise = None
-                        garmin_activity.provider_local_started_date = (
-                            normalized.started_at_local_date
-                        )
-                        garmin_activity.provider_local_started_time = (
-                            normalized.started_at_local_time
-                        )
-                        garmin_activity.provider_timezone_offset_minutes = (
-                            normalized.provider_timezone_offset_minutes
-                        )
-                        garmin_activity.started_at = normalized.started_at
-                        garmin_activity.kcals = normalized.kcals
-                        garmin_activity.duration_seconds = (
-                            normalized.duration_seconds
-                        )
-                        garmin_activity.distance = normalized.distance
-                        garmin_activity.pending_reconciliation = bool(
-                            pending_reason
-                        )
-                        garmin_activity.pending_reconciliation_reason = (
-                            pending_reason
-                        )
-                        garmin_activity.save(
-                            using=using,
-                            update_fields=[
-                                "provider_activity_type",
-                                "provider_account_id",
-                                "day",
-                                "exercise",
-                                "provider_local_started_date",
-                                "provider_local_started_time",
-                                "provider_timezone_offset_minutes",
-                                "started_at",
-                                "kcals",
-                                "duration_seconds",
-                                "distance",
-                                "pending_reconciliation",
-                                "pending_reconciliation_reason",
-                            ],
-                        )
-                        duplicates += 1
-
-                        if pending_reason:
-                            continue
-                        if (
-                            normalized_day is None
-                            or garmin_activity.day_id is None
-                        ):
-                            raise ValueError(
-                                "Garmin activity day resolution is inconsistent"
-                            )
-
-                        _ensure_exercise(
-                            garmin_activity,
-                            day=normalized_day,
-                            activity=normalized,
-                            using=using,
-                        )
-
-                        locked_day_ids: set[int] = {garmin_activity.day_id}
-                        if previous_day_id is not None:
-                            locked_day_ids.add(previous_day_id)
-                        if previous_exercise_day_id is not None:
-                            locked_day_ids.add(previous_exercise_day_id)
-                        _recompute_days_from_locked_rows(
-                            locked_days,
-                            locked_day_ids,
-                            using=using,
-                        )
-                finally:
-                    if locks is not None:
-                        locks.clear_markers()
+        batch_filters = Q()
+        for provider_account_id, provider_activity_id in batch:
+            batch_filters |= Q(
+                provider_account_id=provider_account_id,
+                provider_activity_id=provider_activity_id,
+            )
 
         with transaction.atomic(using=using):
             connection = (
@@ -1602,6 +1560,310 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                 .select_for_update(of=("self",))
                 .get(pk=connection_model_pk)
             )
+
+            _ = lock_user_for_garmin_sync(
+                using=using,
+                user_id=connection.user_id,
+            )
+            if not connection.is_active:
+                raise ValueError("Garmin connection is not active")
+            if (
+                connection.connection_generation != expected_generation
+                or connection.provider_account_id
+                != expected_provider_account_id
+            ):
+                raise ValueError("Garmin connection state changed during sync")
+
+            resolved_batch: dict[
+                tuple[str, str],
+                tuple[NormalizedActivity, Day | None, str],
+            ] = {}
+            for key, normalized in batch.items():
+                resolve_error = ""
+                normalized_day = None
+                if normalized.started_at_local_date is not None:
+                    try:
+                        normalized_day = _resolve_day_for_activity(
+                            connection,
+                            normalized.started_at_local_date,
+                            using=using,
+                        )
+                    except ValueError:
+                        resolve_error = (
+                            _PENDING_RECONCILIATION_REASON_AMBIGUOUS_DAY
+                        )
+
+                pending_reason = _determine_pending_reason(
+                    normalized_day,
+                    normalized,
+                    resolve_error,
+                )
+                resolved_batch[key] = (
+                    normalized,
+                    normalized_day,
+                    pending_reason,
+                )
+
+            resolved_existing = {
+                (row.provider_account_id, row.provider_activity_id): row
+                for row in GarminActivity.objects.using(using)
+                .select_for_update(of=("self",))
+                .filter(connection=connection)
+                .filter(batch_filters)
+                .select_related("exercise")
+            }
+
+            day_ids: set[int] = {
+                row.day_id
+                for row in resolved_existing.values()
+                if row.day_id is not None
+            }
+            for row in resolved_existing.values():
+                exercise = row.exercise
+                if exercise is not None and exercise.day_id is not None:
+                    day_ids.add(exercise.day_id)
+
+            for _, normalized_day, pending_reason in resolved_batch.values():
+                if normalized_day is not None and not pending_reason:
+                    day_ids.add(normalized_day.pk)
+
+            locks = (
+                lock_plan_aggregate_rows(
+                    using=using,
+                    day_ids=tuple(sorted(day_ids)),
+                )
+                if day_ids
+                else None
+            )
+            locked_days = locks.days_by_pk if locks is not None else {}
+
+            try:
+                for key, (
+                    normalized,
+                    normalized_day,
+                    pending_reason,
+                ) in resolved_batch.items():
+                    provider_account_id = key[0]
+                    resolved_day = (
+                        None
+                        if normalized_day is None
+                        else locked_days.get(normalized_day.pk)
+                    )
+
+                    existing = resolved_existing.get(key)
+                    if existing is None:
+                        garmin_activity = GarminActivity.objects.db_manager(
+                            using
+                        ).create(
+                            connection=connection,
+                            provider_activity_id=normalized.provider_activity_id,
+                            provider_activity_type=normalized.provider_activity_type,
+                            provider_account_id=provider_account_id,
+                            day=resolved_day,
+                            provider_local_started_date=(
+                                normalized.started_at_local_date
+                            ),
+                            provider_local_started_time=(
+                                normalized.started_at_local_time
+                            ),
+                            provider_timezone_offset_minutes=(
+                                normalized.provider_timezone_offset_minutes
+                            ),
+                            started_at=normalized.started_at,
+                            kcals=normalized.kcals,
+                            duration_seconds=normalized.duration_seconds,
+                            distance=normalized.distance,
+                            pending_reconciliation=bool(pending_reason),
+                            pending_reconciliation_reason=pending_reason,
+                        )
+                        imported_count += 1
+                        if resolved_day is not None:
+                            _ensure_exercise(
+                                garmin_activity,
+                                day=resolved_day,
+                                activity=normalized,
+                                using=using,
+                            )
+                        continue
+
+                    garmin_activity = existing
+                    previous_day_id = garmin_activity.day_id
+                    previous_exercise_day_id = None
+                    if garmin_activity.exercise_id is not None:
+                        previous_exercise_day_id = (
+                            Exercise.objects.using(using)
+                            .filter(pk=garmin_activity.exercise_id)
+                            .values_list("day_id", flat=True)
+                            .first()
+                        )
+
+                    garmin_activity.provider_activity_type = (
+                        normalized.provider_activity_type
+                    )
+                    garmin_activity.provider_account_id = provider_account_id
+                    garmin_activity.day = (
+                        resolved_day if not pending_reason else None
+                    )
+                    garmin_activity.provider_local_started_date = (
+                        normalized.started_at_local_date
+                    )
+                    garmin_activity.provider_local_started_time = (
+                        normalized.started_at_local_time
+                    )
+                    garmin_activity.provider_timezone_offset_minutes = (
+                        normalized.provider_timezone_offset_minutes
+                    )
+                    garmin_activity.started_at = normalized.started_at
+                    garmin_activity.kcals = normalized.kcals
+                    garmin_activity.duration_seconds = (
+                        normalized.duration_seconds
+                    )
+                    garmin_activity.distance = normalized.distance
+                    garmin_activity.pending_reconciliation = bool(
+                        pending_reason
+                    )
+                    garmin_activity.pending_reconciliation_reason = (
+                        pending_reason
+                    )
+
+                    retired_day_id = None
+                    if pending_reason:
+                        retired_day_id = _retire_garmin_derived_exercise(
+                            garmin_activity=garmin_activity,
+                            activity=normalized,
+                            using=using,
+                        )
+                        if retired_day_id is not None:
+                            garmin_activity.exercise = None
+
+                    garmin_activity.save(
+                        using=using,
+                        update_fields=[
+                            "provider_activity_type",
+                            "provider_account_id",
+                            "day",
+                            "exercise",
+                            "provider_local_started_date",
+                            "provider_local_started_time",
+                            "provider_timezone_offset_minutes",
+                            "started_at",
+                            "kcals",
+                            "duration_seconds",
+                            "distance",
+                            "pending_reconciliation",
+                            "pending_reconciliation_reason",
+                        ],
+                    )
+                    duplicates_count += 1
+
+                    if pending_reason:
+                        if retired_day_id is not None:
+                            _recompute_days_from_locked_rows(
+                                locked_days,
+                                {retired_day_id},
+                                using=using,
+                            )
+                        continue
+
+                    if resolved_day is None:
+                        raise ValueError(
+                            "Garmin activity day resolution is inconsistent"
+                        )
+
+                    _ensure_exercise(
+                        garmin_activity,
+                        day=resolved_day,
+                        activity=normalized,
+                        using=using,
+                    )
+
+                    lock_day_ids: set[int] = {resolved_day.pk}
+                    if previous_day_id is not None:
+                        lock_day_ids.add(previous_day_id)
+                    if previous_exercise_day_id is not None:
+                        lock_day_ids.add(previous_exercise_day_id)
+                    _recompute_days_from_locked_rows(
+                        locked_days,
+                        lock_day_ids,
+                        using=using,
+                    )
+            finally:
+                if locks is not None:
+                    locks.clear_markers()
+
+        return (
+            imported_count,
+            duplicates_count,
+            unsupported_count,
+            invalid_count,
+        )
+
+    try:
+        pending_batch: dict[tuple[str, str], NormalizedActivity] = {}
+        batch_candidates = 0
+        for raw_activity in raw_activities:
+            try:
+                normalized = _normalize_activity(raw_activity)
+            except ValueError:
+                invalid += 1
+                continue
+
+            if normalized.provider_activity_type != _ACTIVITY_TYPE_CYCLE:
+                unsupported += 1
+                continue
+
+            if (
+                connection.provider_account_id
+                and normalized.provider_account_id
+            ):
+                if (
+                    normalized.provider_account_id
+                    != connection.provider_account_id
+                ):
+                    invalid += 1
+                    continue
+
+            provider_account_id = (
+                normalized.provider_account_id
+                or connection.provider_account_id
+            )
+            pending_batch[
+                (provider_account_id, normalized.provider_activity_id)
+            ] = normalized
+            batch_candidates += 1
+            if batch_candidates >= batch_size:
+                (
+                    imported_delta,
+                    duplicates_delta,
+                    unsupported_delta,
+                    invalid_delta,
+                ) = _flush_batch(pending_batch)
+                imported += imported_delta
+                duplicates += duplicates_delta
+                unsupported += unsupported_delta
+                invalid += invalid_delta
+                pending_batch = {}
+                batch_candidates = 0
+
+        if pending_batch:
+            (
+                imported_delta,
+                duplicates_delta,
+                unsupported_delta,
+                invalid_delta,
+            ) = _flush_batch(pending_batch)
+            imported += imported_delta
+            duplicates += duplicates_delta
+            unsupported += unsupported_delta
+            invalid += invalid_delta
+
+        with transaction.atomic(using=using):
+            connection = (
+                GarminConnection.objects.using(using)
+                .select_for_update(of=("self",))
+                .get(pk=connection_model_pk)
+            )
+
             if not connection.is_active:
                 raise ValueError("Garmin connection is not active")
             if (
@@ -1629,6 +1891,10 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
             )
     except (IntegrityError, OperationalError) as exc:
         raise ValueError("Garmin activity import failed") from exc
+    except ValueError as exc:
+        if "Garmin connection state changed during sync" in str(exc):
+            raise
+        raise ValueError("Garmin activity import failed") from exc
 
     return GarminSyncSummary(
         imported=imported,
@@ -1640,7 +1906,7 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
 
 def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
     """Attempt to reconcile unmatched valid provenance activities."""
-    using = router.db_for_write(type(connection), instance=connection)
+    using = router.db_for_write(GarminConnection, instance=connection)
 
     reconciled = 0
     with transaction.atomic(using=using):
@@ -1651,6 +1917,11 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
         )
         if not connection.is_active:
             raise ValueError("Garmin connection is not active")
+
+        _ = lock_user_for_garmin_sync(
+            using=using,
+            user_id=connection.user_id,
+        )
 
         expected_generation = connection.connection_generation
         expected_provider_account_id = connection.provider_account_id
@@ -1713,34 +1984,93 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 ),
                 resolve_error,
             )
+
+            previous_exercise_day_id = (
+                Exercise.objects.using(using)
+                .filter(pk=activity.exercise_id)
+                .values_list("day_id", flat=True)
+                .first()
+                if activity.exercise_id is not None
+                else None
+            )
             previous_day_id = activity.day_id
-            locked_rows = None
+
+            lock_day_ids: set[int] = {
+                row_id
+                for row_id in (previous_day_id, previous_exercise_day_id)
+                if row_id is not None
+            }
             if day is not None:
-                locked_rows = lock_plan_aggregate_rows(
+                lock_day_ids.add(day.pk)
+
+            locked_rows = (
+                lock_plan_aggregate_rows(
                     using=using,
-                    day_ids=tuple(
-                        d for d in {previous_day_id, day.pk} if d is not None
-                    ),
+                    day_ids=tuple(sorted(lock_day_ids)),
                 )
-                day = locked_rows.days_by_pk[day.pk]
+                if lock_day_ids
+                else None
+            )
+            locked_days = (
+                locked_rows.days_by_pk if locked_rows is not None else {}
+            )
+
+            retired_day_id = None
+            if day is not None:
+                day = locked_days[day.pk]
                 activity.day = day
             else:
-                day = None
                 activity.day = None
-                activity.exercise = None
+                if activity.exercise_id is not None:
+                    retired_day_id = _retire_garmin_derived_exercise(
+                        garmin_activity=activity,
+                        activity=NormalizedActivity(
+                            provider_activity_id=activity.provider_activity_id,
+                            provider_activity_type=activity.provider_activity_type,
+                            started_at=activity.started_at,
+                            started_at_local_date=(
+                                activity.provider_local_started_date
+                            ),
+                            started_at_local_time=(
+                                activity.provider_local_started_time
+                            ),
+                            provider_timezone_offset_minutes=(
+                                activity.provider_timezone_offset_minutes
+                            ),
+                            kcals=activity.kcals,
+                            duration_seconds=activity.duration_seconds,
+                            distance=activity.distance,
+                            provider_account_id=activity.provider_account_id,
+                        ),
+                        using=using,
+                    )
+                    if retired_day_id is not None:
+                        activity.exercise = None
 
             activity.pending_reconciliation = bool(pending_reason)
             activity.pending_reconciliation_reason = pending_reason
-            update_fields = [
-                "day",
-                "exercise",
-                "pending_reconciliation",
-                "pending_reconciliation_reason",
-            ]
-            activity.save(using=using, update_fields=update_fields)
+            activity.save(
+                using=using,
+                update_fields=[
+                    "day",
+                    "exercise",
+                    "pending_reconciliation",
+                    "pending_reconciliation_reason",
+                ],
+            )
+
+            if retired_day_id is not None and locked_rows is not None:
+                _recompute_days_from_locked_rows(
+                    locked_days,
+                    {retired_day_id},
+                    using=using,
+                )
 
             if not pending_reason:
-                assert day is not None
+                if day is None:
+                    raise ValueError(
+                        "Pending Garmin activity day resolution is inconsistent"
+                    )
                 _ensure_exercise(
                     activity,
                     day=day,
@@ -1748,12 +2078,8 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                         provider_activity_id=activity.provider_activity_id,
                         provider_activity_type=activity.provider_activity_type,
                         started_at=activity.started_at,
-                        started_at_local_date=(
-                            activity.provider_local_started_date
-                        ),
-                        started_at_local_time=(
-                            activity.provider_local_started_time
-                        ),
+                        started_at_local_date=activity.provider_local_started_date,
+                        started_at_local_time=activity.provider_local_started_time,
                         provider_timezone_offset_minutes=(
                             activity.provider_timezone_offset_minutes
                         ),
@@ -1766,7 +2092,7 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 )
                 if locked_rows is not None:
                     _recompute_days_from_locked_rows(
-                        locked_rows.days_by_pk,
+                        locked_days,
                         (
                             {day.pk, previous_day_id}
                             if previous_day_id is not None
@@ -1788,8 +2114,9 @@ def sync_all_connections() -> dict[int, GarminSyncSummary]:
     query = GarminConnection.objects.filter(
         Q(status=GarminConnection.Status.ACTIVE)
         & (
+            # Empty strings are storage sentinels, not credentials.
             Q(access_token_encrypted__gt="")
-            | Q(refresh_token_encrypted__gt="")
+            | Q(refresh_token_encrypted__gt="")  # nosec B106
         )
     )
 

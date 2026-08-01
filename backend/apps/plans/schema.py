@@ -20,7 +20,10 @@ from apps.libs.graphql import (
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
-from apps.plans.locks import lock_plan_aggregate_rows
+from apps.plans.locks import (
+    lock_plan_aggregate_rows,
+    lock_user_for_garmin_sync,
+)
 from apps.plans.models import Day, Intake, WeekPlan
 
 # WeekPlanType fields that traverse the days relation (and therefore need the
@@ -521,8 +524,14 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
+        using = router.db_for_write(WeekPlan, instance=user)
+        _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+
         try:
-            measurement = Measurement.objects.get(pk=measurement_id, user=user)
+            measurement = Measurement.objects.using(using).get(
+                pk=measurement_id,
+                user=user,
+            )
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
 
@@ -532,7 +541,7 @@ class PlanMutation:
             )
         )
 
-        obj = WeekPlan.objects.create(
+        obj = WeekPlan.objects.using(using).create(
             user=user,
             measurement_id=measurement_id,
             start_date=datetime.date.fromisoformat(start_date),

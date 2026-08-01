@@ -6,6 +6,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest import skipUnless
 from unittest.mock import patch
 
@@ -17,9 +18,14 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 import apps.garmin.services as services
-from apps.garmin.models import GarminActivity, GarminConnection
+from apps.garmin.models import (
+    GarminActivity,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, WeekPlan
+from config.schema import schema
 
 from . import test_services
 
@@ -54,6 +60,8 @@ class GarminSyncConcurrencyTests(TransactionTestCase):
             "GARMIN_ACTIVITY_MAX_PAGES": 3,
             "GARMIN_ACTIVITY_SYNC_BATCH_SIZE": 1,
             "GARMIN_ACTIVITIES_LIMIT": 100,
+            "GARMIN_ACTIVITY_MAX_TOTAL_ITEMS": 10000,
+            "GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES": 5 * 1024 * 1024,
             "GARMIN_STATE_TTL_SECONDS": 300,
             "GARMIN_STATE_MAX_IN_FLIGHT": 2,
             "GARMIN_TOKEN_MAX_TTL_SECONDS": 3600,
@@ -322,6 +330,43 @@ class GarminSyncConcurrencyTests(TransactionTestCase):
             == 1
         )
 
+    def test_begin_authorization_respects_in_flight_limit_under_race(
+        self,
+    ):
+        """Concurrent authorization starts enforce per-user in-flight limit."""
+        original_limit = settings.GARMIN_STATE_MAX_IN_FLIGHT
+        settings.GARMIN_STATE_MAX_IN_FLIGHT = 1
+
+        try:
+
+            def _attempt() -> tuple[bool, str | None]:
+                try:
+                    services.begin_authorization(self.user)
+                    return True, None
+                except ValueError as exc:
+                    return False, str(exc)
+
+            outcomes = self._run_workers(_attempt, _attempt)
+        finally:
+            settings.GARMIN_STATE_MAX_IN_FLIGHT = original_limit
+
+        assert len(outcomes) == 2
+        successes = [outcome for outcome in outcomes if outcome[0]]
+        failures = [outcome for outcome in outcomes if not outcome[0]]
+
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert "Too many Garmin OAuth sessions in flight" in failures[0][1]
+
+        assert (
+            GarminOAuthState.objects.filter(
+                user=self.user,
+                provider="garmin",
+                consumed_at__isnull=True,
+            ).count()
+            == 1
+        )
+
     def test_sync_connection_concurrent_with_exercise_delete_is_idempotent(
         self,
     ):
@@ -384,3 +429,236 @@ class GarminSyncConcurrencyTests(TransactionTestCase):
             ).count()
             == 1
         )
+
+    def test_sync_and_week_plan_creation_share_user_lock(self, monkeypatch):
+        """Resolve ambiguity-safe overlaps serialize on the user row lock."""
+        connection = self._create_connection()
+        payload = [
+            test_services._activity_payload(
+                activity_id="lock-overlap-1",
+                activity_type="cycle",
+                started_at=self.day.day.isoformat(),
+            )
+        ]
+
+        measurement = Measurement.objects.create(
+            user=self.user,
+            weight=Decimal("80.0"),
+            body_fat_perc=Decimal("20.0"),
+        )
+        original_lock = services.lock_user_for_garmin_sync
+        role = threading.local()
+        sync_ready = threading.Event()
+        release_sync = threading.Event()
+        plan_attempted = threading.Event()
+        thread_order = []
+
+        def _tracked_lock(*, using: str, user_id: int):
+            lock = original_lock(using=using, user_id=user_id)
+            if getattr(role, "name", None) == "sync":
+                sync_ready.set()
+                if not release_sync.wait(timeout=10):
+                    raise TimeoutError("sync release timed out")
+            else:
+                plan_attempted.set()
+            return lock
+
+        def run_sync() -> str:
+            close_old_connections()
+            try:
+                role.name = "sync"
+                thread_order.append("sync")
+                with patch.object(
+                    services,
+                    "_iter_activity_payloads",
+                    lambda *_, **__: payload,
+                ):
+                    services.sync_connection(
+                        services.GarminConnection.objects.get(pk=connection.pk)
+                    )
+                return "sync"
+            finally:
+                close_old_connections()
+
+        def run_plan() -> str:
+            close_old_connections()
+            try:
+                role.name = "plan"
+                thread_order.append("plan")
+                if not sync_ready.wait(timeout=10):
+                    raise TimeoutError("sync did not take user lock")
+                context = SimpleNamespace(
+                    request=SimpleNamespace(user=self.user)
+                )
+                result = schema.execute_sync(
+                    """
+                        mutation CreatePlan(
+                            $startDate: String!, $measurementId: Int!
+                        ) {
+                            createWeekPlan(
+                                startDate: $startDate,
+                                proteinGKg: 1.8,
+                                fatPerc: 25,
+                                deficit: 500,
+                                measurementId: $measurementId
+                            ) { id }
+                        }
+                    """,
+                    variable_values={
+                        "startDate": self.day.day.isoformat(),
+                        "measurementId": measurement.pk,
+                    },
+                    context_value=context,
+                )
+                if result.errors:
+                    raise AssertionError(result.errors)
+                return "plan"
+            finally:
+                close_old_connections()
+
+        with (
+            patch.object(
+                services,
+                "lock_user_for_garmin_sync",
+                side_effect=_tracked_lock,
+            ),
+            patch.object(
+                "apps.plans.locks",
+                "lock_user_for_garmin_sync",
+                side_effect=lambda **kwargs: _tracked_lock(**kwargs),
+            ),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                sync_future = executor.submit(run_sync)
+                plan_future = executor.submit(run_plan)
+                self.assertTrue(
+                    sync_ready.wait(timeout=10),
+                    "sync never entered user lock",
+                )
+                self.assertTrue(
+                    plan_attempted.wait(timeout=10),
+                    "plan creation never attempted user lock",
+                )
+                release_sync.set()
+                sync_result = sync_future.result(timeout=20)
+                plan_result = plan_future.result(timeout=20)
+
+        assert sync_result == "sync"
+        assert plan_result == "plan"
+        assert set(thread_order) == {"sync", "plan"}
+
+    def test_reconcile_and_week_plan_creation_share_user_lock(
+        self, monkeypatch
+    ):
+        """Pending reconciliation should share user serialization."""
+        connection = self._create_connection()
+        GarminActivity.objects.create(
+            connection=connection,
+            provider_activity_id="reconcile-lock-1",
+            provider_activity_type="cycle",
+            provider_account_id="provider-user",
+            day=None,
+            exercise=None,
+            pending_reconciliation=True,
+            pending_reconciliation_reason="ambiguous_day",
+            provider_local_started_date=self.day.day,
+            provider_local_started_time=time(9, 0),
+            provider_timezone_offset_minutes=0,
+            started_at=timezone.make_aware(
+                datetime.combine(self.day.day, time(9, 0))
+            ),
+            kcals=101,
+            duration_seconds=600,
+            distance=Decimal("1.00"),
+        )
+        measurement = Measurement.objects.create(
+            user=self.user,
+            weight=Decimal("80.0"),
+            body_fat_perc=Decimal("20.0"),
+        )
+        original_lock = services.lock_user_for_garmin_sync
+        role = threading.local()
+        reconcile_ready = threading.Event()
+        release_reconcile = threading.Event()
+        thread_order = []
+
+        def _tracked_lock(*, using: str, user_id: int):
+            lock = original_lock(using=using, user_id=user_id)
+            if getattr(role, "name", None) == "reconcile":
+                reconcile_ready.set()
+                if not release_reconcile.wait(timeout=10):
+                    raise TimeoutError("reconcile release timed out")
+            return lock
+
+        def run_reconcile() -> str:
+            close_old_connections()
+            try:
+                role.name = "reconcile"
+                thread_order.append("reconcile")
+                services.reconcile_pending_garmin_activities(connection)
+                return "reconcile"
+            finally:
+                close_old_connections()
+
+        def run_plan() -> str:
+            close_old_connections()
+            try:
+                role.name = "plan"
+                thread_order.append("plan")
+                if not reconcile_ready.wait(timeout=10):
+                    raise TimeoutError("reconcile lock did not start")
+                context = SimpleNamespace(
+                    request=SimpleNamespace(user=self.user)
+                )
+                result = schema.execute_sync(
+                    """
+                        mutation CreatePlan(
+                            $startDate: String!, $measurementId: Int!
+                        ) {
+                            createWeekPlan(
+                                startDate: $startDate,
+                                proteinGKg: 1.8,
+                                fatPerc: 25,
+                                deficit: 500,
+                                measurementId: $measurementId
+                            ) { id }
+                        }
+                    """,
+                    variable_values={
+                        "startDate": self.day.day.isoformat(),
+                        "measurementId": measurement.pk,
+                    },
+                    context_value=context,
+                )
+                if result.errors:
+                    raise AssertionError(result.errors)
+                return "plan"
+            finally:
+                close_old_connections()
+
+        with (
+            patch.object(
+                services,
+                "lock_user_for_garmin_sync",
+                side_effect=_tracked_lock,
+            ),
+            patch.object(
+                "apps.plans.locks",
+                "lock_user_for_garmin_sync",
+                side_effect=lambda **kwargs: _tracked_lock(**kwargs),
+            ),
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                reconcile_future = executor.submit(run_reconcile)
+                plan_future = executor.submit(run_plan)
+                self.assertTrue(
+                    reconcile_ready.wait(timeout=10),
+                    "reconcile never entered user lock",
+                )
+                release_reconcile.set()
+                reconcile_result = reconcile_future.result(timeout=20)
+                plan_result = plan_future.result(timeout=20)
+
+        assert reconcile_result == "reconcile"
+        assert plan_result == "plan"
+        assert set(thread_order) == {"reconcile", "plan"}

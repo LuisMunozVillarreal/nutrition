@@ -174,26 +174,8 @@ spec:
                       value: "https://{preview_host}"
                     - name: GARMIN_ENABLED
                       value: "false"
-                    - name: GARMIN_CLIENT_ID
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: client-id
-                    - name: GARMIN_CLIENT_SECRET
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: client-secret
-                    - name: GARMIN_AUTHORIZATION_URL
-                      value: "https://example.com/garmin/oauth/authorize"
-                    - name: GARMIN_TOKEN_URL
-                      value: "https://example.com/garmin/oauth/token"
-                    - name: GARMIN_ACTIVITIES_URL
-                      value: "https://example.com/garmin/activities"
                     - name: GARMIN_CALLBACK_URL
                       value: "https://{preview_host}/settings/garmin-callback"
-                    - name: GARMIN_PROVIDER_ORIGINS
-                      value: "https://{preview_host}"
                     - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
                       value: "https://{preview_host}"
                     - name: GARMIN_SCOPES
@@ -236,6 +218,28 @@ spec:
       target:
         kind: Deployment
         name: nutrition-backend
+    - patch: |
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: nutrition-garmin-sync
+        spec:
+          jobTemplate:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: garmin-sync
+                      env:
+                        - name: GARMIN_ENABLED
+                          value: "false"
+                        - name: GARMIN_CALLBACK_URL
+                          value: "https://{preview_host}/settings/garmin-callback"
+                        - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                          value: "https://{preview_host}"
+      target:
+        kind: CronJob
+        name: nutrition-garmin-sync
     - patch: |
         apiVersion: apps/v1
         kind: Deployment

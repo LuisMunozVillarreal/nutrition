@@ -1,27 +1,17 @@
 Feature: Garmin settings integration
 
-  Scenario: View Garmin disconnected state
+  Scenario: Query and disconnect Garmin through the deployed backend
     Given I am logged in
-    Given Garmin integration is disconnected
+    Given Garmin GraphQL requests use the deployed backend
     When I navigate to the settings page
-    Then I should see the settings page title
-    And I should see Garmin as disconnected
+    Then the deployed backend should report the seeded Garmin connection
+    When I disconnect Garmin through the deployed backend
+    Then the real Garmin disconnect should remain persisted
 
-  Scenario: Complete Garmin OAuth callback
+  Scenario: Reject an untrusted Garmin callback state in the deployed backend
     Given I am logged in
-    Given Garmin integration is disconnected
-    When I navigate to the settings page
-    And I mock Garmin OAuth begin response with local callback URL
-    And I click the Garmin connect button
-    Then I should be redirected to the Garmin callback page
-    Then I should return to the settings page after successful Garmin callback
-
-  Scenario: Disconnect Garmin from settings
-    Given I am logged in
-    Given Garmin integration is connected
-    When I navigate to the settings page
-    And I click the Garmin disconnect button
-    Then I should see Garmin as disconnected
+    Given I submit an untrusted Garmin callback state
+    Then the deployed backend should reject the Garmin callback state
 
   Scenario: Handle Garmin provider error
     Given I am logged in

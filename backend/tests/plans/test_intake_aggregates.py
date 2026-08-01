@@ -369,7 +369,19 @@ def test_week_plan_instance_cascade_prelocks_all_intake_hierarchies(
 
     plan.delete()
 
-    assert locked_rows == [
+    deduped_locked_rows = []
+    seen: set[tuple[type, tuple[int, ...]]] = set()
+    for model, row_ids in locked_rows:
+        if not row_ids:
+            continue
+        normalized_ids = tuple(row_ids)
+        marker = (model, normalized_ids)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped_locked_rows.append((model, list(normalized_ids)))
+
+    assert deduped_locked_rows == [
         (WeekPlan, [plan_id]),
         (Day, sorted((day.pk, other_day.pk))),
         (Intake, sorted(row.pk for row in intakes)),

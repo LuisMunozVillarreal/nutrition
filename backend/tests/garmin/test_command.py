@@ -5,7 +5,9 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
 from django.contrib.auth import get_user_model
+from django.core.management.base import CommandError
 
 from apps.garmin.management.commands.sync_garmin import Command
 from apps.garmin.models import GarminConnection
@@ -83,7 +85,8 @@ def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
     )
 
     output = io.StringIO()
-    Command(stdout=output).handle(user_id=None)
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=None)
     rows = json.loads(output.getvalue())
 
     assert len(rows) == 2
@@ -164,9 +167,177 @@ def test_sync_command_redacts_reconcile_errors(monkeypatch):
     )
 
     output = io.StringIO()
-    Command(stdout=output).handle(user_id=user.id)
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=user.id)
 
     rows = json.loads(output.getvalue())
     assert len(rows) == 1
     assert rows[0]["error"] == "reconcile_failed"
     assert rows[0]["reconciled"] == "error"
+
+
+def test_sync_command_continues_to_reconcile_when_sync_fails(monkeypatch):
+    """Reconciliation should run when sync fails for a connection."""
+    user = _create_user("command-sync-failed-reconcile@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    captured = {}
+
+    def _fake_sync(_connection):
+        raise ValueError("sync down")
+
+    def _fake_reconcile(reconcile_connection):
+        captured["connection_id"] = reconcile_connection.pk
+        return 1
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        _fake_reconcile,
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 1
+    assert rows[0]["error"] == "sync_failed"
+    assert rows[0]["reconciled"] == "ok"
+    assert captured["connection_id"] == connection.pk
+
+
+def test_sync_command_with_no_active_connections_succeeds():
+    """No active rows should report an empty result and exit successfully."""
+    user = _create_user("command-no-active@example.com")
+    GarminConnection.objects.create(
+        user=user,
+        status=GarminConnection.Status.DISCONNECTED,
+    )
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=None)
+
+    rows = json.loads(output.getvalue())
+    assert rows == []
+
+
+def test_sync_command_raises_on_mixed_success_and_failure(monkeypatch):
+    """Failure in one path must make the command exit non-zero."""
+    user_a = _create_user("command-mixed-success-a@example.com")
+    user_b = _create_user("command-mixed-success-b@example.com")
+    GarminConnection.objects.create(user=user_a)
+    GarminConnection.objects.create(user=user_b)
+    reconcile_calls: list[int] = []
+
+    def _fake_sync(connection):
+        if connection.user_id == user_a.id:
+            return type(
+                "Summary",
+                (),
+                {
+                    "imported": 1,
+                    "duplicates": 0,
+                    "unsupported": 0,
+                    "invalid": 0,
+                },
+            )
+        raise ValueError("boom")
+
+    def _fake_reconcile(reconcile_connection):
+        reconcile_calls.append(reconcile_connection.pk)
+        return 1
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        _fake_reconcile,
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=None)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 2
+    assert {row["error"] for row in rows if row.get("error") is not None} == {
+        "sync_failed"
+    }
+    assert len(reconcile_calls) == 2
+
+
+def test_sync_command_raises_when_all_connections_fail(monkeypatch):
+    """Two failing connections should still report both and raise."""
+    user_a = _create_user("command-all-fail-a@example.com")
+    user_b = _create_user("command-all-fail-b@example.com")
+    GarminConnection.objects.create(user=user_a)
+    GarminConnection.objects.create(user=user_b)
+
+    def _fake_sync(_connection):
+        raise ValueError("boom")
+
+    def _fake_reconcile(_reconcile_connection):
+        return 1
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        _fake_reconcile,
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=None)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 2
+    assert all(row["error"] == "sync_failed" for row in rows)
+
+
+def test_sync_command_ignores_inactive_connections(monkeypatch):
+    """Inactive connections must be skipped from command batches."""
+    user_active = _create_user("command-active@example.com")
+    user_inactive = _create_user("command-inactive@example.com")
+    active_connection = GarminConnection.objects.create(user=user_active)
+    GarminConnection.objects.create(
+        user=user_inactive,
+        status=GarminConnection.Status.DISCONNECTED,
+    )
+    calls: list[int] = []
+
+    def _fake_sync(connection):
+        calls.append(connection.pk)
+        return type(
+            "Summary",
+            (),
+            {
+                "imported": 1,
+                "duplicates": 0,
+                "unsupported": 0,
+                "invalid": 0,
+            },
+        )
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        _fake_sync,
+    )
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=None)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 1
+    assert rows[0]["connection_id"] == active_connection.pk
+    assert calls == [active_connection.pk]

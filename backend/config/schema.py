@@ -2,7 +2,8 @@
 
 # pylint: disable=too-few-public-methods
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from typing import Any
 
 import jwt
@@ -11,6 +12,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.db import router
+from django.utils import timezone
 from strawberry.types import Info
 
 from apps.exercises.schema import ExerciseMutation, ExerciseQuery
@@ -157,7 +159,12 @@ class GarminMutation:
 
         from django.db import transaction
 
-        using = router.db_for_write(GarminConnection)
+        using = router.db_for_write(GarminConnection, instance=user)
+        connection_pk: int | None
+        expected_generation: int
+        expected_status: str
+        expected_provider_account_id: str
+
         with transaction.atomic(using=using):
             connection, _ = GarminConnection.objects.using(
                 using
@@ -170,6 +177,11 @@ class GarminMutation:
                 .select_for_update()
                 .get(pk=connection.pk)
             )
+            expected_generation = connection.connection_generation
+            expected_status = connection.status
+            expected_provider_account_id = connection.provider_account_id
+            connection_pk = connection.pk
+
             GarminOAuthState.consume_for_user(
                 user=user,
                 raw_state=state,
@@ -177,14 +189,29 @@ class GarminMutation:
                 using=using,
             )
 
-        token_pair = exchange_code_for_tokens(code)
+        try:
+            token_pair = exchange_code_for_tokens(code)
+        except Exception as exc:
+            raise ValueError(
+                "Garmin connection state changed during authorization"
+            ) from exc
 
         with transaction.atomic(using=using):
             connection = (
                 GarminConnection.objects.using(using)
                 .select_for_update()
-                .get(pk=connection.pk)
+                .get(pk=connection_pk)
             )
+            if (
+                connection.connection_generation != expected_generation
+                or connection.status != expected_status
+                or connection.provider_account_id
+                != expected_provider_account_id
+            ):
+                raise ValueError(
+                    "Garmin connection state changed during authorization"
+                )
+
             if connection.provider != GARMIN_PROVIDER:
                 connection.provider = GARMIN_PROVIDER
             previous_account = connection.provider_account_id
@@ -197,22 +224,27 @@ class GarminMutation:
                 connection.last_sync_summary = {}
                 connection.last_synced_at = None
 
-            connection.save(
-                using=using,
-                update_fields=[
-                    "provider",
-                    "provider_account_id",
-                    "provider_scopes",
-                    "access_token_encrypted",
-                    "refresh_token_encrypted",
-                    "access_token_expires_at",
-                    "status",
-                    "connection_generation",
-                    "last_synced_at",
-                    "last_sync_summary",
-                    "updated_at",
-                ],
+            updated_rows = (
+                GarminConnection.objects.using(using)
+                .filter(pk=connection.pk)
+                .update(
+                    provider=connection.provider,
+                    provider_account_id=connection.provider_account_id,
+                    provider_scopes=connection.provider_scopes,
+                    access_token_encrypted=connection.access_token_encrypted,
+                    refresh_token_encrypted=connection.refresh_token_encrypted,
+                    access_token_expires_at=connection.access_token_expires_at,
+                    status=connection.status,
+                    connection_generation=connection.connection_generation,
+                    last_synced_at=connection.last_synced_at,
+                    last_sync_summary=connection.last_sync_summary,
+                    updated_at=timezone.now(),
+                )
             )
+            if updated_rows != 1:
+                raise ValueError(
+                    "Garmin connection state changed during authorization"
+                )
 
         return GarminStatus(
             enabled=bool(settings.GARMIN_ENABLED),
@@ -520,7 +552,7 @@ class Mutation(
             token = jwt.encode(
                 {
                     "sub": str(user.id),
-                    "exp": datetime.now(timezone.utc) + timedelta(days=7),
+                    "exp": datetime.now(dt_timezone.utc) + timedelta(days=1),
                 },
                 settings.SECRET_KEY,
                 algorithm="HS256",

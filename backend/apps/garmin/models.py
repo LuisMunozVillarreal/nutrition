@@ -23,18 +23,18 @@ _TOKEN_ACCESS_SKEW = timedelta(seconds=30)
 
 def _encryption_keys() -> list[bytes]:
     """Return validated Fernet keys for token encryption/decryption."""
-    configured_keys: list[str] = []
     legacy_key = getattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEY", "")
     ring = getattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEYS", "")
 
-    if legacy_key:
-        configured_keys.append(str(legacy_key))
+    configured_keys: list[str] = []
     if ring:
         configured_keys.extend(
             str(item).strip()
             for item in str(ring).split(",")
             if str(item).strip()
         )
+    if legacy_key:
+        configured_keys.append(str(legacy_key))
 
     if not configured_keys:
         raise ImproperlyConfigured("GARMIN_TOKEN_ENCRYPTION_KEY is required")
@@ -205,8 +205,9 @@ class GarminConnection(BaseModel):
 
     def clear_tokens(self) -> None:
         """Drop all secrets and derived fields from this connection."""
-        self.access_token_encrypted = ""
-        self.refresh_token_encrypted = ""
+        # Empty strings intentionally erase encrypted credentials.
+        self.access_token_encrypted = ""  # nosec B105
+        self.refresh_token_encrypted = ""  # nosec B105
         self.access_token_expires_at = None
         self.provider_scopes = []
         self.provider_account_id = ""
@@ -274,28 +275,46 @@ class GarminOAuthState(BaseModel):
         user: "AbstractUser",
         provider: str,
         retention_seconds: int = 3600,
+        using: str | None = None,
     ) -> None:
         """Delete stale rows and bound operational table growth."""
-        cls.objects.filter(
+        if using is None:
+            using = router.db_for_write(cls)
+
+        cls.objects.using(using).filter(
             user=user,
             provider=provider,
             consumed_at__isnull=False,
             consumed_at__lt=timezone.now()
             - timedelta(seconds=retention_seconds),
         ).delete()
-        cls.objects.filter(
+        cls.objects.using(using).filter(
             user=user, provider=provider, expires_at__lt=now
         ).delete()
 
     @classmethod
-    def count_active(cls, *, user: "AbstractUser", provider: str, now) -> int:
+    def count_active(
+        cls,
+        *,
+        user: "AbstractUser",
+        provider: str,
+        now,
+        using: str | None = None,
+    ) -> int:
         """Count unconsumed, unexpired state rows for a user/provider."""
-        return cls.objects.filter(
-            user=user,
-            provider=provider,
-            consumed_at__isnull=True,
-            expires_at__gt=now,
-        ).count()
+        if using is None:
+            using = router.db_for_write(cls)
+
+        return (
+            cls.objects.using(using)
+            .filter(
+                user=user,
+                provider=provider,
+                consumed_at__isnull=True,
+                expires_at__gt=now,
+            )
+            .count()
+        )
 
     @classmethod
     def create_for_user(
@@ -305,14 +324,19 @@ class GarminOAuthState(BaseModel):
         *,
         provider: str,
         expires_at,
+        using: str | None = None,
     ) -> "GarminOAuthState":
         """Create and persist a hash-only OAuth state row."""
-        return cls.objects.create(
-            user=user,
-            provider=provider,
-            state_hash=cls.hash_state(raw_state),
-            expires_at=expires_at,
-        )
+        if using is None:
+            using = router.db_for_write(cls)
+        state_hash = cls.hash_state(raw_state)
+        with transaction.atomic(using=using):
+            return cls.objects.using(using).create(
+                user=user,
+                provider=provider,
+                state_hash=state_hash,
+                expires_at=expires_at,
+            )
 
     @classmethod
     def consume_for_user(
@@ -329,13 +353,14 @@ class GarminOAuthState(BaseModel):
 
         now = timezone.now()
         with transaction.atomic(using=using):
+            state_hash = cls.hash_state(raw_state)
             state = (
                 cls.objects.using(using)
                 .select_for_update(of=("self",))
                 .get(
                     user=user,
                     provider=provider,
-                    state_hash=cls.hash_state(raw_state),
+                    state_hash=state_hash,
                 )
             )
             if state.expires_at <= now:
@@ -343,8 +368,14 @@ class GarminOAuthState(BaseModel):
             if state.consumed_at is not None:
                 raise ValueError("OAuth state is invalid or expired")
 
-            state.consumed_at = now
-            state.save(update_fields=["consumed_at"])
+            updated = (
+                cls.objects.using(using)
+                .filter(pk=state.pk)
+                .update(consumed_at=now)
+            )
+            if not updated:
+                raise ValueError("OAuth state is invalid or expired")
+            state.refresh_from_db(fields=["consumed_at"], using=using)
             return state
 
 

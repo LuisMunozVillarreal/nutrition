@@ -166,7 +166,7 @@ test('Garmin status UI supports disconnect while disabled if credentials are cac
   )
 })
 
-test('Garmin Cypress mock uses dynamic GraphQL endpoint and fixed success disconnect', async () => {
+test('Garmin Cypress exercises the deployed bearer GraphQL lifecycle without schema mocks', async () => {
   const source = await readFile(
     new URL('../cypress/support/step_definitions/garmin.ts', import.meta.url),
     'utf8',
@@ -175,13 +175,18 @@ test('Garmin Cypress mock uses dynamic GraphQL endpoint and fixed success discon
   assert.ok(source.includes('function getGraphQLEndpoint'), 'Expected dynamic endpoint helper')
   assert.ok(
     source.includes('return new URL(endpoint, `${baseUrl}/`).href'),
-    'Garmin cypress mocks should resolve GraphQL endpoint from Cypress config',
+    'Garmin Cypress requests should resolve GraphQL endpoint from Cypress config',
   )
-  assert.match(source, /alias = 'garminDisconnect'/)
-  assert.ok(
-    source.includes('disconnectResult = true'),
-    'Garmin Cypress mock should return successful disconnect independent of fixture state',
-  )
+  assert.doesNotMatch(source, /req\.reply\(/)
+  assert.doesNotMatch(source, /GarminStatusFixture|garminConnectedStatus/)
+  assert.match(source, /operation === 'GarminSettingsStatusQuery'/)
+  assert.match(source, /operation === 'DisconnectGarmin'/)
+  assert.match(source, /req\.continue\(\)/)
+  assert.match(source, /cy\.request\(['"]\/api\/auth\/session['"]\)/)
+  assert.match(source, /Authorization['"]?: `Bearer \$\{accessToken\}`/)
+  assert.match(source, /garminStateRejection/)
+  assert.match(source, /errors.*state/is)
+  assert.match(source, /@garminStatusAfterDisconnect/)
 })
 
 test('settings route and sidebar source contracts include Garmin item and title', async () => {
