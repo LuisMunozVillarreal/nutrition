@@ -34,6 +34,10 @@ export function normalizeDateForComparison(
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10)
 }
 
+export function isCurrentLocalDate(value: string, now = new Date()): boolean {
+  return value === normalizeDateForComparison(now.toISOString(), now.getTimezoneOffset())
+}
+
 export function buildWeightTrendSeries(
   measurements: DashboardMeasurement[],
   limit = 14,

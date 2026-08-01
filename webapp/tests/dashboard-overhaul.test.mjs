@@ -6,6 +6,7 @@ import {
   buildTrendCoordinates,
   buildWeightTrendSeries,
   describeWeightTrendChange,
+  isCurrentLocalDate,
   millisecondsUntilNextLocalDay,
   normalizeDateForComparison,
 } from '../src/components/dashboardHelpers.ts'
@@ -67,6 +68,14 @@ test('dashboard refresh helpers handle midnight rollover and flat trends', () =>
   assert.equal(describeWeightTrendChange(0), 'unchanged')
   assert.equal(describeWeightTrendChange(0.4), 'up 0.4 kilograms')
   assert.equal(describeWeightTrendChange(-0.4), 'down 0.4 kilograms')
+  assert.equal(
+    isCurrentLocalDate('2026-02-03', new Date(2026, 1, 3, 23, 59, 30)),
+    true,
+  )
+  assert.equal(
+    isCurrentLocalDate('2026-02-02', new Date(2026, 1, 3, 0, 0, 1)),
+    false,
+  )
 })
 
 test('dashboard query and actions include required data shape and remove hydration placeholder', async () => {
@@ -93,6 +102,10 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /flex justify-between text-xs text-slate-400/)
   assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
   assert.match(dashboardSource, /visibilitychange/)
+  assert.match(dashboardSource, /requestSequence/)
+  assert.match(dashboardSource, /isCurrentLocalDate\(today\.day\)/)
+  assert.match(dashboardSource, /!loading && todayIsCurrent/)
+  assert.match(dashboardSource, /uppercase tracking-wider text-slate-400/)
   assert.doesNotMatch(dashboardSource, /Hydration/)
   assert.doesNotMatch(dashboardSource, /Measurement logging.*unavailable/i)
 })
