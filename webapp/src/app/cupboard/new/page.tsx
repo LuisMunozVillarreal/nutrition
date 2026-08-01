@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField } from '@/components/FormField'
 import { localDateInputValue, purchaseDateToISOString } from '../purchaseDate'
 
 const DATA_QUERY = gql`
@@ -19,6 +19,17 @@ const CREATE_MUTATION = gql`
   }
 `
 
+interface FoodOptionSource {
+  id: string
+  name: string
+  brand: string | null
+}
+
+interface CupboardFoodOptionsResponse {
+  foodProducts: FoodOptionSource[]
+  recipes: FoodOptionSource[]
+}
+
 export default function NewCupboardItemPage() {
   const [foods, setFoods] = useState<{ value: string, label: string }[]>([])
   const [form, setForm] = useState({
@@ -32,7 +43,7 @@ export default function NewCupboardItemPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ foodProducts: any[], recipes: any[] }>(DATA_QUERY)
+        const res = await graphqlRequest<CupboardFoodOptionsResponse>(DATA_QUERY)
         const options = [
           ...res.foodProducts.map(p => ({ value: p.id, label: `Product: ${p.brand ? p.brand + ' ' : ''}${p.name}` })),
           ...res.recipes.map(r => ({ value: r.id, label: `Recipe: ${r.brand ? r.brand + ' ' : ''}${r.name}` }))

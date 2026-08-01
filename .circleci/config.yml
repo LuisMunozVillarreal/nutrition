@@ -191,6 +191,9 @@ jobs:
       - run:
           name: Run Frontend Type Check
           command: npx tsc --noEmit
+      - run:
+          name: Run Frontend Lint
+          command: npm run lint
 
   backend-docker-build-tag-push:
     working_directory: ~/project/backend

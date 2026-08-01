@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField, TextareaField } from '@/components/FormField'
 import { compatibleUnits, isCompatibleUnitPair, UNIT_CHOICES } from '@/lib/units'
 
 const CREATE_MUTATION = gql`

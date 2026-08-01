@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
 
 const PLAN_QUERY = gql`
@@ -40,6 +40,31 @@ interface DayRow {
   energyKcal: number
 }
 
+interface WeekPlanDetails {
+  id: string
+  startDate: string
+  proteinGKg: number
+  fatPerc: number
+  deficit: number
+  completed: boolean
+  twee: number
+  energyKcalGoal: number
+  energyKcal: number
+  days: DayRow[]
+}
+
+interface WeekPlanQueryResponse {
+  weekPlan: WeekPlanDetails | null
+}
+
+interface WeekPlanReadOnly {
+  startDate: string
+  completed: string
+  twee: number
+  energyKcalGoal: number
+  energyKcal: number
+}
+
 const dayColumns: Column<DayRow>[] = [
   { key: 'dayNum', label: 'Day #', accessor: (r) => r.dayNum },
   { key: 'day', label: 'Date', accessor: (r) => r.day },
@@ -51,7 +76,7 @@ export default function EditPlanPage() {
   const params = useParams()
   const id = params.id as string
   const [form, setForm] = useState({ proteinGKg: '', fatPerc: '', deficit: '' })
-  const [readOnly, setReadOnly] = useState<any>({})
+  const [readOnly, setReadOnly] = useState<Partial<WeekPlanReadOnly>>({})
   const [days, setDays] = useState<DayRow[]>([])
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -59,7 +84,7 @@ export default function EditPlanPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ weekPlan: any }>(PLAN_QUERY, { id })
+        const res = await graphqlRequest<WeekPlanQueryResponse>(PLAN_QUERY, { id })
         if (res.weekPlan) {
           setForm({
             proteinGKg: String(res.weekPlan.proteinGKg),
@@ -120,11 +145,11 @@ export default function EditPlanPage() {
             title: 'Status & Progress',
             content: (
               <>
-                <ReadonlyField label="Start Date" value={readOnly.startDate} />
-                <ReadonlyField label="Completed" value={readOnly.completed} />
-                <ReadonlyField label="TWEE" value={readOnly.twee} />
-                <ReadonlyField label="Energy Goal" value={readOnly.energyKcalGoal} />
-                <ReadonlyField label="Energy Intake" value={readOnly.energyKcal} />
+                <ReadonlyField label="Start Date" value={readOnly.startDate ?? ''} />
+                <ReadonlyField label="Completed" value={readOnly.completed ?? ''} />
+                <ReadonlyField label="TWEE" value={readOnly.twee ?? ''} />
+                <ReadonlyField label="Energy Goal" value={readOnly.energyKcalGoal ?? ''} />
+                <ReadonlyField label="Energy Intake" value={readOnly.energyKcal ?? ''} />
               </>
             ),
           },

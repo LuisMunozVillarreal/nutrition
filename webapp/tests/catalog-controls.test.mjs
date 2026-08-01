@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import test from 'node:test'
+import { test } from 'vitest'
 
 for (const [name, pagePath, basePath, addPath] of [
   ['product', '../src/app/products/page.tsx', '/products', '/products/new'],

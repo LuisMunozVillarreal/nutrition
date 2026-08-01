@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { CheckboxField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
 
 const DAY_QUERY = gql`
@@ -34,6 +34,30 @@ interface IntakeRow {
   proteinG: number
 }
 
+interface DayDetails {
+  id: string
+  planId: string
+  day: string
+  dayNum: number
+  deficit: number
+  tracked: boolean
+  completed: boolean
+  energyKcalGoal: number
+  proteinGGoal: number
+  fatGGoal: number
+  carbsGGoal: number
+  energyKcal: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+  tdee: number
+  intakes: IntakeRow[]
+}
+
+interface DayQueryResponse {
+  day: DayDetails | null
+}
+
 const intakeColumns: Column<IntakeRow>[] = [
   { key: 'meal', label: 'Meal', accessor: (r) => r.meal.charAt(0).toUpperCase() + r.meal.slice(1) },
   { key: 'servings', label: 'Servings', accessor: (r) => r.numServings },
@@ -45,7 +69,7 @@ export default function EditDayPage() {
   const params = useParams()
   const id = params.id as string
   const [form, setForm] = useState({ tracked: false })
-  const [readOnly, setReadOnly] = useState<any>({})
+  const [readOnly, setReadOnly] = useState<DayDetails | null>(null)
   const [intakes, setIntakes] = useState<IntakeRow[]>([])
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -53,7 +77,7 @@ export default function EditDayPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ day: any }>(DAY_QUERY, { id })
+        const res = await graphqlRequest<DayQueryResponse>(DAY_QUERY, { id })
         if (res.day) {
           setForm({ tracked: res.day.tracked })
           setReadOnly(res.day)
@@ -81,8 +105,8 @@ export default function EditDayPage() {
   return (
     <div className="space-y-8">
       <EntityForm
-        title={`Day ${readOnly.dayNum} - ${readOnly.day}`}
-        backHref={`/plans/${readOnly.planId}`}
+        title={`Day ${readOnly?.dayNum} - ${readOnly?.day}`}
+        backHref={`/plans/${readOnly?.planId}`}
         onSave={handleSave}
         saving={saving}
         fieldsets={[
@@ -96,12 +120,12 @@ export default function EditDayPage() {
             title: 'Macros & Progress',
             content: (
               <>
-                <ReadonlyField label="Energy (kcal)" value={`${Math.round(readOnly.energyKcal)} / ${Math.round(readOnly.energyKcalGoal)}`} />
-                <ReadonlyField label="Protein (g)" value={`${Math.round(readOnly.proteinG)} / ${Math.round(readOnly.proteinGGoal)}`} />
-                <ReadonlyField label="Fat (g)" value={`${Math.round(readOnly.fatG)} / ${Math.round(readOnly.fatGGoal)}`} />
-                <ReadonlyField label="Carbs (g)" value={`${Math.round(readOnly.carbsG)} / ${Math.round(readOnly.carbsGGoal)}`} />
-                <ReadonlyField label="TDEE" value={Math.round(readOnly.tdee)} />
-                <ReadonlyField label="Completed" value={readOnly.completed ? 'Yes' : 'No'} />
+                <ReadonlyField label="Energy (kcal)" value={`${Math.round(Number(readOnly?.energyKcal))} / ${Math.round(Number(readOnly?.energyKcalGoal))}`} />
+                <ReadonlyField label="Protein (g)" value={`${Math.round(Number(readOnly?.proteinG))} / ${Math.round(Number(readOnly?.proteinGGoal))}`} />
+                <ReadonlyField label="Fat (g)" value={`${Math.round(Number(readOnly?.fatG))} / ${Math.round(Number(readOnly?.fatGGoal))}`} />
+                <ReadonlyField label="Carbs (g)" value={`${Math.round(Number(readOnly?.carbsG))} / ${Math.round(Number(readOnly?.carbsGGoal))}`} />
+                <ReadonlyField label="TDEE" value={Math.round(Number(readOnly?.tdee))} />
+                <ReadonlyField label="Completed" value={readOnly?.completed ? 'Yes' : 'No'} />
               </>
             ),
           },

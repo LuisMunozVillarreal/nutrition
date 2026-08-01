@@ -29,8 +29,7 @@ export interface JwtCapabilityCallbackOptions {
 export interface CapabilitySession {
   accessToken?: string
   error?: typeof BACKEND_REAUTHENTICATION_REQUIRED
-  user?: Record<string, unknown> | null
-  [key: string]: unknown
+  user?: object | null
 }
 
 export function applyUserCapabilitiesToToken<Token extends CapabilityToken>(
@@ -48,7 +47,7 @@ export function applyUserCapabilitiesToToken<Token extends CapabilityToken>(
 export function applyTokenCapabilitiesToSession<Session extends CapabilitySession>(
   session: Session,
   token: CapabilityToken,
-): Session & { user: Record<string, unknown> & { isStaff: boolean } } {
+): Session & { user: NonNullable<Session['user']> & { isStaff: boolean } } {
   if (token.accessToken) session.accessToken = token.accessToken
   else delete session.accessToken
   if (token.error) session.error = token.error
@@ -58,7 +57,7 @@ export function applyTokenCapabilitiesToSession<Session extends CapabilitySessio
     isStaff: token.isStaff === true,
   }
   return session as Session & {
-    user: Record<string, unknown> & { isStaff: boolean }
+    user: NonNullable<Session['user']> & { isStaff: boolean }
   }
 }
 

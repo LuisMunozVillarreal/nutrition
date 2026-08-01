@@ -7,16 +7,22 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "warn",
-      "react-hooks/set-state-in-effect": "warn",
-      "react/display-name": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
+      "react-hooks/set-state-in-effect": "error",
+      "react/display-name": "error",
+    },
+  },
+  {
+    files: ["cypress/**/*.ts"],
+    rules: {
+      // Chai assertions intentionally terminate in property access (for example, `.to.be.true`).
+      "@typescript-eslint/no-unused-expressions": "off",
     },
   },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
-    ".coverage-src/**",
     "coverage/**",
     "out/**",
     "build/**",

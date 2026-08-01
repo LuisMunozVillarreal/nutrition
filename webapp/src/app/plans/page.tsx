@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
-import Link from 'next/link'
+
+import { subscribeToPromise } from '@/lib/promiseSubscription'
 
 const PLANS_QUERY = gql`
   query {
@@ -37,16 +38,13 @@ export default function PlansPage() {
   const [data, setData] = useState<WeekPlan[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
-    setLoading(true)
-    try {
-      const res = await graphqlRequest<{ weekPlans: WeekPlan[] }>(PLANS_QUERY)
-      setData(res.weekPlans)
-    } catch (err) { console.error('Failed to fetch plans', err) }
-    setLoading(false)
-  }
+  const loadData = () => graphqlRequest<{ weekPlans: WeekPlan[] }>(PLANS_QUERY)
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => subscribeToPromise(loadData(), {
+    onFulfilled: (res) => setData(res.weekPlans),
+    onRejected: (err) => console.error('Failed to fetch plans', err),
+    onSettled: () => setLoading(false),
+  }), [])
 
   return (
     <div>

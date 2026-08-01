@@ -1,4 +1,4 @@
-import { Given, When, Then } from "@badeball/cypress-cucumber-preprocessor";
+import { When, Then } from "@badeball/cypress-cucumber-preprocessor";
 import { e2eFixtureName } from "../e2eFixtures";
 
 When("I navigate to the recipes page", () => {

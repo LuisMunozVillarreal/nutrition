@@ -1,23 +1,22 @@
 import assert from 'node:assert/strict'
-import { after, mock, test } from 'node:test'
+import { afterAll, test, vi } from 'vitest'
 
 const originalEndpoint = process.env.GRAPHQL_ENDPOINT
 const clients = []
 const responses = []
-const handler = mock.fn()
+const handler = vi.fn()
 let capturedOptions
 
-await mock.module('next-auth', {
-  defaultExport: (options) => {
+vi.doMock('next-auth', () => ({
+  default: (options) => {
     capturedOptions = options
     return handler
   },
-})
-await mock.module('next-auth/providers/credentials', {
-  defaultExport: (options) => options,
-})
-await mock.module('graphql-request', {
-  namedExports: {
+}))
+vi.doMock('next-auth/providers/credentials', () => ({
+  default: (options) => options,
+}))
+vi.doMock('graphql-request', () => ({
     GraphQLClient: class {
       constructor(endpoint) {
         this.endpoint = endpoint
@@ -31,17 +30,16 @@ await mock.module('graphql-request', {
         return typeof response === 'function' ? response(...args) : response
       }
     },
-  },
-})
+}))
 
-after(() => {
+afterAll(() => {
   if (originalEndpoint === undefined) delete process.env.GRAPHQL_ENDPOINT
   else process.env.GRAPHQL_ENDPOINT = originalEndpoint
 })
 
 test('NextAuth route wires credentials, capability refresh, sessions, handlers, and endpoints', async () => {
   delete process.env.GRAPHQL_ENDPOINT
-  const defaultRoute = await import('../.coverage-src/app/api/auth/[...nextauth]/route.js?default-endpoint')
+  const defaultRoute = await import('../src/app/api/auth/[...nextauth]/route.ts?default-endpoint')
   assert.equal(clients[0].endpoint, 'http://localhost:8000/graphql/')
   assert.equal(defaultRoute.GET, handler)
   assert.equal(defaultRoute.POST, handler)
@@ -94,7 +92,7 @@ test('NextAuth route wires credentials, capability refresh, sessions, handlers, 
   })
 
   process.env.GRAPHQL_ENDPOINT = 'https://api.example.com/graphql/'
-  const configuredRoute = await import('../.coverage-src/app/api/auth/[...nextauth]/route.js?configured-endpoint')
+  const configuredRoute = await import('../src/app/api/auth/[...nextauth]/route.ts?configured-endpoint')
   assert.equal(clients[1].endpoint, 'https://api.example.com/graphql/')
   assert.equal(configuredRoute.GET, handler)
   assert.equal(capturedOptions, configuredRoute.authOptions)

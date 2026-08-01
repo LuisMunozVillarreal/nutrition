@@ -45,10 +45,10 @@ export const authOptions: NextAuthOptions = {
         })
     ],
     callbacks: {
-        async jwt({ token, user }: any) {
+        async jwt({ token, user }) {
             return jwtCapabilityCallback({ token, user })
         },
-        async session({ session, token }: any) {
+        async session({ session, token }) {
             return applyTokenCapabilitiesToSession(session, token)
         }
     },

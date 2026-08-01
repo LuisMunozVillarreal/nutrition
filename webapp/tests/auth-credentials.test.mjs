@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 
 async function loadAuthHelpers() {
   return import('../src/lib/auth.ts')
