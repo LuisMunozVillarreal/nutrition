@@ -211,6 +211,174 @@ def _activity_payload(
     return payload
 
 
+@pytest.mark.parametrize(
+    ("canonical", "local", "offset_minutes", "expected_local_time"),
+    [
+        (
+            "2026-08-01T12:00:00Z",
+            "2026-08-01T08:00:00",
+            -240,
+            time(8, 0),
+        ),
+        (
+            "2026-08-01T12:00:00.123456+00:00",
+            "2026-08-01T08:00:00.123456-04:00",
+            -240,
+            time(8, 0, 0, 123456),
+        ),
+        (
+            1785585600,
+            "2026-08-01T08:00:00-04:00",
+            None,
+            time(8, 0),
+        ),
+        (
+            1785585600000,
+            "2026-08-01T08:00:00-04:00",
+            -240,
+            time(8, 0),
+        ),
+        (
+            datetime(2026, 8, 1, 12, tzinfo=services.datetime.timezone.utc),
+            "2026-08-01T07:00:00-05:00",
+            -300,
+            time(7, 0),
+        ),
+    ],
+)
+def test_coerce_started_at_accepts_matching_canonical_and_local_instants(
+    canonical: object,
+    local: str,
+    offset_minutes: int | None,
+    expected_local_time: time,
+):
+    """Canonical and local provider forms must describe one exact instant."""
+    started_at, local_date, local_time, stored_offset = (
+        services._coerce_started_at(
+            canonical,
+            local_value=local,
+            local_offset_minutes=offset_minutes,
+        )
+    )
+
+    assert started_at == datetime(
+        2026,
+        8,
+        1,
+        12,
+        tzinfo=services.datetime.timezone.utc,
+    ).replace(microsecond=expected_local_time.microsecond)
+    assert local_date == date(2026, 8, 1)
+    assert local_time == expected_local_time
+    assert stored_offset == (-240 if expected_local_time.hour == 8 else -300)
+
+
+@pytest.mark.parametrize(
+    ("canonical", "local", "offset_minutes"),
+    [
+        (
+            "2026-08-02T12:00:00+00:00",
+            "2026-08-01T08:00:00",
+            -240,
+        ),
+        (
+            "2026-08-01T12:00:01+00:00",
+            "2026-08-01T08:00:00",
+            -240,
+        ),
+        (
+            "2026-08-01T12:00:00+00:00",
+            "2026-08-01T08:00:00-04:00",
+            -300,
+        ),
+        (
+            "2026-08-01T12:00:00+00:00",
+            "2026-08-01T08:00:00",
+            -300,
+        ),
+    ],
+)
+def test_coerce_started_at_rejects_contradictory_provider_timestamps(
+    canonical: object,
+    local: str,
+    offset_minutes: int,
+):
+    """Date, time, and offset contradictions must invalidate the row."""
+    with pytest.raises(ValueError, match="start time is inconsistent"):
+        services._coerce_started_at(
+            canonical,
+            local_value=local,
+            local_offset_minutes=offset_minutes,
+        )
+
+
+@pytest.mark.parametrize(
+    ("canonical", "local", "offset_minutes"),
+    [
+        (None, "2026-08-01T08:00:00", -240),
+        ("not-a-time", "2026-08-01T08:00:00", -240),
+        ("2026-08-01T12:00:00", "2026-08-01T08:00:00", -240),
+        ("2026-08-01T12:00:00Z", None, -240),
+        ("2026-08-01T12:00:00Z", "not-a-time", -240),
+        ("2026-08-01T12:00:00Z", "2026-08-01T08:00:00", None),
+        (
+            "0001-01-01T00:00:00+14:00",
+            "0001-01-01T00:00:00+14:00",
+            840,
+        ),
+    ],
+)
+def test_coerce_started_at_rejects_missing_or_malformed_values(
+    canonical: object,
+    local: object,
+    offset_minutes: int | None,
+):
+    """Both canonical and explicitly zoned local timestamps are required."""
+    with pytest.raises(ValueError):
+        services._coerce_started_at(
+            canonical,
+            local_value=local,
+            local_offset_minutes=offset_minutes,
+        )
+
+
+@pytest.mark.parametrize(
+    ("canonical", "local", "offset_minutes"),
+    [
+        (
+            "2026-11-01T05:30:00Z",
+            "2026-11-01T01:30:00",
+            -240,
+        ),
+        (
+            "2026-11-01T06:30:00Z",
+            "2026-11-01T01:30:00",
+            -300,
+        ),
+    ],
+)
+def test_coerce_started_at_uses_explicit_offset_for_dst_fold(
+    canonical: str,
+    local: str,
+    offset_minutes: int,
+):
+    """An explicit provider offset deterministically resolves repeated local time."""
+    started_at, local_date, local_time, stored_offset = (
+        services._coerce_started_at(
+            canonical,
+            local_value=local,
+            local_offset_minutes=offset_minutes,
+        )
+    )
+
+    assert started_at == datetime.fromisoformat(
+        canonical.replace("Z", "+00:00")
+    )
+    assert local_date == date(2026, 11, 1)
+    assert local_time == time(1, 30)
+    assert stored_offset == offset_minutes
+
+
 def test_iter_activity_payloads_follows_cursors(requests_mock, monkeypatch):
     """Pagination must follow cursor pages and stop on terminal page."""
     _configure_garmin(monkeypatch)
@@ -740,6 +908,120 @@ def test_sync_connection_counts_imports_unsupported_invalid_and_owned_days(
     )
     assert pending.pending_reconciliation is True
     assert pending.day is None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "extreme_value"),
+    [
+        ("startTime", 10**1000),
+        ("timezoneOffsetMinutes", 10**1000),
+        ("distance", "1e999999"),
+        ("duration", 10**1000),
+        ("activeKcal", 10**1000),
+    ],
+)
+def test_sync_connection_counts_extreme_numeric_row_and_continues(
+    monkeypatch,
+    field_name: str,
+    extreme_value: object,
+):
+    """Extreme provider numerics are invalid rows, not sync-stopping errors."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day(
+        f"sync-extreme-{field_name.lower()}@example.com"
+    )
+    connection = _connection_with_token(user)
+    canonical = timezone.make_aware(
+        datetime.combine(day.day, time(8, 0))
+    ).isoformat()
+    malformed = _activity_payload(
+        activity_id=f"extreme-{field_name}",
+        activity_type="cycle",
+        started_at=canonical,
+    )
+    if field_name == "timezoneOffsetMinutes":
+        malformed["startTimeLocal"] = datetime.combine(
+            day.day, time(8, 0)
+        ).isoformat()
+    malformed[field_name] = extreme_value
+    valid = _activity_payload(
+        activity_id=f"valid-after-{field_name}",
+        activity_type="cycle",
+        started_at=canonical,
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [malformed, valid],
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+    assert list(
+        GarminActivity.objects.filter(connection=connection).values_list(
+            "provider_activity_id", flat=True
+        )
+    ) == [f"valid-after-{field_name}"]
+
+
+def test_sync_all_connections_continues_after_extreme_numeric_row(
+    monkeypatch,
+):
+    """One connection's malformed row must not starve later connections."""
+    _configure_garmin(monkeypatch)
+    first_user, first_day = _create_user_with_day(
+        "sync-all-extreme-first@example.com"
+    )
+    second_user, second_day = _create_user_with_day(
+        "sync-all-extreme-second@example.com"
+    )
+    first = _connection_with_token(
+        first_user,
+        access_token="first-extreme-token",
+    )
+    second = _connection_with_token(
+        second_user,
+        access_token="second-valid-token",
+    )
+    first_payload = _activity_payload(
+        activity_id="first-extreme-epoch",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(first_day.day, time(8, 0))
+        ).isoformat(),
+    )
+    first_payload["startTime"] = 10**1000
+    second_payload = _activity_payload(
+        activity_id="second-valid-row",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(second_day.day, time(9, 0))
+        ).isoformat(),
+    )
+
+    def _iter(access_token: str, *_, **__):
+        if access_token == "first-extreme-token":
+            return [first_payload]
+        if access_token == "second-valid-token":
+            return [second_payload]
+        raise AssertionError("unexpected access token")
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+
+    results = services.sync_all_connections()
+
+    assert results[first.pk] == GarminSyncSummary(0, 0, 0, 1)
+    assert results[second.pk] == GarminSyncSummary(1, 0, 0, 0)
+    assert GarminActivity.objects.filter(
+        connection=second,
+        provider_activity_id="second-valid-row",
+    ).exists()
 
 
 def test_sync_connection_stores_unmatched_activity_without_day_as_pending(
@@ -1961,6 +2243,22 @@ def test_parse_token_payload_accepts_provider_account_id_at_model_max_length(
     parsed = services._parse_token_payload(payload)
 
     assert parsed.provider_account_id == "x" * 255
+
+
+def test_parse_token_payload_rejects_extreme_expiry(monkeypatch):
+    """Extreme token expiry values must be normalized to a provider error."""
+    _configure_garmin(monkeypatch)
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin token response has invalid expires_in",
+    ):
+        services._parse_token_payload(
+            {
+                "access_token": "access-token",
+                "expires_in": 10**1000,
+            }
+        )
 
 
 def test_parse_token_payload_rejects_oversize_provider_account_id(monkeypatch):

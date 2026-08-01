@@ -53,6 +53,9 @@ _ACTIVITY_CALORIES_MAX = 10_000_000
 _ACTIVITY_DISTANCE_MAX = Decimal("99999999.99")
 _ACTIVITY_DISTANCE_QUANT = Decimal("0.01")
 _ACTIVITY_DURATION_MAX_SECONDS = 24 * 60 * 60
+_DATETIME_MIN_TIMESTAMP_SECONDS = -62_135_596_800
+_DATETIME_MAX_TIMESTAMP_SECONDS = 253_402_300_799
+_TIMEZONE_OFFSET_MAX_MINUTES = 14 * 60
 
 _PENDING_RECONCILIATION_REASON_AMBIGUOUS_DAY = "ambiguous_day"
 _PENDING_RECONCILIATION_REASON_MISSING_LOCAL = "missing_local_start"
@@ -459,7 +462,7 @@ def _coerce_non_negative_int(value: object, field_name: str) -> int:
         raise ValueError(f"{field_name} must be non-negative")
     try:
         parsed = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(f"{field_name} must be non-negative") from exc
     if not math.isfinite(parsed) or parsed < 0:
         raise ValueError(f"{field_name} must be non-negative")
@@ -521,9 +524,13 @@ def _validate_distance_km(
     if source == "distanceMeters":
         unit = "m"
 
-    if source == "distanceMiles" and distance > (
-        _ACTIVITY_DISTANCE_MAX / _ACTIVITY_DISTANCE_MILES_TO_KM
-    ):
+    maximum_source_distance = _ACTIVITY_DISTANCE_MAX
+    if unit == "m":
+        maximum_source_distance *= Decimal("1000")
+    elif unit == "mile":
+        maximum_source_distance /= _ACTIVITY_DISTANCE_MILES_TO_KM
+
+    if distance > maximum_source_distance:
         raise ValueError("distance out of supported bounds")
 
     if unit == "m":
@@ -531,9 +538,12 @@ def _validate_distance_km(
     elif unit == "mile":
         distance = distance * _ACTIVITY_DISTANCE_MILES_TO_KM
 
-    distance = distance.quantize(
-        _ACTIVITY_DISTANCE_QUANT, rounding=ROUND_HALF_UP
-    )
+    try:
+        distance = distance.quantize(
+            _ACTIVITY_DISTANCE_QUANT, rounding=ROUND_HALF_UP
+        )
+    except InvalidOperation as exc:
+        raise ValueError("distance out of supported bounds") from exc
 
     if distance > _ACTIVITY_DISTANCE_MAX:
         raise ValueError("distance out of supported bounds")
@@ -557,44 +567,89 @@ def _coerce_started_at(
     if local_value is None:
         raise ValueError("start time local timezone is required")
 
+    canonical_dt = _parse_canonical_start_time(value)
     local_dt = _parse_local_start_time(local_value, local_offset_minutes)
     local_tz = local_dt.tzinfo
-
-    if not isinstance(value, datetime.datetime | int | float | str):
-        raise ValueError("start time is missing")
-
-    if isinstance(value, int | float):
-        seconds = float(value)
-        if not math.isfinite(seconds):
-            raise ValueError("start time is invalid")
-        if seconds > 10**12:
-            seconds /= 1000
-        _ = datetime.datetime.fromtimestamp(seconds, tz=datetime.timezone.utc)
-    elif isinstance(value, str):
-        candidate = value.replace("Z", "+00:00")
-        try:
-            datetime.datetime.fromisoformat(candidate)
-        except ValueError as exc:
-            raise ValueError("start time is invalid") from exc
-
-    if local_dt is None or local_dt.tzinfo is None:
-        raise ValueError("start time must include timezone")
-
     if local_tz is None:
         raise ValueError("start time must include timezone")
 
     local_dt = local_dt.astimezone(local_tz)
-    offset = local_dt.utcoffset() or datetime.timedelta()
+    offset = local_dt.utcoffset()
+    if offset is None:
+        raise ValueError("start time must include timezone")
     offset_minutes = int(offset.total_seconds() / 60)
-    if abs(offset_minutes) > 14 * 60:
+    if offset.total_seconds() % 60 != 0:
+        raise ValueError("start time timezone offset is invalid")
+    if abs(offset_minutes) > _TIMEZONE_OFFSET_MAX_MINUTES:
         raise ValueError("start time timezone offset is invalid")
 
+    try:
+        canonical_utc = canonical_dt.astimezone(datetime.timezone.utc)
+        local_utc = local_dt.astimezone(datetime.timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError("start time is invalid") from exc
+    # Both accepted provider forms preserve microseconds, so accepting a
+    # tolerance would hide a genuine date, time, or offset contradiction.
+    if canonical_utc != local_utc:
+        raise ValueError("start time is inconsistent")
+
     return (
-        local_dt.astimezone(datetime.timezone.utc),
+        canonical_utc,
         local_dt.date(),
         local_dt.timetz().replace(tzinfo=None),
         offset_minutes,
     )
+
+
+def _parse_canonical_start_time(value: object) -> datetime.datetime:
+    if isinstance(value, bool) or not isinstance(
+        value, datetime.datetime | int | float | str
+    ):
+        raise ValueError("start time is missing")
+
+    if isinstance(value, datetime.datetime):
+        parsed = value
+    elif isinstance(value, int | float):
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("start time is invalid") from exc
+        if not math.isfinite(seconds):
+            raise ValueError("start time is invalid")
+        if seconds > 10**12:
+            seconds /= 1000
+        if not (
+            _DATETIME_MIN_TIMESTAMP_SECONDS
+            <= seconds
+            <= _DATETIME_MAX_TIMESTAMP_SECONDS
+        ):
+            raise ValueError("start time is invalid")
+        try:
+            parsed = datetime.datetime.fromtimestamp(
+                seconds, tz=datetime.timezone.utc
+            )
+        except (OverflowError, OSError, ValueError) as exc:
+            raise ValueError("start time is invalid") from exc
+    else:
+        candidate = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.datetime.fromisoformat(candidate)
+        except ValueError as exc:
+            raise ValueError("start time is invalid") from exc
+
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("start time must include timezone")
+    return parsed
+
+
+def _parse_timezone_offset_minutes(raw_value: object) -> int:
+    try:
+        offset_minutes = int(str(raw_value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("start time timezone is invalid") from exc
+    if abs(offset_minutes) > _TIMEZONE_OFFSET_MAX_MINUTES:
+        raise ValueError("start time timezone is invalid")
+    return offset_minutes
 
 
 def _parse_local_start_time(
@@ -611,16 +666,18 @@ def _parse_local_start_time(
         raise ValueError("start time is invalid") from exc
 
     if parsed.tzinfo is not None:
+        if raw_offset_minutes is not None:
+            offset_minutes = _parse_timezone_offset_minutes(raw_offset_minutes)
+            if parsed.utcoffset() != datetime.timedelta(
+                minutes=offset_minutes
+            ):
+                raise ValueError("start time is inconsistent")
         return parsed
 
     if raw_offset_minutes is None:
         raise ValueError("start time timezone is missing")
 
-    try:
-        offset_minutes = int(str(raw_offset_minutes))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("start time timezone is invalid") from exc
-
+    offset_minutes = _parse_timezone_offset_minutes(raw_offset_minutes)
     parsed = parsed.replace(
         tzinfo=datetime.timezone(datetime.timedelta(minutes=offset_minutes)),
     )
@@ -1051,7 +1108,7 @@ def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
 
     try:
         expires_in_float = float(expires_in_raw)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError(
             "Garmin token response has invalid expires_in"
         ) from exc
