@@ -37,12 +37,13 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- $containerPorts := .Values.containerPorts | default dict }}
           ports:
             - name: public
-              containerPort: {{ .Values.containerPorts.public }}
+              containerPort: {{ default 8080 $containerPorts.public }}
               protocol: TCP
             - name: health
-              containerPort: {{ .Values.containerPorts.health }}
+              containerPort: {{ default 9000 $containerPorts.health }}
               protocol: TCP
           livenessProbe:
             httpGet:
