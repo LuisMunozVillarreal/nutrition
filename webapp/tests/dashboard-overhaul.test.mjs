@@ -90,6 +90,7 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /role="progressbar"/)
   assert.match(dashboardSource, /aria-valuetext=/)
   assert.match(dashboardSource, /key=\{point\.id\}/)
+  assert.match(dashboardSource, /flex justify-between text-xs text-slate-400/)
   assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
   assert.match(dashboardSource, /visibilitychange/)
   assert.doesNotMatch(dashboardSource, /Hydration/)
