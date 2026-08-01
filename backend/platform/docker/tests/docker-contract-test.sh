@@ -9,6 +9,7 @@ IMAGE_TAG="${IMAGE_TAG:-ci}"
 IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 DOCKERFILE_PATH="${SCRIPT_DIR}/../Dockerfile"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
+PRESERVE_IMAGE="${PRESERVE_IMAGE:-0}"
 
 if [ "$SKIP_IMAGE_BUILD" = "1" ]; then
   if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
@@ -19,7 +20,9 @@ else
   docker build -f "$DOCKERFILE_PATH" -t "$IMAGE" "$PROJECT_ROOT"
 fi
 
-trap 'docker image rm -f "$IMAGE" >/dev/null 2>&1 || true' EXIT
+if [ "$PRESERVE_IMAGE" != "1" ]; then
+  trap 'docker image rm -f "$IMAGE" >/dev/null 2>&1 || true' EXIT
+fi
 
 if grep -q "NOPASSWD:ALL" "$DOCKERFILE_PATH"; then
   echo "Dockerfile still defines passwordless sudo" >&2
