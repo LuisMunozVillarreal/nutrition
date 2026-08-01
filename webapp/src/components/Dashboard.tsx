@@ -4,12 +4,13 @@ import { motion } from 'framer-motion'
 import { Activity, ArrowRight, Target, UtensilsCrossed, Weight } from 'lucide-react'
 import { signOut, useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { gql, graphqlRequest } from '@/lib/graphql'
 import {
   buildTrendCoordinates,
   buildWeightTrendSeries,
   describeWeightTrendChange,
+  isCurrentLocalDate,
   millisecondsUntilNextLocalDay,
   type DashboardMeasurement,
 } from './dashboardHelpers'
@@ -68,6 +69,7 @@ export default function Dashboard() {
   const [response, setResponse] = useState<DashboardResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const requestSequence = useRef(0)
 
   useEffect(() => {
     if (status !== 'authenticated') return
@@ -75,22 +77,23 @@ export default function Dashboard() {
     let midnightTimer: ReturnType<typeof setTimeout> | undefined
 
     async function loadDashboard() {
+      const requestId = ++requestSequence.current
       setLoading(true)
       setError(false)
       try {
         const result = await graphqlRequest<DashboardResponse>(DASHBOARD_QUERY, {
           timezoneOffsetMinutes: new Date().getTimezoneOffset(),
         })
-        if (!result.me) {
+        if (!result.me && requestId === requestSequence.current) {
           await signOut({ callbackUrl: '/login' })
           return
         }
-        if (!cancelled) setResponse(result)
+        if (!cancelled && requestId === requestSequence.current) setResponse(result)
       } catch (loadError) {
         console.error('Failed to fetch dashboard data', loadError)
-        if (!cancelled) setError(true)
+        if (!cancelled && requestId === requestSequence.current) setError(true)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && requestId === requestSequence.current) setLoading(false)
       }
     }
 
@@ -112,6 +115,7 @@ export default function Dashboard() {
 
     return () => {
       cancelled = true
+      requestSequence.current += 1
       if (midnightTimer) clearTimeout(midnightTimer)
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
@@ -123,10 +127,11 @@ export default function Dashboard() {
   const trend = useMemo(() => buildWeightTrendSeries(measurements), [measurements])
   const latestMeasurement = measurements.at(-1)
   const today = summary?.todayNutrition ?? null
+  const todayIsCurrent = today !== null && isCurrentLocalDate(today.day)
   const currentWeight = latestMeasurement?.weight ?? summary?.latestWeight ?? null
   const currentBodyFat = latestMeasurement?.bodyFatPerc ?? summary?.latestBodyFat ?? null
   const firstName = response?.me?.firstName || session?.user?.name?.split(' ')[0] || 'Athlete'
-  const mealHref = today ? `/intakes/new?dayId=${encodeURIComponent(today.id)}` : '/days'
+  const mealHref = !loading && todayIsCurrent ? `/intakes/new?dayId=${encodeURIComponent(today.id)}` : '/days'
 
   return (
     <div className="min-h-screen p-6 text-white md:p-12">
@@ -157,7 +162,7 @@ export default function Dashboard() {
           href={mealHref}
           icon={<UtensilsCrossed size={24} />}
           title="Log a meal"
-          description={today ? 'Add food directly to today.' : 'Choose a day, then add your meal.'}
+          description={!loading && todayIsCurrent ? 'Add food directly to today.' : 'Choose a day, then add your meal.'}
           accent="emerald"
         />
       </section>
@@ -294,7 +299,7 @@ function CardHeader({ title, icon, color }: { title: string; icon: React.ReactNo
 }
 
 function Metric({ label, value, suffix, highlight = false }: { label: string; value: number | null; suffix: string; highlight?: boolean }) {
-  return <div><p className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</p><div className="flex items-end gap-1"><span className={`text-4xl font-black ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value ?? 'Not set'}</span>{value !== null && <span className="mb-1 text-sm text-slate-400">{suffix}</span>}</div></div>
+  return <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><div className="flex items-end gap-1"><span className={`text-4xl font-black ${highlight ? 'text-emerald-400' : 'text-white'}`}>{value ?? 'Not set'}</span>{value !== null && <span className="mb-1 text-sm text-slate-400">{suffix}</span>}</div></div>
 }
 
 function LoadingValue() {
