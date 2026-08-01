@@ -116,12 +116,15 @@ test('disabled Garmin rollout uses optional Secret refs and documents every refe
   assert.match(readme, /at least one of .*token-encryption-keys.*token-encryption-key/is)
 })
 
-test('Helmfile exposes a complete, disabled-by-default Garmin configuration', async () => {
-  const [helmfile, productionValues, stagingValues, settingsSource] = await Promise.all([
+test('Helmfile exposes a complete, disabled-by-default Garmin configuration and scheduler', async () => {
+  const [helmfile, productionValues, stagingValues, settingsSource, chartValues, schedulerTemplate, readme] = await Promise.all([
     repoFile('platform/kube/helmfile.d/10-nutrition.yaml'),
     repoFile('platform/kube/helmfile.d/production.values.yaml-tmpl'),
     repoFile('platform/kube/helmfile.d/staging.values.yaml-tmpl'),
     repoFile('backend/config/settings.py'),
+    repoFile('backend/platform/kube/values.yaml'),
+    repoFile('backend/platform/kube/templates/cronjob-garmin-sync.yaml'),
+    repoFile('platform/kube/README.md'),
   ])
 
   const expectedNames = [...configuredGarminSettings(settingsSource)]
@@ -156,8 +159,24 @@ test('Helmfile exposes a complete, disabled-by-default Garmin configuration', as
   for (const source of [productionValues, stagingValues]) {
     const values = yamlDocuments(source)[0]
     assert.equal(values.garmin.enabled, false)
+    assert.equal(values.garmin.sync.enabled, false)
+    assert.equal(values.garmin.sync.suspend, true)
+    assert.equal(values.garmin.sync.concurrencyPolicy, 'Forbid')
     assert.notEqual(values.garmin.providerOrigins, values.garmin.callbackAllowedOrigins)
     assert.ok(values.garmin.authorizationUrl.startsWith(values.garmin.providerOrigins))
     assert.ok(values.garmin.callbackUrl.startsWith(values.garmin.callbackAllowedOrigins))
   }
+
+  const defaults = yamlDocuments(chartValues)[0]
+  assert.equal(defaults.garminSync.enabled, false)
+  assert.equal(defaults.garminSync.suspend, true)
+  assert.equal(defaults.garminSync.concurrencyPolicy, 'Forbid')
+  assert.match(schedulerTemplate, /serviceAccountName: \{\{ include "nutrition\.serviceAccountName" \. \}\}/)
+  assert.match(schedulerTemplate, /image: \{\{ \.Values\.image\.repository \}\}:\{\{ include "nutrition\.imageTag" \. \}\}/)
+  assert.match(schedulerTemplate, /with \.Values\.env[\s\S]*?toYaml \./)
+  assert.match(schedulerTemplate, /- python\n\s+- manage\.py\n\s+- sync_garmin/)
+  assert.match(helmfile, /garminSync:[\s\S]*?enabled: \{\{ \.Values\.garmin\.sync\.enabled \}\}/)
+  assert.match(helmfile, /suspend: \{\{ \.Values\.garmin\.sync\.suspend \}\}/)
+  assert.match(readme, /production\.values\.yaml[\s\S]*?garmin\.enabled[\s\S]*?garmin\.sync\.enabled[\s\S]*?garmin\.sync\.suspend/is)
+  assert.match(readme, /staging[\s\S]*?preview[\s\S]*?suspended/is)
 })

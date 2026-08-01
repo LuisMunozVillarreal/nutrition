@@ -112,7 +112,10 @@ def _create_user_with_day(email: str) -> tuple[Any, Day]:
 
 
 def _connection_with_token(
-    user: Any, *, access_token: str = "access-token"
+    user: Any,
+    *,
+    access_token: str = "access-token",
+    provider_account_id: str = "provider-user",
 ) -> GarminConnection:
     connection = GarminConnection.objects.create(user=user)
     token_pair = services.GarminTokenPair(
@@ -120,7 +123,7 @@ def _connection_with_token(
         refresh_token="refresh-token",
         expires_in=3600,
         scope="read write",
-        provider_account_id="provider-user",
+        provider_account_id=provider_account_id,
     )
     connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
     connection.save(
@@ -179,6 +182,7 @@ def _activity_payload(
     user_id: str = "provider-user",
     include_local_fields: bool = True,
     duration: int = 30,
+    active_kcal: int = 120,
 ) -> dict:
     local = start_time_local if start_time_local is not None else started_at
     payload: dict[str, object] = {
@@ -186,7 +190,7 @@ def _activity_payload(
         "activityType": activity_type,
         "startTime": started_at,
         "duration": 30,
-        "activeKcal": 120,
+        "activeKcal": active_kcal,
         "userId": user_id,
     }
     if include_local_fields:
@@ -1043,6 +1047,10 @@ def test_sync_connection_reconciles_moved_exercise_and_recomputes_days(
     target_day.refresh_from_db()
     assert source_day.energy_kcal == Decimal("0.00")
     assert target_day.energy_kcal == Decimal("0.00")
+    assert source_day.exercises_flag is False
+    assert target_day.exercises_flag is True
+    assert source_day.eat == 0
+    assert target_day.eat == 120
     assert source_day.exercises.count() == 0
     assert target_day.exercises.count() == 1
 
@@ -1054,6 +1062,178 @@ def test_sync_connection_reconciles_moved_exercise_and_recomputes_days(
     assert activity.exercise is not None
     assert activity.exercise.day_id == target_day.pk
     assert tuple(sorted((source_day.pk, target_day.pk))) in lock_calls
+
+
+def test_sync_connection_applies_provider_metric_and_time_corrections(
+    monkeypatch,
+):
+    """An unchanged imported exercise follows corrected provider provenance."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-provider-correction@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(9, 0)))
+    payloads = [
+        _activity_payload(
+            activity_id="provider-correction-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            duration=1800,
+            distance=Decimal("5.00"),
+            active_kcal=120,
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    services.sync_connection(connection)
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="provider-correction-1",
+    )
+    assert activity.exercise is not None
+    exercise_pk = activity.exercise_id
+
+    corrected_at = timezone.make_aware(datetime.combine(day.day, time(10, 15)))
+    payloads[:] = [
+        _activity_payload(
+            activity_id="provider-correction-1",
+            activity_type="cycle",
+            started_at=corrected_at.isoformat(),
+            duration=2400,
+            distance=Decimal("8.25"),
+            active_kcal=180,
+        )
+    ]
+
+    summary = services.sync_connection(connection)
+
+    assert summary.duplicates == 1
+    corrected = Exercise.objects.get(pk=exercise_pk)
+    assert corrected.day_id == day.pk
+    assert corrected.time == time(10, 15)
+    assert corrected.kcals == 180
+    assert corrected.duration == timedelta(seconds=2400)
+    assert corrected.distance == Decimal("8.25")
+
+
+def test_sync_connection_retires_unchanged_import_when_correction_is_pending(
+    monkeypatch,
+):
+    """A corrected payload becoming ambiguous retires its old derived exercise."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-corrected-pending@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(9, 0)))
+    payloads = [
+        _activity_payload(
+            activity_id="corrected-pending-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            duration=1800,
+            distance=Decimal("5.00"),
+            active_kcal=120,
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+    services.sync_connection(connection)
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="corrected-pending-1",
+    )
+    exercise_pk = activity.exercise_id
+    assert exercise_pk is not None
+
+    WeekPlan.objects.create(
+        user=user,
+        measurement=Measurement.objects.create(
+            user=user,
+            weight=Decimal("80.0"),
+            body_fat_perc=Decimal("20.0"),
+        ),
+        start_date=day.day,
+        protein_g_kg=Decimal("1.8"),
+        fat_perc=Decimal("25.0"),
+        deficit=500,
+    )
+    payloads[:] = [
+        _activity_payload(
+            activity_id="corrected-pending-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            duration=2400,
+            distance=Decimal("8.25"),
+            active_kcal=180,
+        )
+    ]
+
+    services.sync_connection(connection)
+
+    activity.refresh_from_db()
+    day.refresh_from_db()
+    assert activity.pending_reconciliation is True
+    assert activity.exercise_id is None
+    assert not Exercise.objects.filter(pk=exercise_pk).exists()
+    assert day.exercises_flag is False
+
+
+def test_sync_connection_preserves_manual_day_only_move_during_correction(
+    monkeypatch,
+):
+    """Moving only the linked exercise day makes it manual and provider-safe."""
+    _configure_garmin(monkeypatch)
+    user, source_day = _create_user_with_day(
+        "sync-manual-day-move@example.com"
+    )
+    target_day = source_day.plan.days.get(day_num=2)
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(
+        datetime.combine(source_day.day, time(9, 0))
+    )
+    payloads = [
+        _activity_payload(
+            activity_id="manual-day-move-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            duration=1800,
+            distance=Decimal("5.00"),
+            active_kcal=120,
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+    services.sync_connection(connection)
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id="manual-day-move-1",
+    )
+    exercise = activity.exercise
+    assert exercise is not None
+    exercise.day = target_day
+    exercise.save(update_fields=["day"])
+
+    payloads[:] = [
+        _activity_payload(
+            activity_id="manual-day-move-1",
+            activity_type="cycle",
+            started_at=started_at.isoformat(),
+            duration=2400,
+            distance=Decimal("8.25"),
+            active_kcal=180,
+        )
+    ]
+
+    services.sync_connection(connection)
+
+    exercise.refresh_from_db()
+    assert exercise.day_id == target_day.pk
+    assert exercise.time == time(9, 0)
+    assert exercise.kcals == 120
+    assert exercise.duration == timedelta(seconds=1800)
+    assert exercise.distance == Decimal("5.00")
 
 
 def test_sync_connection_ambiguous_day_reconciles_after_resolution(
@@ -1302,6 +1482,109 @@ def test_sync_connection_rejects_provider_account_mismatch(monkeypatch):
         connection=connection,
         provider_activity_id="account-mismatch-1",
     ).exists()
+
+
+def test_sync_connection_claims_first_activity_account_and_rejects_mixed_ids(
+    monkeypatch,
+):
+    """A blank token identity is claimed once and cannot mix provider accounts."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-account-claim@example.com")
+    connection = _connection_with_token(user, provider_account_id="")
+    initial_generation = connection.connection_generation
+    payloads = [
+        _activity_payload(
+            activity_id="account-a-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, time(8, 0))
+            ).isoformat(),
+            user_id="account-a",
+        ),
+        _activity_payload(
+            activity_id="account-b-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, time(9, 0))
+            ).isoformat(),
+            user_id="account-b",
+        ),
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+
+    summary = services.sync_connection(connection)
+
+    connection.refresh_from_db()
+    assert connection.provider_account_id == "account-a"
+    assert connection.connection_generation == initial_generation + 1
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+    assert list(
+        GarminActivity.objects.filter(connection=connection).values_list(
+            "provider_account_id", "provider_activity_id"
+        )
+    ) == [("account-a", "account-a-1")]
+
+
+def test_sync_connection_rejects_missing_activity_identity_for_blank_account(
+    monkeypatch,
+):
+    """Payloads with no token or activity identity cannot create mixed rows."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-account-missing@example.com")
+    connection = _connection_with_token(user, provider_account_id="")
+    payload = _activity_payload(
+        activity_id="account-missing-1",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(day.day, time(8, 0))
+        ).isoformat(),
+    )
+    payload.pop("userId")
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: [payload]
+    )
+
+    summary = services.sync_connection(connection)
+
+    connection.refresh_from_db()
+    assert connection.provider_account_id == ""
+    assert summary.invalid == 1
+    assert not GarminActivity.objects.filter(connection=connection).exists()
+
+
+def test_refresh_rejects_provider_account_switch(monkeypatch):
+    """A refresh response cannot silently replace the linked provider account."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-account-switch@example.com")
+    connection = _connection_with_token(user)
+    connection.access_token_expires_at = timezone.now() - timedelta(hours=1)
+    connection.save(update_fields=["access_token_expires_at"])
+
+    monkeypatch.setattr(
+        services,
+        "refresh_access_token",
+        lambda _connection: services.GarminTokenPair(
+            access_token="other-account-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="account-b",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="provider account changed"):
+        services._ensure_access_token(connection)
+
+    connection.refresh_from_db()
+    assert connection.provider_account_id == "provider-user"
+    assert connection.access_token != "other-account-access"
 
 
 def test_sync_connection_rejects_unknown_distance_unit(monkeypatch):
@@ -1875,13 +2158,13 @@ def test_sync_connection_retries_fetch_with_forced_refresh_on_unauthorized(
 
     attempts: dict[str, int] = {"fetch": 0}
 
-    def _iter(token: str, *_, **__) -> list[dict[str, object]]:
+    def _iter(token: str, *_, **__):
         attempts["fetch"] += 1
         if attempts["fetch"] == 1:
             raise ValueError("Garmin activity fetch unauthorized")
         if token != "refreshed-access":
             raise ValueError("Garmin activity fetch unauthorized")
-        return payloads
+        yield from payloads
 
     monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
 
@@ -1909,6 +2192,93 @@ def test_sync_connection_retries_fetch_with_forced_refresh_on_unauthorized(
         unsupported=0,
         invalid=0,
     )
+
+
+def test_sync_connection_retries_lazy_later_page_401_without_recounting(
+    monkeypatch,
+):
+    """A later-page lazy 401 retries once without replaying committed counts."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(settings, "GARMIN_ACTIVITY_SYNC_BATCH_SIZE", 1)
+    user, day = _create_user_with_day("sync-later-401-refresh@example.com")
+    connection = _connection_with_token(user)
+    first = _activity_payload(
+        activity_id="before-later-401",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(day.day, time(8, 0))
+        ).isoformat(),
+    )
+    second = _activity_payload(
+        activity_id="after-later-401",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(day.day, time(9, 0))
+        ).isoformat(),
+    )
+    attempts = {"fetch": 0, "refresh": 0}
+
+    def _iter(token: str, *_, **__):
+        attempts["fetch"] += 1
+        yield first
+        if token != "refreshed-access":
+            raise ValueError("Garmin activity fetch unauthorized")
+        yield second
+
+    def _refresh(_connection):
+        attempts["refresh"] += 1
+        return services.GarminTokenPair(
+            access_token="refreshed-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    summary = services.sync_connection(connection)
+
+    assert attempts == {"fetch": 2, "refresh": 1}
+    assert summary == GarminSyncSummary(
+        imported=2,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    assert GarminActivity.objects.filter(connection=connection).count() == 2
+
+
+def test_sync_connection_bounds_lazy_unauthorized_retry(monkeypatch):
+    """Repeated lazy unauthorized failures force refresh only once."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("sync-bounded-401-refresh@example.com")
+    connection = _connection_with_token(user)
+    attempts = {"fetch": 0, "refresh": 0}
+
+    def _iter(*_, **__):
+        attempts["fetch"] += 1
+        raise ValueError("Garmin activity fetch unauthorized")
+        yield  # pragma: no cover
+
+    def _refresh(_connection):
+        attempts["refresh"] += 1
+        return services.GarminTokenPair(
+            access_token="still-unauthorized",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(connection)
+
+    assert attempts == {"fetch": 2, "refresh": 1}
 
 
 def test_sync_connection_rejects_generation_change_before_import(monkeypatch):
@@ -2005,8 +2375,12 @@ def test_token_refresh_does_not_clear_last_sync_state_on_failed_import(
 
     monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
 
-    with pytest.raises(ValueError, match="broken"):
+    with pytest.raises(
+        ValueError, match="Garmin activity import failed"
+    ) as exc_info:
         services.sync_connection(connection)
+    assert isinstance(exc_info.value.__cause__, ValueError)
+    assert str(exc_info.value.__cause__) == "broken"
 
     connection.refresh_from_db()
     assert connection.last_synced_at == baseline

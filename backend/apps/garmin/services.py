@@ -40,6 +40,7 @@ from .models import (
 )
 
 _ACTIVITY_TYPE_CYCLE = "cycle"
+_EMPTY_CIPHERTEXT = str()
 _ACTIVITY_TYPE_CYCLING = {
     "cycle",
     "cycling",
@@ -875,8 +876,9 @@ def _is_garmin_derived_exercise(
     *,
     exercise: Exercise,
     activity: NormalizedActivity,
+    linked_day_id: int | None,
 ) -> bool:
-    """Return whether an exercise appears to originate from normalized activity data."""
+    """Return whether an exercise still matches its persisted import provenance."""
     expected_time = (
         activity.started_at_local_time
         if activity.started_at_local_time is not None
@@ -885,6 +887,7 @@ def _is_garmin_derived_exercise(
     expected_duration = datetime.timedelta(seconds=activity.duration_seconds)
     return (
         exercise.type == Exercise.EXERCISE_CYCLE
+        and exercise.day_id == linked_day_id
         and exercise.time == expected_time
         and exercise.kcals == activity.kcals
         and exercise.duration == expected_duration
@@ -896,6 +899,7 @@ def _retire_garmin_derived_exercise(
     *,
     garmin_activity: GarminActivity,
     activity: NormalizedActivity,
+    linked_day_id: int | None,
     using: str,
 ) -> int | None:
     """Delete a derived Garmin exercise and return the previously linked day id."""
@@ -919,7 +923,9 @@ def _retire_garmin_derived_exercise(
         return None
 
     if exercise.day_id is None or not _is_garmin_derived_exercise(
-        exercise=exercise, activity=activity
+        exercise=exercise,
+        activity=activity,
+        linked_day_id=linked_day_id,
     ):
         return None
 
@@ -1253,6 +1259,14 @@ def _refresh_access_token_with_retry(
             ):
                 # Retry to avoid clobbering a concurrent state transition.
                 continue
+            if (
+                account_id_snapshot
+                and token_pair.provider_account_id
+                and token_pair.provider_account_id != account_id_snapshot
+            ):
+                raise ValueError(
+                    "Garmin provider account changed during refresh"
+                )
 
             # Preserve explicitly missing fields from the token response.
             merged_scope = token_pair.scope
@@ -1345,6 +1359,51 @@ def _ensure_access_token(
     return _refresh_access_token_with_retry(connection, using)
 
 
+def _claim_provider_account_id(
+    *,
+    connection_pk: int,
+    provider_account_id: str,
+    expected_generation: int,
+    expected_provider_account_id: str,
+    using: str,
+) -> tuple[int, str]:
+    """Atomically claim the first authoritative activity account identity."""
+    with transaction.atomic(using=using):
+        current = (
+            GarminConnection.objects.using(using)
+            .select_for_update(of=("self",))
+            .get(pk=connection_pk)
+        )
+        if not current.is_active:
+            raise ValueError("Garmin connection is not active")
+        if (
+            current.connection_generation != expected_generation
+            or current.provider_account_id != expected_provider_account_id
+        ):
+            if current.provider_account_id == provider_account_id:
+                return (
+                    current.connection_generation,
+                    current.provider_account_id,
+                )
+            raise ValueError("Garmin connection state changed during sync")
+        if current.provider_account_id:
+            if current.provider_account_id != provider_account_id:
+                raise ValueError("Garmin connection state changed during sync")
+            return current.connection_generation, current.provider_account_id
+
+        current.provider_account_id = provider_account_id
+        current.connection_generation += 1
+        current.save(
+            using=using,
+            update_fields=[
+                "provider_account_id",
+                "connection_generation",
+                "updated_at",
+            ],
+        )
+        return current.connection_generation, current.provider_account_id
+
+
 def _resolve_day_for_activity(
     connection: GarminConnection,
     started_at_local_date: datetime.date | None,
@@ -1366,11 +1425,33 @@ def _resolve_day_for_activity(
     return queryset.select_related("plan").first()
 
 
+def _normalized_from_persisted_activity(
+    activity: GarminActivity,
+) -> NormalizedActivity:
+    """Snapshot provider provenance before a correction mutates its row."""
+    return NormalizedActivity(
+        provider_activity_id=activity.provider_activity_id,
+        provider_activity_type=activity.provider_activity_type,
+        started_at=activity.started_at,
+        started_at_local_date=activity.provider_local_started_date,
+        started_at_local_time=activity.provider_local_started_time,
+        provider_timezone_offset_minutes=(
+            activity.provider_timezone_offset_minutes
+        ),
+        kcals=activity.kcals,
+        duration_seconds=activity.duration_seconds,
+        distance=activity.distance,
+        provider_account_id=activity.provider_account_id,
+    )
+
+
 def _ensure_exercise(
     garmin_activity: GarminActivity,
     *,
     day: Day,
     activity: NormalizedActivity,
+    previous_activity: NormalizedActivity,
+    previous_day_id: int | None,
     using: str,
 ) -> None:
     if garmin_activity.exercise_id is None:
@@ -1416,12 +1497,9 @@ def _ensure_exercise(
 
     if not _is_garmin_derived_exercise(
         exercise=exercise,
-        activity=activity,
+        activity=previous_activity,
+        linked_day_id=previous_day_id,
     ):
-        if exercise.day_id == day.pk:
-            return
-        exercise.day = day
-        exercise.save(using=using, update_fields=["day"])
         return
 
     updated: list[str] = []
@@ -1489,36 +1567,66 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
         expected_provider_account_id,
     ) = _ensure_access_token(connection)
 
-    for attempt in range(2):
-        try:
-            raw_activities = _iter_activity_payloads(
-                access_token,
-                max_pages=int(config["activity_max_pages"]),
-                page_limit=int(config["activities_limit"]),
-                timeout=float(config["request_timeout"]),
-                activities_url=str(config["activities_url"]),
-                response_max_bytes=int(config["activity_response_max_bytes"]),
-                activity_max_total_items=int(
-                    config["activity_max_total_items"]
-                ),
-                activity_total_response_max_bytes=int(
-                    config["activity_total_response_max_bytes"]
-                ),
-            )
-            break
-        except ValueError as exc:
-            if attempt == 0 and "Garmin activity fetch unauthorized" in str(
-                exc
-            ):
+    def _raw_activity_stream() -> Iterator[dict[str, object]]:
+        """Advance the lazy provider iterator with one forced-refresh retry."""
+        nonlocal access_token
+        nonlocal expected_generation
+        nonlocal expected_provider_account_id
+
+        yielded_before_retry: list[dict[str, object]] = []
+        retried = False
+        replay_index = 0
+
+        while True:
+            try:
+                raw_activities = iter(
+                    _iter_activity_payloads(
+                        access_token,
+                        max_pages=int(config["activity_max_pages"]),
+                        page_limit=int(config["activities_limit"]),
+                        timeout=float(config["request_timeout"]),
+                        activities_url=str(config["activities_url"]),
+                        response_max_bytes=int(
+                            config["activity_response_max_bytes"]
+                        ),
+                        activity_max_total_items=int(
+                            config["activity_max_total_items"]
+                        ),
+                        activity_total_response_max_bytes=int(
+                            config["activity_total_response_max_bytes"]
+                        ),
+                    )
+                )
+                while True:
+                    raw_activity = next(raw_activities)
+                    if retried and replay_index < len(yielded_before_retry):
+                        if raw_activity != yielded_before_retry[replay_index]:
+                            raise ValueError(
+                                "Garmin activity pagination changed during retry"
+                            )
+                        replay_index += 1
+                        continue
+                    if not retried:
+                        yielded_before_retry.append(raw_activity)
+                    yield raw_activity
+            except StopIteration:
+                if retried and replay_index < len(yielded_before_retry):
+                    raise ValueError(
+                        "Garmin activity pagination changed during retry"
+                    )
+                return
+            except ValueError as exc:
+                if retried or "Garmin activity fetch unauthorized" not in str(
+                    exc
+                ):
+                    raise
                 (
                     access_token,
                     expected_generation,
                     expected_provider_account_id,
                 ) = _ensure_access_token(connection, force_refresh=True)
-                continue
-            raise
-    else:
-        raise ValueError("Garmin activity fetch failed")
+                retried = True
+                replay_index = 0
 
     imported = 0
     duplicates = 0
@@ -1682,12 +1790,17 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                                 garmin_activity,
                                 day=resolved_day,
                                 activity=normalized,
+                                previous_activity=normalized,
+                                previous_day_id=resolved_day.pk,
                                 using=using,
                             )
                         continue
 
                     garmin_activity = existing
                     previous_day_id = garmin_activity.day_id
+                    previous_activity = _normalized_from_persisted_activity(
+                        garmin_activity
+                    )
                     previous_exercise_day_id = None
                     if garmin_activity.exercise_id is not None:
                         previous_exercise_day_id = (
@@ -1730,7 +1843,8 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                     if pending_reason:
                         retired_day_id = _retire_garmin_derived_exercise(
                             garmin_activity=garmin_activity,
-                            activity=normalized,
+                            activity=previous_activity,
+                            linked_day_id=previous_day_id,
                             using=using,
                         )
                         if retired_day_id is not None:
@@ -1774,6 +1888,8 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                         garmin_activity,
                         day=resolved_day,
                         activity=normalized,
+                        previous_activity=previous_activity,
+                        previous_day_id=previous_day_id,
                         using=using,
                     )
 
@@ -1801,10 +1917,31 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
     try:
         pending_batch: dict[tuple[str, str], NormalizedActivity] = {}
         batch_candidates = 0
-        for raw_activity in raw_activities:
+        for raw_activity in _raw_activity_stream():
             try:
                 normalized = _normalize_activity(raw_activity)
             except ValueError:
+                invalid += 1
+                continue
+
+            provider_account_id = normalized.provider_account_id
+            if not provider_account_id:
+                invalid += 1
+                continue
+            if not expected_provider_account_id:
+                (
+                    expected_generation,
+                    expected_provider_account_id,
+                ) = _claim_provider_account_id(
+                    connection_pk=connection_model_pk,
+                    provider_account_id=provider_account_id,
+                    expected_generation=expected_generation,
+                    expected_provider_account_id=expected_provider_account_id,
+                    using=using,
+                )
+                connection.connection_generation = expected_generation
+                connection.provider_account_id = expected_provider_account_id
+            elif provider_account_id != expected_provider_account_id:
                 invalid += 1
                 continue
 
@@ -1812,21 +1949,6 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                 unsupported += 1
                 continue
 
-            if (
-                connection.provider_account_id
-                and normalized.provider_account_id
-            ):
-                if (
-                    normalized.provider_account_id
-                    != connection.provider_account_id
-                ):
-                    invalid += 1
-                    continue
-
-            provider_account_id = (
-                normalized.provider_account_id
-                or connection.provider_account_id
-            )
             pending_batch[
                 (provider_account_id, normalized.provider_activity_id)
             ] = normalized
@@ -1994,6 +2116,7 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 else None
             )
             previous_day_id = activity.day_id
+            previous_activity = _normalized_from_persisted_activity(activity)
 
             lock_day_ids: set[int] = {
                 row_id
@@ -2024,24 +2147,8 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 if activity.exercise_id is not None:
                     retired_day_id = _retire_garmin_derived_exercise(
                         garmin_activity=activity,
-                        activity=NormalizedActivity(
-                            provider_activity_id=activity.provider_activity_id,
-                            provider_activity_type=activity.provider_activity_type,
-                            started_at=activity.started_at,
-                            started_at_local_date=(
-                                activity.provider_local_started_date
-                            ),
-                            started_at_local_time=(
-                                activity.provider_local_started_time
-                            ),
-                            provider_timezone_offset_minutes=(
-                                activity.provider_timezone_offset_minutes
-                            ),
-                            kcals=activity.kcals,
-                            duration_seconds=activity.duration_seconds,
-                            distance=activity.distance,
-                            provider_account_id=activity.provider_account_id,
-                        ),
+                        activity=previous_activity,
+                        linked_day_id=previous_day_id,
                         using=using,
                     )
                     if retired_day_id is not None:
@@ -2074,20 +2181,9 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 _ensure_exercise(
                     activity,
                     day=day,
-                    activity=NormalizedActivity(
-                        provider_activity_id=activity.provider_activity_id,
-                        provider_activity_type=activity.provider_activity_type,
-                        started_at=activity.started_at,
-                        started_at_local_date=activity.provider_local_started_date,
-                        started_at_local_time=activity.provider_local_started_time,
-                        provider_timezone_offset_minutes=(
-                            activity.provider_timezone_offset_minutes
-                        ),
-                        kcals=activity.kcals,
-                        duration_seconds=activity.duration_seconds,
-                        distance=activity.distance,
-                        provider_account_id=activity.provider_account_id,
-                    ),
+                    activity=previous_activity,
+                    previous_activity=previous_activity,
+                    previous_day_id=previous_day_id,
                     using=using,
                 )
                 if locked_rows is not None:
@@ -2115,8 +2211,8 @@ def sync_all_connections() -> dict[int, GarminSyncSummary]:
         Q(status=GarminConnection.Status.ACTIVE)
         & (
             # Empty strings are storage sentinels, not credentials.
-            Q(access_token_encrypted__gt="")
-            | Q(refresh_token_encrypted__gt="")  # nosec B106
+            Q(access_token_encrypted__gt=_EMPTY_CIPHERTEXT)
+            | Q(refresh_token_encrypted__gt=_EMPTY_CIPHERTEXT)
         )
     )
 

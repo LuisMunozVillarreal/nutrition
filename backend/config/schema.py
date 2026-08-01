@@ -166,11 +166,14 @@ class GarminMutation:
         expected_provider_account_id: str
 
         with transaction.atomic(using=using):
-            connection, _ = GarminConnection.objects.using(
+            connection, created_connection = GarminConnection.objects.using(
                 using
             ).get_or_create(
                 user=user,
-                defaults={"provider": GARMIN_PROVIDER},
+                defaults={
+                    "provider": GARMIN_PROVIDER,
+                    "status": GarminConnection.Status.DISCONNECTED,
+                },
             )
             connection = (
                 GarminConnection.objects.using(using)
@@ -192,6 +195,25 @@ class GarminMutation:
         try:
             token_pair = exchange_code_for_tokens(code)
         except Exception as exc:
+            if created_connection:
+                with transaction.atomic(using=using):
+                    placeholder = (
+                        GarminConnection.objects.using(using)
+                        .select_for_update()
+                        .filter(pk=connection_pk)
+                        .first()
+                    )
+                    if (
+                        placeholder is not None
+                        and placeholder.connection_generation
+                        == expected_generation
+                        and placeholder.status == expected_status
+                        and placeholder.provider_account_id
+                        == expected_provider_account_id
+                        and not placeholder.access_token_encrypted
+                        and not placeholder.refresh_token_encrypted
+                    ):
+                        placeholder.delete(using=using)
             raise ValueError(
                 "Garmin connection state changed during authorization"
             ) from exc

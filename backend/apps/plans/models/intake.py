@@ -293,55 +293,57 @@ class IntakeCascadeDeletionMixin:
         using = kwargs.get("using") or router.db_for_write(
             model, instance=instance
         )
-        manager = cast(Any, model).objects
-        targets = manager.using(using).filter(pk=instance.pk)
-        intake_targets = intake_targets_for_cascade(targets, using)
-        from apps.exercises.models import (
-            activate_exercise_deletion_locks,
-            exercise_targets_for_cascade,
-            lock_exercise_deletion_rows,
-        )
-
-        exercise_targets = exercise_targets_for_cascade(targets, using)
-        if not intake_targets.exists() and not exercise_targets.exists():
-            return models.Model.delete(instance, *args, **kwargs)
-
-        aggregate_day_ids: set[int] = set()
-        aggregate_day_ids.update(
-            intake_targets.order_by("day_id").values_list("day_id", flat=True)
-        )
-        aggregate_day_ids.update(
-            exercise_targets.order_by("day_id").values_list(
-                "day_id", flat=True
-            )
-        )
-        aggregate_locks = (
-            lock_plan_aggregate_rows(
-                using=using, day_ids=tuple(sorted(aggregate_day_ids))
-            )
-            if aggregate_day_ids
-            else None
-        )
-        intake_locks = (
-            lock_intake_deletion_rows(
-                intake_targets,
-                using,
-                aggregate_locks=aggregate_locks,
-            )
-            if intake_targets.exists()
-            else None
-        )
-        exercise_locks = (
-            lock_exercise_deletion_rows(
-                exercise_targets,
-                using,
-                aggregate_locks=aggregate_locks,
-            )
-            if exercise_targets.exists()
-            else None
-        )
-
         with transaction.atomic(using=using):
+            manager = cast(Any, model).objects
+            targets = manager.using(using).filter(pk=instance.pk)
+            intake_targets = intake_targets_for_cascade(targets, using)
+            from apps.exercises.models import (
+                activate_exercise_deletion_locks,
+                exercise_targets_for_cascade,
+                lock_exercise_deletion_rows,
+            )
+
+            exercise_targets = exercise_targets_for_cascade(targets, using)
+            if not intake_targets.exists() and not exercise_targets.exists():
+                return models.Model.delete(instance, *args, **kwargs)
+
+            aggregate_day_ids: set[int] = set()
+            aggregate_day_ids.update(
+                intake_targets.order_by("day_id").values_list(
+                    "day_id", flat=True
+                )
+            )
+            aggregate_day_ids.update(
+                exercise_targets.order_by("day_id").values_list(
+                    "day_id", flat=True
+                )
+            )
+            aggregate_locks = (
+                lock_plan_aggregate_rows(
+                    using=using, day_ids=tuple(sorted(aggregate_day_ids))
+                )
+                if aggregate_day_ids
+                else None
+            )
+            intake_locks = (
+                lock_intake_deletion_rows(
+                    intake_targets,
+                    using,
+                    aggregate_locks=aggregate_locks,
+                )
+                if intake_targets.exists()
+                else None
+            )
+            exercise_locks = (
+                lock_exercise_deletion_rows(
+                    exercise_targets,
+                    using,
+                    aggregate_locks=aggregate_locks,
+                )
+                if exercise_targets.exists()
+                else None
+            )
+
             try:
                 if intake_locks is not None and exercise_locks is not None:
                     with activate_intake_deletion_locks(intake_locks):

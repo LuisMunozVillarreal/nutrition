@@ -66,10 +66,23 @@ Remove the password from the file.
 ##### Garmin integration config
 
 Garmin is disabled by default (`GARMIN_ENABLED=false`). In that state the
-`nutrition-garmin-config` Secret may be absent and backend/scheduler rollout is
-not blocked. To enable Garmin, create the Secret before changing
-`garmin.enabled` and configure the provider endpoints/origin separately from
-the application callback URL/origin in the environment values file.
+`nutrition-garmin-config` Secret may be absent because every Garmin Secret
+reference is optional, and no Helm Garmin sync CronJob is rendered. Provider
+endpoints/origins and the application callback URL/origin are separate values.
+
+The supported Helm path runs synchronization from the backend chart with the
+same image, service account, and environment as the backend Deployment. The
+CronJob directly executes `python manage.py sync_garmin`, defaults to disabled
+and suspended, forbids concurrent runs, and has explicit deadline, retry, and
+history limits. Its schedule, time zone, concurrency policy, and limits are
+runtime values.
+
+Production activation must be explicit in the copied
+`production.values.yaml`: set `garmin.enabled: true`,
+`garmin.sync.enabled: true`, and `garmin.sync.suspend: false` only after the
+Secret and all provider/application values are configured. Staging and preview
+schedules remain disabled or suspended; do not enable them by copying
+production runtime values.
 
 The complete Secret-key inventory referenced by the workloads is:
 

@@ -96,6 +96,18 @@ releases:
           name: nutrition-django-secret-key
     - name: DEBUG
       value: '{{ .Values.debug }}'
+    garminSync:
+      enabled: {{ .Values.garmin.sync.enabled }}
+      suspend: {{ .Values.garmin.sync.suspend }}
+      schedule: '{{ .Values.garmin.sync.schedule }}'
+      timeZone: '{{ .Values.garmin.sync.timeZone }}'
+      concurrencyPolicy: '{{ .Values.garmin.sync.concurrencyPolicy }}'
+      startingDeadlineSeconds: {{ .Values.garmin.sync.startingDeadlineSeconds }}
+      successfulJobsHistoryLimit: {{ .Values.garmin.sync.successfulJobsHistoryLimit }}
+      failedJobsHistoryLimit: {{ .Values.garmin.sync.failedJobsHistoryLimit }}
+      activeDeadlineSeconds: {{ .Values.garmin.sync.activeDeadlineSeconds }}
+      backoffLimit: {{ .Values.garmin.sync.backoffLimit }}
+      ttlSecondsAfterFinished: {{ .Values.garmin.sync.ttlSecondsAfterFinished }}
     ingress:
       annotations:
         kubernetes.io/ingress.class: traefik

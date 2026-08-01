@@ -176,6 +176,9 @@ def test_complete_garmin_authorization_replays_state_once(monkeypatch):
     )
     assert complete.errors is None
     assert complete.data["completeGarminAuthorization"]["connected"] is True
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.status == GarminConnection.Status.ACTIVE
+    assert connection.can_sync is True
 
     replay = schema_module.schema.execute_sync(
         """
@@ -235,6 +238,7 @@ def test_complete_garmin_authorization_consumes_state_even_when_exchange_fails(
     assert "Garmin connection state changed during authorization" in str(
         first.errors[0].message
     )
+    assert not GarminConnection.objects.filter(user=user).exists()
 
     second = schema_module.schema.execute_sync(
         """
@@ -249,6 +253,75 @@ def test_complete_garmin_authorization_consumes_state_even_when_exchange_fails(
     )
     assert second.errors is not None
     assert call_count["tokens"] == 1
+
+
+@pytest.mark.parametrize(
+    "existing_status",
+    [GarminConnection.Status.ACTIVE, GarminConnection.Status.DISCONNECTED],
+)
+def test_failed_reconnect_preserves_existing_connection(
+    monkeypatch, existing_status
+):
+    """A failed exchange cannot delete or mutate an existing connection row."""
+    _configure_garmin(monkeypatch)
+    user = _create_user(f"garmin-reconnect-{existing_status}@example.com")
+    context = _request_context(user, bearer=True)
+    if existing_status == GarminConnection.Status.ACTIVE:
+        connection = _create_connection_with_tokens(user)
+    else:
+        connection = GarminConnection.objects.create(
+            user=user,
+            status=GarminConnection.Status.DISCONNECTED,
+        )
+    snapshot = (
+        connection.pk,
+        connection.status,
+        connection.connection_generation,
+        connection.access_token_encrypted,
+        connection.refresh_token_encrypted,
+    )
+
+    def _exchange_failure(_code: str) -> GarminTokenPair:
+        raise ValueError("exchange failed")
+
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        _exchange_failure,
+    )
+
+    begin_result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                beginGarminAuthorization { state }
+            }
+        """,
+        context_value=context,
+    )
+    assert begin_result.errors is None
+    state = begin_result.data["beginGarminAuthorization"]["state"]
+
+    complete = schema_module.schema.execute_sync(
+        """
+            mutation($code: String!, $state: String!) {
+                completeGarminAuthorization(code: $code, state: $state) {
+                    connected
+                }
+            }
+        """,
+        variable_values={"code": "auth-code", "state": state},
+        context_value=context,
+    )
+
+    assert complete.errors is not None
+    preserved = GarminConnection.objects.get(user=user)
+    assert (
+        preserved.pk,
+        preserved.status,
+        preserved.connection_generation,
+        preserved.access_token_encrypted,
+        preserved.refresh_token_encrypted,
+    ) == snapshot
 
 
 def test_complete_garmin_auth_rejects_connection_change(

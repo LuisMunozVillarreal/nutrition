@@ -194,6 +194,51 @@ class GarminSyncConcurrencyTests(TransactionTestCase):
             == 1
         )
 
+    def test_concurrent_blank_account_claims_cannot_mix_provider_ids(self):
+        """Competing first activity identities converge on one claimed account."""
+        connection = self._create_connection()
+        connection.provider_account_id = ""
+        connection.save(update_fields=["provider_account_id"])
+        role = threading.local()
+
+        def worker(account_id: str):
+            role.account_id = account_id
+            payload = self._create_payload_for_day(
+                self.day,
+                activity_id=f"activity-{account_id}",
+            )
+            payload[0]["userId"] = account_id
+            role.payload = payload
+            try:
+                return services.sync_connection(
+                    GarminConnection.objects.get(pk=connection.pk)
+                )
+            except ValueError:
+                return None
+
+        def thread_payload(*_, **__):
+            return role.payload
+
+        with patch.object(
+            services,
+            "_iter_activity_payloads",
+            thread_payload,
+        ):
+            outcomes = self._run_workers(
+                lambda: worker("account-a"),
+                lambda: worker("account-b"),
+            )
+
+        connection.refresh_from_db()
+        assert connection.provider_account_id in {"account-a", "account-b"}
+        activities = list(
+            GarminActivity.objects.filter(connection=connection).values_list(
+                "provider_account_id", flat=True
+            )
+        )
+        assert activities == [connection.provider_account_id]
+        assert sum(outcome is not None for outcome in outcomes) == 1
+
     def test_sync_connection_rejects_state_change_between_batches(self):
         """Abort sync when the connection changes mid-batch."""
         connection = self._create_connection()

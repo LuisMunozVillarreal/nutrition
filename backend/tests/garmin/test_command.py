@@ -24,6 +24,14 @@ def _create_user(email: str):
     )
 
 
+def _usable_connection(user):
+    """Create an active row that passes the command's credential defense."""
+    return GarminConnection.objects.create(
+        user=user,
+        access_token_encrypted="test-ciphertext",
+    )
+
+
 def test_sync_command_returns_summary_for_selected_user(monkeypatch):
     """Command should support user-id filtering.
 
@@ -32,8 +40,8 @@ def test_sync_command_returns_summary_for_selected_user(monkeypatch):
     _user_one = _create_user("command-one@example.com")
     _user_two = _create_user("command-two@example.com")
 
-    GarminConnection.objects.create(user=_user_one)
-    GarminConnection.objects.create(user=_user_two)
+    _usable_connection(_user_one)
+    _usable_connection(_user_two)
 
     def _fake_sync(connection):
         if connection.user_id == _user_one.id:
@@ -73,8 +81,8 @@ def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
     user_one = _create_user("command-fail-one@example.com")
     user_two = _create_user("command-fail-two@example.com")
 
-    GarminConnection.objects.create(user=user_one)
-    GarminConnection.objects.create(user=user_two)
+    _usable_connection(user_one)
+    _usable_connection(user_two)
 
     def _fake_sync(connection):
         raise ValueError("boom")
@@ -97,7 +105,7 @@ def test_sync_command_returns_errors_for_failing_connections(monkeypatch):
 def test_sync_command_reconciles_pending_rows_after_sync(monkeypatch):
     """Each synced connection should run pending reconciliation."""
     user = _create_user("command-reconcile@example.com")
-    connection = GarminConnection.objects.create(user=user)
+    connection = _usable_connection(user)
     captured = {}
 
     def _fake_sync(_connection):
@@ -139,7 +147,7 @@ def test_sync_command_reconciles_pending_rows_after_sync(monkeypatch):
 def test_sync_command_redacts_reconcile_errors(monkeypatch):
     """Reconcile failures are redacted to stable error codes."""
     user = _create_user("command-reconcile-failed@example.com")
-    GarminConnection.objects.create(user=user)
+    _usable_connection(user)
 
     def _fake_sync(_connection):
         return type(
@@ -179,7 +187,7 @@ def test_sync_command_redacts_reconcile_errors(monkeypatch):
 def test_sync_command_continues_to_reconcile_when_sync_fails(monkeypatch):
     """Reconciliation should run when sync fails for a connection."""
     user = _create_user("command-sync-failed-reconcile@example.com")
-    connection = GarminConnection.objects.create(user=user)
+    connection = _usable_connection(user)
     captured = {}
 
     def _fake_sync(_connection):
@@ -229,8 +237,8 @@ def test_sync_command_raises_on_mixed_success_and_failure(monkeypatch):
     """Failure in one path must make the command exit non-zero."""
     user_a = _create_user("command-mixed-success-a@example.com")
     user_b = _create_user("command-mixed-success-b@example.com")
-    GarminConnection.objects.create(user=user_a)
-    GarminConnection.objects.create(user=user_b)
+    _usable_connection(user_a)
+    _usable_connection(user_b)
     reconcile_calls: list[int] = []
 
     def _fake_sync(connection):
@@ -277,8 +285,8 @@ def test_sync_command_raises_when_all_connections_fail(monkeypatch):
     """Two failing connections should still report both and raise."""
     user_a = _create_user("command-all-fail-a@example.com")
     user_b = _create_user("command-all-fail-b@example.com")
-    GarminConnection.objects.create(user=user_a)
-    GarminConnection.objects.create(user=user_b)
+    _usable_connection(user_a)
+    _usable_connection(user_b)
 
     def _fake_sync(_connection):
         raise ValueError("boom")
@@ -309,7 +317,7 @@ def test_sync_command_ignores_inactive_connections(monkeypatch):
     """Inactive connections must be skipped from command batches."""
     user_active = _create_user("command-active@example.com")
     user_inactive = _create_user("command-inactive@example.com")
-    active_connection = GarminConnection.objects.create(user=user_active)
+    active_connection = _usable_connection(user_active)
     GarminConnection.objects.create(
         user=user_inactive,
         status=GarminConnection.Status.DISCONNECTED,
@@ -341,3 +349,25 @@ def test_sync_command_ignores_inactive_connections(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["connection_id"] == active_connection.pk
     assert calls == [active_connection.pk]
+
+
+def test_sync_command_ignores_active_rows_without_usable_credentials(
+    monkeypatch,
+):
+    """A defensive query filter skips active credentialless placeholders."""
+    user = _create_user("command-credentialless@example.com")
+    GarminConnection.objects.create(
+        user=user,
+        status=GarminConnection.Status.ACTIVE,
+    )
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        lambda connection: calls.append(connection.pk),
+    )
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=None)
+
+    assert json.loads(output.getvalue()) == []
+    assert calls == []

@@ -105,7 +105,9 @@ test('CI transports isolated E2E credentials only through backend stdin and alwa
   )
   assertContains(config, /trap cleanup EXIT/, 'E2E cleanup is not registered as an EXIT trap')
   assertContains(config, /python3 -m scripts\.manage_e2e_users seed/, 'E2E accounts are not seeded through the lifecycle script')
-  assertContains(config, /python3 -m scripts\.manage_e2e_users cleanup/, 'E2E accounts are not cleaned through the lifecycle script')
+  assertContains(config, /python3 -m scripts\.manage_e2e_users reset-garmin/, 'Garmin fixture is not reset before Cypress')
+  assertContains(config, /cleanup_backend cleanup-garmin/, 'Garmin fixture is not explicitly cleaned')
+  assertContains(config, /cleanup_backend cleanup/, 'E2E accounts are not cleaned through the lifecycle script')
   assertContains(config, /python3 -m scripts\.seed_test_day/, 'test-day setup does not consume the lifecycle transport')
   assertContains(config, /unset E2E_LIFECYCLE_PAYLOAD/, 'lifecycle payload is not cleared during cleanup')
   assert.ok(
@@ -115,6 +117,11 @@ test('CI transports isolated E2E credentials only through backend stdin and alwa
   assert.ok(
     config.indexOf('trap cleanup EXIT') < config.indexOf('npm run cypress:run'),
     'cleanup is registered after Cypress starts',
+  )
+  assert.ok(
+    config.indexOf('python3 -m scripts.manage_e2e_users reset-garmin') <
+      config.indexOf('npm run cypress:run'),
+    'Garmin fixture reset starts after Cypress',
   )
   assert.ok(
     !/create_user\([^\n]+password\s*=\s*['"][^$]/i.test(config),
@@ -138,6 +145,10 @@ test('embedded E2E lifecycle keeps sentinels off argv and output across failures
   const environmentLog = join(temporaryRoot, 'environment.log')
   const kubectlCount = join(temporaryRoot, 'kubectl-count')
   const opensslCount = join(temporaryRoot, 'openssl-count')
+  const eventLog = join(temporaryRoot, 'events.log')
+  const actionCountDir = join(temporaryRoot, 'action-counts')
+  const fixtureState = join(temporaryRoot, 'garmin-state')
+  await mkdir(actionCountDir)
   const recordArgv = `
 for argument in "$@"; do
   printf '%s\\n' "$argument" >>"$ARGV_LOG"
@@ -191,15 +202,36 @@ count=$((count + 1))
 printf '%s\\n' "$count" >"$KUBECTL_COUNT"
 IFS= read -r payload
 printf '%s\\n' "$payload" >"$OBSERVATION_DIR/stdin-$count.json"
+action=other
 case " $* " in
-  *' scripts.manage_e2e_users seed '*)
+  *' scripts.manage_e2e_users seed '*) action=seed ;;
+  *' scripts.seed_test_day '*) action=seed-day ;;
+  *' scripts.manage_e2e_users reset-garmin '*) action=reset-garmin ;;
+  *' scripts.manage_e2e_users cleanup-garmin '*) action=cleanup-garmin ;;
+  *' scripts.manage_e2e_users cleanup '*) action=cleanup ;;
+esac
+printf 'backend:%s\\n' "$action" >>"$EVENT_LOG"
+action_count_file="$ACTION_COUNT_DIR/$action"
+action_count=0
+if [ -r "$action_count_file" ]; then IFS= read -r action_count <"$action_count_file"; fi
+action_count=$((action_count + 1))
+printf '%s\\n' "$action_count" >"$action_count_file"
+case "$action" in
+  seed)
+    printf '%s\\n' disconnected >"$FIXTURE_STATE"
     [ "$TEST_SCENARIO" != 'seed-fail' ] || exit 23
     ;;
-  *' scripts.manage_e2e_users cleanup '*)
+  reset-garmin) printf '%s\\n' connected >"$FIXTURE_STATE" ;;
+  cleanup-garmin)
+    printf '%s\\n' absent >"$FIXTURE_STATE"
     case "$TEST_SCENARIO" in
-      cleanup-retry) [ "$count" -ge 4 ] || exit 29 ;;
+      cleanup-retry) [ "$action_count" -gt 1 ] || exit 29 ;;
       *cleanup-fail) exit 29 ;;
     esac
+    ;;
+  cleanup)
+    printf '%s\\n' absent >"$FIXTURE_STATE"
+    case "$TEST_SCENARIO" in *cleanup-fail) exit 29 ;; esac
     ;;
 esac
 `,
@@ -210,11 +242,14 @@ esac
 set -eu
 ${recordArgv}
 ${recordEnvironment}
+printf '%s\\n' npm:cypress >>"$EVENT_LOG"
+[ "$(<"$FIXTURE_STATE")" = connected ] || exit 96
 [ "$CYPRESS_E2E_REGULAR_EMAIL" = 'e2e-regular-run-sentinel@example.com' ] || exit 91
 [ "$CYPRESS_E2E_REGULAR_PASSWORD" = 'regular-sentinel' ] || exit 92
 [ "$CYPRESS_E2E_STAFF_EMAIL" = 'e2e-staff-run-sentinel@example.com' ] || exit 93
 [ "$CYPRESS_E2E_STAFF_PASSWORD" = 'staff-sentinel' ] || exit 94
 [ "$CYPRESS_E2E_RUN_MARKER" = '__e2e_run_run-sentinel__' ] || exit 95
+printf '%s\\n' disconnected >"$FIXTURE_STATE"
 [ "$TEST_SCENARIO" != 'cypress-cleanup-fail' ] || exit 31
 `,
   )
@@ -263,46 +298,93 @@ while IFS= read -r _line; do :; done || true
     'CYPRESS_E2E_STAFF_PASSWORD',
   ]
   const scenarios = [
-    ['success', 0, 3],
-    ['seed-fail', 23, 2],
-    ['cleanup-retry', 0, 4],
-    ['cypress-cleanup-fail', 31, 4],
-    ['cleanup-fail', 29, 4],
+    ['success', 0, 5, 1],
+    ['seed-fail', 23, 3, 1],
+    ['cleanup-retry', 0, 6, 1],
+    ['cypress-cleanup-fail', 31, 7, 1],
+    ['cleanup-fail', 29, 7, 1],
+    ['repeat-success', 0, 10, 2],
+  ]
+  const successfulEvents = [
+    'backend:seed',
+    'backend:seed-day',
+    'backend:reset-garmin',
+    'npm:cypress',
+    'backend:cleanup-garmin',
+    'backend:cleanup',
   ]
 
   try {
-    for (const [scenario, expectedStatus, expectedBackendCalls] of scenarios) {
+    for (const [scenario, expectedStatus, expectedBackendCalls, runs] of scenarios) {
       const observationDir = join(temporaryRoot, scenario)
       await mkdir(observationDir)
       await writeFile(argvLog, '')
       await writeFile(environmentLog, '')
+      await writeFile(eventLog, '')
       await rm(kubectlCount, { force: true })
-      await rm(opensslCount, { force: true })
+      await rm(actionCountDir, { recursive: true, force: true })
+      await mkdir(actionCountDir)
+      await rm(fixtureState, { force: true })
 
-      const result = await runShell(lifecycleStep.run.command, {
-        cwd: new URL('../', import.meta.url),
-        env: {
-          ...process.env,
-          PATH: `${fakeBin}:${process.env.PATH}`,
-          ARGV_LOG: argvLog,
-          ENVIRONMENT_LOG: environmentLog,
-          KUBECTL_COUNT: kubectlCount,
-          OPENSSL_COUNT: opensslCount,
-          OBSERVATION_DIR: observationDir,
-          TEST_SCENARIO: scenario,
-          CIRCLE_BRANCH: 'security-test-branch',
-          BASE_DOMAIN: 'example.com',
-        },
-      })
+      const results = []
+      for (let run = 0; run < runs; run += 1) {
+        await rm(opensslCount, { force: true })
+        results.push(
+          await runShell(lifecycleStep.run.command, {
+            cwd: new URL('../', import.meta.url),
+            env: {
+              ...process.env,
+              PATH: `${fakeBin}:${process.env.PATH}`,
+              ARGV_LOG: argvLog,
+              ENVIRONMENT_LOG: environmentLog,
+              KUBECTL_COUNT: kubectlCount,
+              OPENSSL_COUNT: opensslCount,
+              EVENT_LOG: eventLog,
+              ACTION_COUNT_DIR: actionCountDir,
+              FIXTURE_STATE: fixtureState,
+              OBSERVATION_DIR: observationDir,
+              TEST_SCENARIO: scenario,
+              CIRCLE_BRANCH: 'security-test-branch',
+              BASE_DOMAIN: 'example.com',
+            },
+          }),
+        )
+      }
 
-      assert.equal(result.signal, null)
-      assert.equal(result.code, expectedStatus, `${scenario} returned the wrong status`)
+      for (const result of results) {
+        assert.equal(result.signal, null)
+        assert.equal(result.code, expectedStatus, `${scenario} returned the wrong status`)
+      }
       const observedArgv = await readFile(argvLog, 'utf8')
       for (const sentinel of sentinels) {
         assert.doesNotMatch(observedArgv, new RegExp(sentinel), `${scenario} leaked through argv`)
-        assert.doesNotMatch(result.stdout, new RegExp(sentinel), `${scenario} leaked through stdout`)
-        assert.doesNotMatch(result.stderr, new RegExp(sentinel), `${scenario} leaked through stderr`)
+        for (const result of results) {
+          assert.doesNotMatch(result.stdout, new RegExp(sentinel), `${scenario} leaked through stdout`)
+          assert.doesNotMatch(result.stderr, new RegExp(sentinel), `${scenario} leaked through stderr`)
+        }
       }
+
+      assert.equal(Number(await readFile(kubectlCount, 'utf8')), expectedBackendCalls)
+      const events = (await readFile(eventLog, 'utf8')).trim().split('\n')
+      const expectedEvents = (() => {
+        if (scenario === 'seed-fail') {
+          return ['backend:seed', 'backend:cleanup-garmin', 'backend:cleanup']
+        }
+        if (scenario === 'cleanup-retry') {
+          return [...successfulEvents.slice(0, -1), 'backend:cleanup-garmin', 'backend:cleanup']
+        }
+        if (scenario.endsWith('cleanup-fail')) {
+          return [
+            ...successfulEvents.slice(0, -2),
+            'backend:cleanup-garmin',
+            'backend:cleanup-garmin',
+            'backend:cleanup',
+            'backend:cleanup',
+          ]
+        }
+        return Array.from({ length: runs }, () => successfulEvents).flat()
+      })()
+      assert.deepEqual(events, expectedEvents, `${scenario} ran lifecycle actions out of order`)
 
       const environmentPresence = (await readFile(environmentLog, 'utf8'))
         .trim()
@@ -330,7 +412,7 @@ while IFS= read -r _line; do :; done || true
           )
         }
       }
-      if (scenario.startsWith('cypress') || scenario === 'success' || scenario === 'cleanup-retry' || scenario === 'cleanup-fail') {
+      if (expectedEvents.includes('npm:cypress')) {
         for (const key of [...rawLifecycleKeys, ...cypressAliasKeys]) {
           assert.ok(
             environmentPresence.some(
@@ -378,7 +460,8 @@ test('E2E account management keeps the default identity least-privileged', async
 
   assert.match(manager, /create_e2e_user\([\s\S]*?payload\.regular_password[\s\S]*?is_staff=False/)
   assert.match(manager, /create_e2e_user\([\s\S]*?payload\.staff_password[\s\S]*?is_staff=True/)
-  assert.match(manager, /GarminConnection\.objects\.create\([\s\S]*?user=regular_user[\s\S]*?refresh_token_encrypted=/)
+  assert.match(manager, /def reset_garmin_connection\([\s\S]*?GarminConnection\.objects\.create\([\s\S]*?user=user[\s\S]*?refresh_token_encrypted=/)
+  assert.match(manager, /def cleanup_garmin_connection\([\s\S]*?_remove_garmin_fixture\(user\)/)
   assert.match(manager, /read_lifecycle_payload\(sys\.stdin\)/)
   assert.match(manager, /email__in=\[payload\.regular_email, payload\.staff_email\]/)
   assert.match(seedDay, /read_lifecycle_payload\(sys\.stdin\)/)

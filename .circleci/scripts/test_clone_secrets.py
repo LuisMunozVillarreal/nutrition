@@ -6,44 +6,130 @@ from pathlib import Path
 import pytest
 import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import SECRETS, main
+from clone_preview_secrets import (
+    OPTIONAL_SECRETS,
+    REQUIRED_SECRETS,
+    clone_secrets,
+    main,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _secret_names(value):
-    """Recursively collect Secret objects referenced by manifest data."""
-    names = set()
+def _secret_references(value):
+    """Recursively collect Secret references and their optionality."""
+    references = []
     if isinstance(value, dict):
         reference = value.get("secretKeyRef")
         if isinstance(reference, dict) and reference.get("name"):
-            names.add(reference["name"])
+            references.append(
+                (reference["name"], bool(reference.get("optional", False)))
+            )
         secret = value.get("secret")
         if isinstance(secret, dict) and secret.get("secretName"):
-            names.add(secret["secretName"])
+            references.append(
+                (secret["secretName"], bool(secret.get("optional", False)))
+            )
         for nested in value.values():
-            names.update(_secret_names(nested))
+            references.extend(_secret_references(nested))
     elif isinstance(value, list):
         for nested in value:
-            names.update(_secret_names(nested))
-    return names
+            references.extend(_secret_references(nested))
+    return references
 
 
-def test_preview_clones_every_base_workload_secret():
-    """Preview Secret inventory must derive from every base workload ref."""
-    required = set()
+def test_preview_secret_inventory_matches_rendered_workload_optionality():
+    """Preview inventory exactly matches base workload Secret semantics."""
+    references = {}
     for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob("*.yaml"):
         for document in yaml.safe_load_all(manifest_path.read_text()):
-            required.update(_secret_names(document))
+            for name, optional in _secret_references(document):
+                references.setdefault(name, []).append(optional)
 
-    assert required <= set(SECRETS)
-    assert "nutrition-garmin-config" in required
+    rendered_required = {
+        name for name, optionality in references.items() if not all(optionality)
+    }
+    rendered_optional = {
+        name for name, optionality in references.items() if all(optionality)
+    }
+
+    assert set(REQUIRED_SECRETS) == rendered_required
+    assert set(OPTIONAL_SECRETS) == rendered_optional
+    assert rendered_optional == {"nutrition-garmin-config"}
 
 
 @pytest.fixture
 def mock_run(mocker):
     """Fixture to mock subprocess.run."""
     return mocker.patch("clone_preview_secrets.subprocess.run")
+
+
+def _secret_result(mocker, *, name="example-secret"):
+    result = mocker.MagicMock(returncode=0)
+    result.stdout = json.dumps(
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": name, "namespace": "nutrition-staging"},
+            "data": {"key": "value"},
+        }
+    ).encode("utf-8")
+    return result
+
+
+def test_optional_secret_absence_is_skipped_cleanly(mock_run, mocker):
+    """An absent optional Garmin Secret does not block preview rollout."""
+    present = _secret_result(mocker)
+    absent = mocker.MagicMock(returncode=0, stdout=b"")
+    applied = mocker.MagicMock(returncode=0)
+    mock_run.side_effect = [present, applied] * len(REQUIRED_SECRETS) + [
+        absent
+    ]
+
+    clone_secrets("preview-example")
+
+    assert mock_run.call_count == len(REQUIRED_SECRETS) * 2 + 1
+
+
+def test_optional_secret_present_is_cloned(mock_run, mocker):
+    """A present optional Garmin Secret is applied to the preview namespace."""
+    present = _secret_result(mocker)
+    applied = mocker.MagicMock(returncode=0)
+    mock_run.side_effect = [present, applied] * (
+        len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
+    )
+
+    clone_secrets("preview-example")
+
+    assert mock_run.call_count == 2 * (
+        len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
+    )
+
+
+@pytest.mark.parametrize("returncode", [1, 126])
+def test_optional_secret_lookup_errors_fail(mock_run, mocker, returncode):
+    """Forbidden and other lookup errors are never treated as absence."""
+    present = _secret_result(mocker)
+    failed = mocker.MagicMock(returncode=returncode, stdout=b"")
+    applied = mocker.MagicMock(returncode=0)
+    mock_run.side_effect = [present, applied] * len(REQUIRED_SECRETS) + [
+        failed
+    ]
+
+    with pytest.raises(SystemExit) as raised:
+        clone_secrets("preview-example")
+
+    assert raised.value.code == 1
+
+
+def test_required_secret_absence_fails(mock_run, mocker):
+    """An absent required Secret remains a hard preview failure."""
+    mock_run.return_value = mocker.MagicMock(returncode=0, stdout=b"")
+
+    with pytest.raises(SystemExit) as raised:
+        clone_secrets("preview-example")
+
+    assert raised.value.code == 1
 
 
 def test_main_skip_main_branch(mock_run):
@@ -93,7 +179,7 @@ def test_main_success(mock_run, mocker):
     mock_run.side_effect = [mock_get_ns] + [
         mock_get_secret,
         mock_apply,
-    ] * len(SECRETS)
+    ] * (len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS))
 
     # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
@@ -112,7 +198,8 @@ def test_main_success(mock_run, mocker):
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
 
     # And it should call kubectl get namespace once, plus get+apply per secret.
-    assert mock_run.call_count == 1 + (len(SECRETS) * 2)
+    secret_count = len(REQUIRED_SECRETS) + len(OPTIONAL_SECRETS)
+    assert mock_run.call_count == 1 + (secret_count * 2)
 
     # And it should remove unwanted metadata fields
     last_apply_call = mock_run.call_args_list[-1]
