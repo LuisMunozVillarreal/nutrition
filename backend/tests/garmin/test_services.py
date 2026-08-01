@@ -273,6 +273,44 @@ def test_coerce_started_at_accepts_matching_canonical_and_local_instants(
     assert stored_offset == (-240 if expected_local_time.hour == 8 else -300)
 
 
+def test_coerce_started_at_accepts_historical_millisecond_epoch():
+    """Pre-2001 millisecond epochs are resolved from their matching local instant."""
+    started_at, local_date, local_time, stored_offset = (
+        services._coerce_started_at(
+            946_684_800_000,
+            local_value="2000-01-01T01:00:00+01:00",
+            local_offset_minutes=60,
+        )
+    )
+
+    assert started_at == datetime(
+        2000, 1, 1, tzinfo=services.datetime.timezone.utc
+    )
+    assert local_date == date(2000, 1, 1)
+    assert local_time == time(1, 0)
+    assert stored_offset == 60
+
+
+def test_coerce_started_at_rejects_ambiguous_numeric_epoch():
+    """A numeric value matching both seconds and milliseconds is ambiguous."""
+    with pytest.raises(ValueError, match="start time is inconsistent"):
+        services._coerce_started_at(
+            0,
+            local_value="1970-01-01T00:00:00+00:00",
+            local_offset_minutes=0,
+        )
+
+
+def test_coerce_started_at_rejects_numeric_epoch_without_matching_local_instant():
+    """Neither numeric unit interpretation may contradict the local timestamp."""
+    with pytest.raises(ValueError, match="start time is inconsistent"):
+        services._coerce_started_at(
+            946_684_800_000,
+            local_value="2000-01-01T00:00:01+00:00",
+            local_offset_minutes=0,
+        )
+
+
 @pytest.mark.parametrize(
     ("canonical", "local", "offset_minutes"),
     [
@@ -747,6 +785,74 @@ def test_iter_activity_payloads_extracts_nested_data_payloads(
 
     assert len(payloads) == 1
     assert payloads[0]["activityId"] == "nested-1"
+
+
+def test_sync_all_connections_counts_every_malformed_list_item_and_continues(
+    monkeypatch,
+):
+    """Malformed list entries count individually without starving later work."""
+    _configure_garmin(monkeypatch)
+    first_user, first_day = _create_user_with_day(
+        "sync-list-items-first@example.com"
+    )
+    second_user, second_day = _create_user_with_day(
+        "sync-list-items-second@example.com"
+    )
+    first = _connection_with_token(
+        first_user,
+        access_token="first-list-items-token",
+    )
+    second = _connection_with_token(
+        second_user,
+        access_token="second-list-items-token",
+    )
+    first_valid = _activity_payload(
+        activity_id="valid-after-malformed-items",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(first_day.day, time(8, 0))
+        ).isoformat(),
+    )
+    second_valid = _activity_payload(
+        activity_id="valid-on-later-connection",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(second_day.day, time(9, 0))
+        ).isoformat(),
+    )
+
+    def _request(*_, headers, **__):
+        if headers["Authorization"] == "Bearer first-list-items-token":
+            return {
+                "activities": [
+                    {},
+                    "malformed string",
+                    None,
+                    [{"nested": "malformed row"}],
+                    first_valid,
+                ]
+            }, 10
+        if headers["Authorization"] == "Bearer second-list-items-token":
+            return {"activities": [second_valid]}, 10
+        raise AssertionError("unexpected authorization header")
+
+    monkeypatch.setattr(services, "_request_json_with_size", _request)
+
+    results = services.sync_all_connections()
+
+    assert results[first.pk] == GarminSyncSummary(1, 0, 0, 4)
+    assert results[second.pk] == GarminSyncSummary(1, 0, 0, 0)
+    assert GarminActivity.objects.filter(connection=first).count() == 1
+    assert GarminActivity.objects.filter(connection=second).count() == 1
+
+
+def test_extract_activity_items_rejects_invalid_pagination_envelope_shape():
+    """Malformed envelopes keep the stable provider payload error."""
+    with pytest.raises(
+        ValueError,
+        match="^Garmin activities payload is invalid$",
+    ):
+        services._extract_activity_items({"activities": {"row": "invalid"}})
 
 
 def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
@@ -2407,6 +2513,84 @@ def test_request_json_exact_boundary_payload_is_accepted(monkeypatch):
     )
 
     assert result == {"ok": True}
+    assert fake_response.closed is True
+
+
+@pytest.mark.parametrize(
+    "requester_name",
+    ["_request_json", "_request_json_with_size"],
+)
+def test_request_json_normalizes_unsupported_charset_without_body_leakage(
+    monkeypatch,
+    requester_name: str,
+):
+    """Unknown provider charsets use the stable redacted JSON error."""
+    private_body = b'{"private":"must-not-leak"}'
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[private_body],
+        encoding="private-unsupported-charset",
+    )
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    requester = getattr(services, requester_name)
+    with pytest.raises(ValueError) as error:
+        requester(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=len(private_body),
+        )
+
+    assert str(error.value) == "Garmin activity fetch returned invalid JSON"
+    assert "must-not-leak" not in str(error.value)
+    assert "private-unsupported-charset" not in str(error.value)
+    assert fake_response.closed is True
+
+
+@pytest.mark.parametrize(
+    "requester_name",
+    ["_request_json", "_request_json_with_size"],
+)
+def test_request_json_normalizes_deep_recursion_without_body_leakage(
+    monkeypatch,
+    requester_name: str,
+):
+    """Overly nested provider JSON uses the stable redacted JSON error."""
+    private_marker = b'"must-not-leak"'
+    private_body = b"[" * 2_000 + private_marker + b"]" * 2_000
+    fake_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[private_body],
+    )
+    monkeypatch.setattr(
+        services.requests,
+        "request",
+        lambda *_, **__: fake_response,
+    )
+
+    def _raise_recursion(_payload: str):
+        raise RecursionError("must-not-leak")
+
+    monkeypatch.setattr(services.json, "loads", _raise_recursion)
+
+    requester = getattr(services, requester_name)
+    with pytest.raises(ValueError) as error:
+        requester(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=len(private_body),
+        )
+
+    assert str(error.value) == "Garmin activity fetch returned invalid JSON"
+    assert "must-not-leak" not in str(error.value)
     assert fake_response.closed is True
 
 

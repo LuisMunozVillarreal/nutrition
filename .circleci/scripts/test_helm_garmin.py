@@ -35,13 +35,19 @@ def _local_chart(tmp_path: Path) -> Path:
     return chart
 
 
-def _render_result(chart: Path, values: dict | None = None):
+def _render_result(
+    chart: Path,
+    values: dict | None = None,
+    set_strings: tuple[tuple[str, str], ...] = (),
+) -> subprocess.CompletedProcess[str]:
     """Render a chart and return the Helm process result."""
     command = ["helm", "template", "contract", str(chart)]
     if values is not None:
         values_path = chart.parent / "contract-values.yaml"
         values_path.write_text(yaml.safe_dump(values))
         command.extend(["--values", str(values_path)])
+    for name, value in set_strings:
+        command.extend(["--set-string", f"{name}={value}"])
     return subprocess.run(  # nosec: B603, B607
         command,
         capture_output=True,
@@ -102,11 +108,15 @@ def _active_values() -> dict:
     )
     complete_values = {
         "GARMIN_ENABLED": "true",
-        "GARMIN_AUTHORIZATION_URL": "https://authorize.runtime.internal/oauth/authorize",
+        "GARMIN_AUTHORIZATION_URL": (
+            "https://authorize.runtime.internal/oauth/authorize"
+        ),
         "GARMIN_TOKEN_URL": "https://token.runtime.internal/oauth/token",
         "GARMIN_ACTIVITIES_URL": "https://activities.runtime.internal/activities",
         "GARMIN_REVOKE_TOKEN_URL": "https://revoke.runtime.internal/oauth/revoke",
-        "GARMIN_CALLBACK_URL": "https://application.runtime.internal/settings/garmin-callback",
+        "GARMIN_CALLBACK_URL": (
+            "https://application.runtime.internal/settings/garmin-callback"
+        ),
         "GARMIN_PROVIDER_ORIGINS": "https://provider.runtime.internal",
         "GARMIN_CALLBACK_ALLOWED_ORIGINS": "https://application.runtime.internal",
     }
@@ -121,18 +131,22 @@ def _active_values() -> dict:
     }
 
 
-def test_helm_default_does_not_render_garmin_scheduler(tmp_path):
+def test_helm_default_does_not_render_garmin_scheduler(tmp_path: Path) -> None:
     """The supported Helm scheduler is disabled unless runtime values opt in."""
     documents = _render(_local_chart(tmp_path))
 
     assert not any(
         document.get("kind") == "CronJob"
-        and document.get("metadata", {}).get("name", "").endswith("garmin-sync")
+        and document.get("metadata", {})
+        .get("name", "")
+        .endswith("garmin-sync")
         for document in documents
     )
 
 
-def test_helm_enabled_scheduler_matches_backend_runtime_contract(tmp_path):
+def test_helm_enabled_scheduler_matches_backend_runtime_contract(
+    tmp_path: Path,
+) -> None:
     """Enabled rendering has exact Garmin env parity and safe job controls."""
     values = _active_values()
     values["garminSync"].update(
@@ -150,7 +164,9 @@ def test_helm_enabled_scheduler_matches_backend_runtime_contract(tmp_path):
     )
 
     documents = _render(_local_chart(tmp_path), values)
-    deployment = next(document for document in documents if document["kind"] == "Deployment")
+    deployment = next(
+        document for document in documents if document["kind"] == "Deployment"
+    )
     scheduler = next(
         document
         for document in documents
@@ -175,15 +191,41 @@ def test_helm_enabled_scheduler_matches_backend_runtime_contract(tmp_path):
     assert job["backoffLimit"] == 2
     assert job["ttlSecondsAfterFinished"] == 987
     assert job["template"]["spec"]["restartPolicy"] == "Never"
-    assert job["template"]["spec"]["serviceAccountName"] == deployment["spec"][
-        "template"
-    ]["spec"]["serviceAccountName"]
+    assert (
+        job["template"]["spec"]["serviceAccountName"]
+        == deployment["spec"]["template"]["spec"]["serviceAccountName"]
+    )
     assert _container(scheduler)["image"] == _container(deployment)["image"]
     assert _container(scheduler)["command"] == [
         "python",
         "manage.py",
         "sync_garmin",
     ]
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("garminSync.enabled", "true"),
+        ("garminSync.enabled", "false"),
+        ("garminSync.suspend", "true"),
+        ("garminSync.suspend", "false"),
+    ],
+)
+def test_helm_rejects_string_scheduler_booleans(
+    tmp_path: Path,
+    setting: str,
+    value: str,
+) -> None:
+    """Scheduler flags must remain booleans even when strings look boolean."""
+    result = _render_result(
+        _local_chart(tmp_path),
+        _active_values(),
+        ((setting, value),),
+    )
+
+    assert result.returncode != 0
+    assert f"{setting} must be a boolean" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -208,8 +250,10 @@ def test_helm_enabled_scheduler_matches_backend_runtime_contract(tmp_path):
     ],
 )
 def test_helm_active_scheduler_rejects_incomplete_configuration(
-    tmp_path, setting, invalid_value
-):
+    tmp_path: Path,
+    setting: str,
+    invalid_value: str,
+) -> None:
     """Active render fails closed on disabled, placeholder, or malformed config."""
     values = _active_values()
     _set_env_value(values["env"], setting, invalid_value)
@@ -221,7 +265,10 @@ def test_helm_active_scheduler_rejects_incomplete_configuration(
 
 
 @pytest.mark.parametrize("setting", ACTIVE_GARMIN_URL_SETTINGS)
-def test_helm_active_scheduler_rejects_each_blank_required_url(tmp_path, setting):
+def test_helm_active_scheduler_rejects_each_blank_required_url(
+    tmp_path: Path,
+    setting: str,
+) -> None:
     """Every provider/application URL and origin is activation-required."""
     values = _active_values()
     _set_env_value(values["env"], setting, "")
@@ -231,12 +278,16 @@ def test_helm_active_scheduler_rejects_each_blank_required_url(tmp_path, setting
     assert result.returncode != 0
 
 
-def test_helm_suspended_scheduler_keeps_disabled_safe_defaults_renderable(tmp_path):
+def test_helm_suspended_scheduler_keeps_disabled_safe_defaults_renderable(
+    tmp_path: Path,
+) -> None:
     """Validation applies only when the scheduler is enabled and unsuspended."""
     values = _active_values()
     values["garminSync"]["suspend"] = True
     _set_env_value(values["env"], "GARMIN_ENABLED", "false")
-    _set_env_value(values["env"], "GARMIN_TOKEN_URL", "https://example.com/token")
+    _set_env_value(
+        values["env"], "GARMIN_TOKEN_URL", "https://example.com/token"
+    )
 
     documents = _render(_local_chart(tmp_path), values)
 

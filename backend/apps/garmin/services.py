@@ -367,14 +367,14 @@ def _request_json(
         payload_bytes = b"".join(chunks)
         try:
             payload_text = payload_bytes.decode(response.encoding or "utf-8")
-        except UnicodeDecodeError as exc:
+        except (LookupError, UnicodeDecodeError) as exc:
             raise ValueError(
                 f"Garmin {operation} returned invalid JSON"
             ) from exc
 
         try:
             payload = json.loads(payload_text)
-        except ValueError as exc:
+        except (RecursionError, ValueError) as exc:
             raise ValueError(
                 f"Garmin {operation} returned invalid JSON"
             ) from exc
@@ -438,20 +438,20 @@ def _request_json_with_size(
         payload_bytes = b"".join(chunks)
         try:
             payload_text = payload_bytes.decode(response.encoding or "utf-8")
-        except UnicodeDecodeError as exc:
+        except (LookupError, UnicodeDecodeError) as exc:
             raise ValueError(
                 f"Garmin {operation} returned invalid JSON"
             ) from exc
 
         try:
             payload = json.loads(payload_text)
-        except ValueError as exc:
+        except (RecursionError, ValueError) as exc:
             raise ValueError(
                 f"Garmin {operation} returned invalid JSON"
             ) from exc
 
     if not isinstance(payload, dict):
-        raise ValueError(f"Garmin {operation} response invalid JSON")
+        raise ValueError(f"Garmin {operation} returned invalid JSON")
     return payload, total_bytes
 
 
@@ -567,7 +567,6 @@ def _coerce_started_at(
     if local_value is None:
         raise ValueError("start time local timezone is required")
 
-    canonical_dt = _parse_canonical_start_time(value)
     local_dt = _parse_local_start_time(local_value, local_offset_minutes)
     local_tz = local_dt.tzinfo
     if local_tz is None:
@@ -584,8 +583,16 @@ def _coerce_started_at(
         raise ValueError("start time timezone offset is invalid")
 
     try:
-        canonical_utc = canonical_dt.astimezone(datetime.timezone.utc)
         local_utc = local_dt.astimezone(datetime.timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise ValueError("start time is invalid") from exc
+
+    canonical_dt = _parse_canonical_start_time(
+        value,
+        matching_utc=local_utc,
+    )
+    try:
+        canonical_utc = canonical_dt.astimezone(datetime.timezone.utc)
     except (OverflowError, OSError, ValueError) as exc:
         raise ValueError("start time is invalid") from exc
     # Both accepted provider forms preserve microseconds, so accepting a
@@ -601,7 +608,11 @@ def _coerce_started_at(
     )
 
 
-def _parse_canonical_start_time(value: object) -> datetime.datetime:
+def _parse_canonical_start_time(
+    value: object,
+    *,
+    matching_utc: datetime.datetime,
+) -> datetime.datetime:
     if isinstance(value, bool) or not isinstance(
         value, datetime.datetime | int | float | str
     ):
@@ -611,25 +622,39 @@ def _parse_canonical_start_time(value: object) -> datetime.datetime:
         parsed = value
     elif isinstance(value, int | float):
         try:
-            seconds = float(value)
+            numeric_value = float(value)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("start time is invalid") from exc
-        if not math.isfinite(seconds):
+        if not math.isfinite(numeric_value):
             raise ValueError("start time is invalid")
-        if seconds > 10**12:
-            seconds /= 1000
-        if not (
-            _DATETIME_MIN_TIMESTAMP_SECONDS
-            <= seconds
-            <= _DATETIME_MAX_TIMESTAMP_SECONDS
-        ):
+
+        candidates: list[datetime.datetime] = []
+        for divisor in (1, 1000):
+            seconds = numeric_value / divisor
+            if not (
+                _DATETIME_MIN_TIMESTAMP_SECONDS
+                <= seconds
+                <= _DATETIME_MAX_TIMESTAMP_SECONDS
+            ):
+                continue
+            try:
+                candidates.append(
+                    datetime.datetime.fromtimestamp(
+                        seconds,
+                        tz=datetime.timezone.utc,
+                    )
+                )
+            except (OverflowError, OSError, ValueError):
+                continue
+        if not candidates:
             raise ValueError("start time is invalid")
-        try:
-            parsed = datetime.datetime.fromtimestamp(
-                seconds, tz=datetime.timezone.utc
-            )
-        except (OverflowError, OSError, ValueError) as exc:
-            raise ValueError("start time is invalid") from exc
+
+        matches = [
+            candidate for candidate in candidates if candidate == matching_utc
+        ]
+        if len(matches) != 1:
+            raise ValueError("start time is inconsistent")
+        parsed = matches[0]
     else:
         candidate = value.replace("Z", "+00:00")
         try:
@@ -906,7 +931,7 @@ def _normalize_activity(payload: object) -> NormalizedActivity:
 
 def _extract_activity_items(
     payload: dict[str, object],
-) -> list[dict[str, object]]:
+) -> list[object]:
     raw = payload.get("activities")
     if raw is None:
         raw = payload.get("items")
@@ -926,7 +951,7 @@ def _extract_activity_items(
 
     if not isinstance(raw, list):
         raise ValueError("Garmin activities payload is invalid")
-    return [item for item in raw if isinstance(item, dict)]
+    return raw
 
 
 def _is_garmin_derived_exercise(
@@ -1018,7 +1043,7 @@ def _iter_activity_payloads(
     response_max_bytes: int,
     activity_max_total_items: int | None = None,
     activity_total_response_max_bytes: int | None = None,
-) -> Iterator[dict[str, object]]:
+) -> Iterator[object]:
     """Fetch a paginated Garmin activity payload set."""
     if activity_max_total_items is None:
         activity_max_total_items = int(
@@ -1150,7 +1175,7 @@ def _parse_token_payload(payload: dict[str, object]) -> GarminTokenPair:
     )
 
 
-def begin_authorization(user) -> tuple[str, datetime.datetime, str]:
+def begin_authorization(user: Any) -> tuple[str, datetime.datetime, str]:
     """Generate a short-lived one-time state and authorization URL."""
     config = _provider_config()
 
@@ -1625,13 +1650,13 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
         expected_provider_account_id,
     ) = _ensure_access_token(connection)
 
-    def _raw_activity_stream() -> Iterator[dict[str, object]]:
+    def _raw_activity_stream() -> Iterator[object]:
         """Advance the lazy provider iterator with one forced-refresh retry."""
         nonlocal access_token
         nonlocal expected_generation
         nonlocal expected_provider_account_id
 
-        yielded_before_retry: list[dict[str, object]] = []
+        yielded_before_retry: list[object] = []
         retried = False
         replay_index = 0
 

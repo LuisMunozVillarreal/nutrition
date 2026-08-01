@@ -93,11 +93,21 @@ Fail rendering when an enabled, unsuspended Garmin scheduler is incomplete.
 */}}
 {{- define "nutrition.validateGarminSchedulerActivation" -}}
 {{- $sync := .Values.garminSync | default dict -}}
+{{- $enabled := false -}}
+{{- if hasKey $sync "enabled" -}}
+{{- if not (kindIs "bool" $sync.enabled) -}}
+{{- fail "garminSync.enabled must be a boolean" -}}
+{{- end -}}
+{{- $enabled = $sync.enabled -}}
+{{- end -}}
 {{- $suspended := true -}}
 {{- if hasKey $sync "suspend" -}}
+{{- if not (kindIs "bool" $sync.suspend) -}}
+{{- fail "garminSync.suspend must be a boolean" -}}
+{{- end -}}
 {{- $suspended = $sync.suspend -}}
 {{- end -}}
-{{- if and (default false $sync.enabled) (not $suspended) -}}
+{{- if and $enabled (not $suspended) -}}
 {{- $environment := .Values.env | default list -}}
 {{- $enabledFound := false -}}
 {{- $enabledValue := "" -}}
