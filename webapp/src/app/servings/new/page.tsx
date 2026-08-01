@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField } from '@/components/FormField'
 import { useSearchParams } from 'next/navigation'
 import { servingUnitChoices } from '@/lib/units'
 

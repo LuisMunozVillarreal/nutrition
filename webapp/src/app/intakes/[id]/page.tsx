@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField, ReadonlyField } from '@/components/FormField'
 import { buildCustomIntakeEditForm, buildCustomIntakeUpdateVariables } from './intakeVariables'
 
 const INTAKE_QUERY = gql`
@@ -41,6 +41,25 @@ const MEAL_CHOICES = [
   { value: 'dinner', label: 'Dinner' },
 ]
 
+interface IntakeDetails {
+  id: string
+  dayId: string
+  foodId: string | null
+  numServings: number
+  meal: string
+  mealOrder: number
+  energyKcal: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+}
+
+interface IntakeQueryResponse {
+  intake: IntakeDetails | null
+}
+
+type IntakeReadOnly = Pick<IntakeDetails, 'dayId' | 'foodId'>
+
 export default function EditIntakePage() {
   const params = useParams()
   const id = params.id as string
@@ -48,14 +67,14 @@ export default function EditIntakePage() {
     meal: 'breakfast', numServings: '1.0',
     energyKcal: '', proteinG: '', fatG: '', carbsG: ''
   })
-  const [readOnly, setReadOnly] = useState<any>({})
+  const [readOnly, setReadOnly] = useState<Partial<IntakeReadOnly>>({})
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ intake: any }>(INTAKE_QUERY, { id })
+        const res = await graphqlRequest<IntakeQueryResponse>(INTAKE_QUERY, { id })
         if (res.intake) {
           setForm(res.intake.foodId ? {
               meal: res.intake.meal,

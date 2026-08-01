@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
+import { subscribeToPromise } from '@/lib/promiseSubscription'
 
 const EXERCISES_QUERY = gql`
   query {
@@ -47,24 +48,27 @@ export default function ExercisesPage() {
   const [data, setData] = useState<Exercise[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
+  const loadData = () => graphqlRequest<{ exercises: Exercise[] }>(EXERCISES_QUERY)
+  const applyData = (res: { exercises: Exercise[] }) => setData(res.exercises)
+  const reportLoadError = (err: unknown) => console.error('Failed to fetch exercises', err)
+  const finishLoading = () => setLoading(false)
+
+  const reloadData = () => {
     setLoading(true)
-    try {
-      const res = await graphqlRequest<{ exercises: Exercise[] }>(EXERCISES_QUERY)
-      setData(res.exercises)
-    } catch (err) {
-      console.error('Failed to fetch exercises', err)
-    }
-    setLoading(false)
+    return loadData().then(applyData, reportLoadError).then(finishLoading)
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => subscribeToPromise(loadData(), {
+    onFulfilled: applyData,
+    onRejected: reportLoadError,
+    onSettled: finishLoading,
+  }), [])
 
   const handleDelete = async (row: Exercise) => {
     if (!confirm('Delete this exercise?')) return
     try {
       await graphqlRequest(DELETE_MUTATION, { id: row.id })
-      fetchData()
+      await reloadData()
     } catch (err) {
       console.error('Failed to delete exercise', err)
     }

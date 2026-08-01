@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
+import { subscribeToPromise } from '@/lib/promiseSubscription'
 
 const STEPS_QUERY = gql`
   query {
@@ -39,22 +40,27 @@ export default function StepsPage() {
   const [data, setData] = useState<DayStepsRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchData = async () => {
+  const loadData = () => graphqlRequest<{ dayStepsList: DayStepsRow[] }>(STEPS_QUERY)
+  const applyData = (res: { dayStepsList: DayStepsRow[] }) => setData(res.dayStepsList)
+  const reportLoadError = (err: unknown) => console.error('Failed to fetch steps', err)
+  const finishLoading = () => setLoading(false)
+
+  const reloadData = () => {
     setLoading(true)
-    try {
-      const res = await graphqlRequest<{ dayStepsList: DayStepsRow[] }>(STEPS_QUERY)
-      setData(res.dayStepsList)
-    } catch (err) { console.error('Failed to fetch steps', err) }
-    setLoading(false)
+    return loadData().then(applyData, reportLoadError).then(finishLoading)
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => subscribeToPromise(loadData(), {
+    onFulfilled: applyData,
+    onRejected: reportLoadError,
+    onSettled: finishLoading,
+  }), [])
 
   const handleDelete = async (row: DayStepsRow) => {
     if (!confirm('Delete this steps record?')) return
     try {
       await graphqlRequest(DELETE_MUTATION, { id: row.id })
-      fetchData()
+      await reloadData()
     } catch (err) { console.error('Failed to delete steps', err) }
   }
 

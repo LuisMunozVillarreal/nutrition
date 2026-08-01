@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField } from '@/components/FormField'
 import { formatPurchaseDate } from '../purchaseDate'
 
 const ITEM_QUERY = gql`
@@ -27,10 +27,22 @@ const DELETE_MUTATION = gql`
   }
 `
 
+interface CupboardItem {
+  id: string
+  foodId: string
+  foodLabel: string
+  purchasedAt: string
+  consumedPerc: number
+}
+
+interface CupboardItemQueryResponse {
+  cupboardItem: CupboardItem | null
+}
+
 export default function EditCupboardItemPage() {
   const params = useParams()
   const id = params.id as string
-  const [item, setItem] = useState<any>(null)
+  const [item, setItem] = useState<CupboardItem | null>(null)
   const [form, setForm] = useState({ consumedPerc: '' })
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -38,7 +50,7 @@ export default function EditCupboardItemPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ cupboardItem: any }>(ITEM_QUERY, { id })
+        const res = await graphqlRequest<CupboardItemQueryResponse>(ITEM_QUERY, { id })
         if (res.cupboardItem) {
           setItem(res.cupboardItem)
           setForm({ consumedPerc: String(res.cupboardItem.consumedPerc) })

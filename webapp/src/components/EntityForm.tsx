@@ -21,6 +21,16 @@ interface EntityFormProps {
   children?: ReactNode
 }
 
+function errorMessage(error: unknown, fallback = 'An error occurred'): string {
+  if (typeof error === 'string') return error
+  if (typeof error === 'object' && error !== null) {
+    const errorLike = error as { message?: unknown; stack?: unknown }
+    if (typeof errorLike.stack === 'string' && errorLike.stack) return errorLike.stack
+    if (typeof errorLike.message === 'string' && errorLike.message) return errorLike.message
+  }
+  return fallback
+}
+
 export default function EntityForm({
   title,
   backHref,
@@ -43,16 +53,16 @@ export default function EntityForm({
     try {
       try {
         await onSave()
-      } catch (saveErr: any) {
-        throw new Error('API ERROR: ' + (saveErr?.stack || saveErr?.message))
+      } catch (saveErr: unknown) {
+        throw new Error('API ERROR: ' + errorMessage(saveErr))
       }
       try {
         router.push(backHref)
-      } catch (routeErr: any) {
-        throw new Error('ROUTE ERROR: ' + (routeErr?.stack || routeErr?.message))
+      } catch (routeErr: unknown) {
+        throw new Error('ROUTE ERROR: ' + errorMessage(routeErr))
       }
-    } catch (err: any) {
-      setError(err?.stack || err?.message || 'An error occurred')
+    } catch (err: unknown) {
+      setError(errorMessage(err))
     }
   }
 
@@ -65,8 +75,8 @@ export default function EntityForm({
     try {
       await onDelete!()
       router.push(backHref)
-    } catch (err: any) {
-      setError(err?.stack || err?.message || 'An error occurred')
+    } catch (err: unknown) {
+      setError(errorMessage(err))
       setConfirmDelete(false)
     }
   }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, SelectField, TextareaField, ReadonlyField } from '@/components/FormField'
 import DataTable, { Column } from '@/components/DataTable'
 import { recipeUnitChoices } from '@/lib/units'
 import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
@@ -56,6 +56,30 @@ interface IngredientRow {
   carbsG: number
 }
 
+interface RecipeDetails {
+  id: string
+  brand: string | null
+  name: string
+  description: string
+  nutrientsFromIngredients: boolean
+  size: number
+  sizeUnit: string
+  numServings: number
+  energyKcal: number
+  proteinG: number
+  fatG: number
+  carbsG: number
+  saturatedFatG: number | null
+  sugarsG: number | null
+  fibreG: number | null
+  saltG: number | null
+  ingredients: IngredientRow[]
+}
+
+interface RecipeQueryResponse {
+  recipe: RecipeDetails | null
+}
+
 const ingredientColumns: Column<IngredientRow>[] = [
   { key: 'food', label: 'Ingredient', accessor: (r) => r.foodLabel },
   { key: 'servings', label: 'Servings', accessor: (r) => r.numServings },
@@ -82,7 +106,7 @@ export default function EditRecipePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await graphqlRequest<{ recipe: any }>(RECIPE_QUERY, { id })
+        const res = await graphqlRequest<RecipeQueryResponse>(RECIPE_QUERY, { id })
         if (res.recipe) {
           const r = res.recipe
           setForm({

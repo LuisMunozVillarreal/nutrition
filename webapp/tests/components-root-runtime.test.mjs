@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, before, test, mock } from 'node:test'
+import { afterEach, beforeAll, test, vi } from 'vitest'
 import { JSDOM } from 'jsdom'
 import React from 'react'
 
@@ -28,13 +28,13 @@ const state = {
   session: null,
   graphql: null,
   status: 'unauthenticated',
-  push: mock.fn(),
-  replace: mock.fn(),
-  refresh: mock.fn(),
-  signIn: mock.fn(),
-  signOut: mock.fn(),
-  request: mock.fn(),
-  alert: mock.fn(),
+  push: vi.fn(),
+  replace: vi.fn(),
+  refresh: vi.fn(),
+  signIn: vi.fn(),
+  signOut: vi.fn(),
+  request: vi.fn(),
+  alert: vi.fn(),
 }
 
 globalThis.alert = state.alert
@@ -46,60 +46,54 @@ globalThis.fetch = async (...args) => {
   })
 }
 
-await mock.module('next/navigation', {
-  namedExports: {
-    usePathname: () => state.pathname,
-    useSearchParams: () => state.search,
-    useRouter: () => ({ push: state.push, replace: state.replace, refresh: state.refresh }),
-  },
-})
-await mock.module('next-auth/react', {
-  namedExports: {
-    useSession: () => ({ data: state.session, status: state.status }),
-    getSession: async () => state.session,
-    signIn: (...args) => state.signIn(...args),
-    signOut: (...args) => state.signOut(...args),
-    SessionProvider: ({ children }) => React.createElement('section', { 'data-testid': 'session-provider' }, children),
-  },
-})
-await mock.module('next/link', {
-  defaultExport: ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children),
-})
-await mock.module('framer-motion', {
-  namedExports: {
-    motion: new Proxy({}, { get: (_target, tag) => React.forwardRef(({ children, ...props }, ref) => React.createElement(tag, { ...props, ref }, children)) }),
-  },
-})
-await mock.module('next/font/google', {
-  namedExports: {
-    Geist: () => ({ variable: '--font-sans' }),
-    Geist_Mono: () => ({ variable: '--font-mono' }),
-  },
-})
-await mock.module('graphql-request', {
-  namedExports: {
-    gql: (parts, ...values) => String.raw({ raw: parts }, ...values),
-    request: (...args) => state.request(...args),
-    GraphQLClient: class {
-      constructor(endpoint, options) {
-        state.graphql = {
-          endpoint,
-          headers: options.headers,
-          fetch: options.fetch,
-          request: null,
-        }
+vi.doMock('next/navigation', () => ({
+  usePathname: () => state.pathname,
+  useSearchParams: () => state.search,
+  useRouter: () => ({ push: state.push, replace: state.replace, refresh: state.refresh }),
+}))
+vi.doMock('next-auth/react', () => ({
+  useSession: () => ({ data: state.session, status: state.status }),
+  getSession: async () => state.session,
+  signIn: (...args) => state.signIn(...args),
+  signOut: (...args) => state.signOut(...args),
+  SessionProvider: ({ children }) => React.createElement('section', { 'data-testid': 'session-provider' }, children),
+}))
+vi.doMock('next/link', () => ({
+  default: ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children),
+}))
+vi.doMock('framer-motion', () => ({
+  motion: new Proxy({}, {
+    get: (_target, tag) => React.forwardRef(function MockMotionComponent({ children, ...props }, ref) {
+      return React.createElement(tag, { ...props, ref }, children)
+    }),
+  }),
+}))
+vi.doMock('next/font/google', () => ({
+  Geist: () => ({ variable: '--font-sans' }),
+  Geist_Mono: () => ({ variable: '--font-mono' }),
+}))
+vi.doMock('graphql-request', () => ({
+  gql: (parts, ...values) => String.raw({ raw: parts }, ...values),
+  request: (...args) => state.request(...args),
+  GraphQLClient: class {
+    constructor(endpoint, options) {
+      state.graphql = {
+        endpoint,
+        headers: options.headers,
+        fetch: options.fetch,
+        request: null,
       }
-      async request(query, variables) {
-        if (state.graphql) state.graphql.request = [query, variables]
-        return state.request(query, variables)
-      }
-    },
+    }
+    async request(query, variables) {
+      if (state.graphql) state.graphql.request = [query, variables]
+      return state.request(query, variables)
+    }
   },
-})
+}))
 
 let DataTable, EntityForm, fields, Sidebar, AppShell, Dashboard, HomeClient, Providers, Home, RootLayout, metadata, LoginPage, TestPage
 
-before(async () => {
+beforeAll(async () => {
   ;({ default: DataTable } = await import('../src/components/DataTable.tsx'))
   ;({ default: EntityForm } = await import('../src/components/EntityForm.tsx'))
   fields = await import('../src/components/FormField.tsx')
@@ -121,8 +115,8 @@ afterEach(() => {
   state.session = null
   state.graphql = null
   state.status = 'unauthenticated'
-  for (const fn of [state.push, state.replace, state.refresh, state.signIn, state.signOut, state.request, state.alert]) fn.mock.resetCalls()
-  state.request.mock.resetCalls()
+  for (const fn of [state.push, state.replace, state.refresh, state.signIn, state.signOut, state.request, state.alert]) fn.mockClear()
+  state.request.mockClear()
 })
 
 const textOrder = (testIds) => testIds.map((id) => screen.getByTestId(id).textContent)
@@ -132,14 +126,14 @@ test('DataTable renders loading and custom empty states plus add navigation', ()
   const view = render(React.createElement(DataTable, { columns, data: [], loading: true, addHref: '/items/new', addLabel: 'Create item' }))
   assert.match(view.container.textContent, /Loading/)
   fireEvent.click(screen.getByTestId('add-new-btn'))
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/items/new'])
+  assert.deepEqual(state.push.mock.calls[0], ['/items/new'])
   view.rerender(React.createElement(DataTable, { columns, data: [], emptyMessage: 'Nothing here' }))
   assert.equal(screen.getByTestId('empty-table').textContent.trim(), 'Nothing here')
 })
 
 test('DataTable sorts both directions, ignores unsortable columns, navigates rows, and isolates delete clicks', () => {
   const rows = [{ id: 1, name: 'Item 10', note: null }, { id: 2, name: 'Item 2', note: 'x' }]
-  const onDelete = mock.fn()
+  const onDelete = vi.fn()
   const columns = [
     { key: 'name', label: 'Name', accessor: (row) => row.name },
     { key: 'note', label: 'Note', accessor: (row) => row.note, sortable: false },
@@ -153,11 +147,11 @@ test('DataTable sorts both directions, ignores unsortable columns, navigates row
   fireEvent.click(screen.getByText('Note'))
   assert.deepEqual(textOrder(['table-row-1', 'table-row-2']).map((x) => x.replace(/\s/g, '')), ['Item10', 'Item2x'])
   fireEvent.click(screen.getByTestId('table-row-1'))
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/items/1'])
+  assert.deepEqual(state.push.mock.calls[0], ['/items/1'])
   fireEvent.click(screen.getByTestId('delete-btn-2'))
-  assert.equal(onDelete.mock.callCount(), 1)
-  assert.equal(onDelete.mock.calls[0].arguments[0], rows[1])
-  assert.equal(state.push.mock.callCount(), 1)
+  assert.equal(onDelete.mock.calls.length, 1)
+  assert.equal(onDelete.mock.calls[0][0], rows[1])
+  assert.equal(state.push.mock.calls.length, 1)
 })
 
 test('DataTable safely renders without optional actions and recovers when a sorted column disappears', () => {
@@ -167,7 +161,7 @@ test('DataTable safely renders without optional actions and recovers when a sort
   fireEvent.click(screen.getByText('Name'))
   view.rerender(React.createElement(DataTable, { columns: [], data: rows }))
   fireEvent.click(screen.getByTestId('table-row-1'))
-  assert.equal(state.push.mock.callCount(), 0)
+  assert.equal(state.push.mock.calls.length, 0)
 })
 
 test('DataTable defaults add label and sorts nullable values through both comparator directions', () => {
@@ -183,13 +177,13 @@ test('DataTable defaults add label and sorts nullable values through both compar
     ],
     data: rows,
     addHref: '/rows',
-    onDelete: mock.fn(),
+    onDelete: vi.fn(),
     rowHref: (row) => `/rows/${row.id}`,
   }))
   assert.equal(screen.getByTestId('add-new-btn').textContent.includes('Add New'), true)
   fireEvent.click(screen.getByTestId('table-row-row-1'))
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/rows/row-1'])
-  state.push.mock.resetCalls()
+  assert.deepEqual(state.push.mock.calls[0], ['/rows/row-1'])
+  state.push.mockClear()
 
   fireEvent.click(screen.getByText('Code'))
   const ascOrder = screen.getAllByTestId(/table-row-/).map((row) => row.getAttribute('data-testid'))
@@ -205,7 +199,7 @@ test('DataTable defaults add label and sorts nullable values through both compar
 })
 
 test('form field controls expose constraints, defaults, changes, read-only state, and fallbacks', () => {
-  const onChange = mock.fn()
+  const onChange = vi.fn()
   const { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } = fields
   const view = render(React.createElement('div', null,
     React.createElement(FormField, { label: 'Amount', name: 'amount', value: null, onChange, type: 'number', required: true, placeholder: 'Amount', step: '0.1', min: 0, max: 10, helpText: 'Choose wisely', testId: 'amount-input' }),
@@ -217,7 +211,7 @@ test('form field controls expose constraints, defaults, changes, read-only state
   const amount = screen.getByTestId('amount-input')
   fireEvent.change(amount, { target: { value: '2.5' } })
   fireEvent.click(screen.getByTestId('enabled-input'))
-  assert.deepEqual(onChange.mock.calls.map((call) => call.arguments), [['amount', '2.5'], ['enabled', true]])
+  assert.deepEqual(onChange.mock.calls.map((call) => call), [['amount', '2.5'], ['enabled', true]])
   assert.equal(amount.required, true)
   assert.equal(amount.min, '0')
   assert.equal(screen.getByTestId('choice-input').disabled, true)
@@ -228,7 +222,7 @@ test('form field controls expose constraints, defaults, changes, read-only state
 })
 
 test('Form fields keep default required/readOnly behavior when flags are omitted', () => {
-  const onChange = mock.fn()
+  const onChange = vi.fn()
   render(React.createElement('div', null,
     React.createElement(fields.FormField, { label: 'Name', name: 'name', value: 'Ada', onChange }),
     React.createElement(fields.SelectField, { label: 'Mode', name: 'mode', value: '', onChange, options: [{ value: 'x', label: 'X' }] }),
@@ -241,7 +235,7 @@ test('Form fields keep default required/readOnly behavior when flags are omitted
   fireEvent.change(screen.getByTestId('field-bio'), { target: { value: 'World' } })
   fireEvent.click(screen.getByTestId('field-active'))
 
-  assert.deepEqual(onChange.mock.calls.map((call) => call.arguments), [
+  assert.deepEqual(onChange.mock.calls.map((call) => call), [
     ['name', 'Bob'],
     ['mode', 'x'],
     ['bio', 'World'],
@@ -256,7 +250,7 @@ test('Form fields keep default required/readOnly behavior when flags are omitted
 })
 
 test('editable select and textarea use default ids and report changes; checkbox can be disabled; readonly keeps zero', () => {
-  const onChange = mock.fn()
+  const onChange = vi.fn()
   const { SelectField, TextareaField, CheckboxField, ReadonlyField, FormField } = fields
   render(React.createElement('div', null,
     React.createElement(FormField, { label: 'Name', name: 'name', value: 'A', onChange, readOnly: true }),
@@ -267,15 +261,15 @@ test('editable select and textarea use default ids and report changes; checkbox 
   ))
   fireEvent.change(screen.getByTestId('field-choice'), { target: { value: 'b' } })
   fireEvent.change(screen.getByTestId('field-notes'), { target: { value: 'new' } })
-  assert.deepEqual(onChange.mock.calls.map((call) => call.arguments), [['choice', 'b'], ['notes', 'new']])
+  assert.deepEqual(onChange.mock.calls.map((call) => call), [['choice', 'b'], ['notes', 'new']])
   assert.equal(screen.getByTestId('field-name').disabled, true)
   assert.equal(screen.getByTestId('field-locked').disabled, true)
   assert.match(document.body.textContent, /Count0/)
 })
 
 test('EntityForm saves, navigates back, toggles fieldsets, renders children, and confirms deletion', async () => {
-  const onSave = mock.fn(async () => {})
-  const onDelete = mock.fn(async () => {})
+  const onSave = vi.fn(async () => {})
+  const onDelete = vi.fn(async () => {})
   render(React.createElement(EntityForm, {
     title: 'Edit item', backHref: '/items', onSave, onDelete,
     fieldsets: [
@@ -294,21 +288,21 @@ test('EntityForm saves, navigates back, toggles fieldsets, renders children, and
   assert.match(legends[1].parentElement.className, /collapsed/)
   assert.match(document.body.textContent, /Extra child/)
   fireEvent.click(screen.getByTestId('back-btn'))
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/items'])
+  assert.deepEqual(state.push.mock.calls[0], ['/items'])
   fireEvent.submit(screen.getByTestId('form-ready'))
-  await waitFor(() => assert.equal(onSave.mock.callCount(), 1))
-  assert.deepEqual(state.push.mock.calls[1].arguments, ['/items'])
+  await waitFor(() => assert.equal(onSave.mock.calls.length, 1))
+  assert.deepEqual(state.push.mock.calls[1], ['/items'])
   fireEvent.click(screen.getByTestId('delete-btn'))
   assert.equal(screen.getByTestId('delete-btn').textContent.trim(), 'Confirm Delete')
-  assert.equal(onDelete.mock.callCount(), 0)
+  assert.equal(onDelete.mock.calls.length, 0)
   fireEvent.click(screen.getByTestId('delete-btn'))
-  await waitFor(() => assert.equal(onDelete.mock.callCount(), 1))
-  assert.deepEqual(state.push.mock.calls[2].arguments, ['/items'])
+  await waitFor(() => assert.equal(onDelete.mock.calls.length, 1))
+  assert.deepEqual(state.push.mock.calls[2], ['/items'])
 })
 
 test('EntityForm reports save, route, and delete failures and honors saving state', async () => {
   const saveFailure = { message: 'save failed' }
-  const onSave = mock.fn(async () => { throw saveFailure })
+  const onSave = vi.fn(async () => { throw saveFailure })
   const view = render(React.createElement(EntityForm, { title: 'New', backHref: '/items', onSave, saving: true, fieldsets: [] }))
   await screen.findByTestId('form-ready')
   assert.equal(screen.getByTestId('save-btn').disabled, true)
@@ -317,7 +311,7 @@ test('EntityForm reports save, route, and delete failures and honors saving stat
   await screen.findByTestId('form-error')
   assert.match(screen.getByTestId('form-error').textContent, /API ERROR: save failed/)
 
-  state.push.mock.mockImplementationOnce(() => { throw { message: 'route failed' } })
+  state.push.mockImplementationOnce(() => { throw { message: 'route failed' } })
   view.rerender(React.createElement(EntityForm, { title: 'New', backHref: '/items', onSave: async () => {}, onDelete: async () => { throw new Error('delete failed') }, fieldsets: [] }))
   fireEvent.submit(screen.getByTestId('form-ready'))
   await waitFor(() => assert.match(screen.getByTestId('form-error').textContent, /ROUTE ERROR: route failed/))
@@ -327,26 +321,47 @@ test('EntityForm reports save, route, and delete failures and honors saving stat
   assert.equal(screen.getByTestId('delete-btn').textContent.trim(), 'Delete')
 })
 
-test('EntityForm preserves message fallback when Error stack is unavailable', async () => {
+test('EntityForm uses the safe fallback when an error has no message', async () => {
   const originalError = globalThis.Error
   globalThis.Error = function FakeError(message) {
     return { message }
   }
   try {
-    const onSave = mock.fn(async () => { throw { someMeta: true } })
+    const onSave = vi.fn(async () => { throw { someMeta: true } })
     render(React.createElement(EntityForm, { title: 'New', backHref: '/items', onSave, fieldsets: [] }))
     await screen.findByTestId('form-ready')
     fireEvent.submit(screen.getByTestId('form-ready'))
     await screen.findByTestId('form-error')
-    assert.match(screen.getByTestId('form-error').textContent, /API ERROR: undefined/)
+    assert.match(screen.getByTestId('form-error').textContent, /API ERROR: An error occurred/)
   } finally {
     globalThis.Error = originalError
   }
 })
 
+test('EntityForm safely formats string and null failures', async () => {
+  const view = render(React.createElement(EntityForm, {
+    title: 'New',
+    backHref: '/items',
+    onSave: async () => { throw 'string failure' },
+    fieldsets: [],
+  }))
+  await screen.findByTestId('form-ready')
+  fireEvent.submit(screen.getByTestId('form-ready'))
+  await waitFor(() => assert.match(screen.getByTestId('form-error').textContent, /API ERROR: string failure/))
+
+  view.rerender(React.createElement(EntityForm, {
+    title: 'New',
+    backHref: '/items',
+    onSave: async () => { throw null },
+    fieldsets: [],
+  }))
+  fireEvent.submit(screen.getByTestId('form-ready'))
+  await waitFor(() => assert.match(screen.getByTestId('form-error').textContent, /API ERROR: An error occurred/))
+})
+
 test('EntityForm fallback error path handles delete errors without stack or message', async () => {
-  const onSave = mock.fn(async () => {})
-  const onDelete = mock.fn(async () => { throw {} })
+  const onSave = vi.fn(async () => {})
+  const onDelete = vi.fn(async () => { throw {} })
   render(React.createElement(EntityForm, {
     title: 'New',
     backHref: '/items',
@@ -356,11 +371,11 @@ test('EntityForm fallback error path handles delete errors without stack or mess
   }))
   await screen.findByTestId('form-ready')
   fireEvent.submit(screen.getByTestId('form-ready'))
-  await waitFor(() => assert.equal(onSave.mock.callCount(), 1))
-  assert.equal(onSave.mock.callCount(), 1)
+  await waitFor(() => assert.equal(onSave.mock.calls.length, 1))
+  assert.equal(onSave.mock.calls.length, 1)
   fireEvent.click(screen.getByTestId('delete-btn'))
   fireEvent.click(screen.getByTestId('delete-btn'))
-  await waitFor(() => assert.equal(onDelete.mock.callCount(), 1))
+  await waitFor(() => assert.equal(onDelete.mock.calls.length, 1))
   await waitFor(() => assert.match(screen.getByTestId('form-error').textContent, /An error occurred/))
 })
 
@@ -368,7 +383,7 @@ test('EntityForm falls back to generic error when Error construction is unavaila
   const originalError = globalThis.Error
   globalThis.Error = function ErrorNoMessage() { return {} }
   try {
-    const onSave = mock.fn(async () => { throw new Error() })
+    const onSave = vi.fn(async () => { throw new Error() })
     const view = render(React.createElement(EntityForm, { title: 'New', backHref: '/items', onSave, fieldsets: [] }))
     await screen.findByTestId('form-ready')
     fireEvent.submit(view.container.querySelector('form'))
@@ -379,7 +394,7 @@ test('EntityForm falls back to generic error when Error construction is unavaila
 })
 
 test('EntityForm shows hydration state and skips delete controls when onDelete is missing', async () => {
-  const onSave = mock.fn(async () => {})
+  const onSave = vi.fn(async () => {})
   const view = render(React.createElement(EntityForm, {
     title: 'No Delete',
     backHref: '/items',
@@ -391,9 +406,9 @@ test('EntityForm shows hydration state and skips delete controls when onDelete i
   assert.equal(screen.queryByTestId('delete-btn'), null)
   await waitFor(() => assert.equal(screen.getByTestId('form-ready').textContent.includes('No Delete'), true))
   fireEvent.submit(view.container.querySelector('form'))
-  await waitFor(() => assert.equal(onSave.mock.callCount(), 1))
-  await waitFor(() => assert.equal(state.push.mock.callCount(), 1))
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/items'])
+  await waitFor(() => assert.equal(onSave.mock.calls.length, 1))
+  await waitFor(() => assert.equal(state.push.mock.calls.length, 1))
+  assert.deepEqual(state.push.mock.calls[0], ['/items'])
 })
 
 test('Sidebar hides without a session and renders active links and logout for a session', () => {
@@ -406,7 +421,7 @@ test('Sidebar hides without a session and renders active links and logout for a 
   assert.doesNotMatch(screen.getByTestId('nav-dashboard').className, /active/)
   assert.equal(screen.getAllByRole('link').length, 12)
   fireEvent.click(screen.getByTestId('nav-logout'))
-  assert.equal(state.signOut.mock.callCount(), 1)
+  assert.equal(state.signOut.mock.calls.length, 1)
 })
 
 test('AppShell covers loading, redirect, public child, and authenticated shell decisions', async () => {
@@ -417,8 +432,8 @@ test('AppShell covers loading, redirect, public child, and authenticated shell d
   state.pathname = '/products'
   view.rerender(React.createElement(AppShell, null, React.createElement('span', null, 'Child')))
   assert.ok(screen.getByTestId('auth-redirecting'))
-  await waitFor(() => assert.equal(state.replace.mock.callCount(), 1))
-  assert.match(state.replace.mock.calls[0].arguments[0], /^\/login\?callbackUrl=/)
+  await waitFor(() => assert.equal(state.replace.mock.calls.length, 1))
+  assert.match(state.replace.mock.calls[0][0], /^\/login\?callbackUrl=/)
   state.pathname = '/login'
   view.rerender(React.createElement(AppShell, null, React.createElement('span', null, 'Public child')))
   assert.match(view.container.textContent, /Public child/)
@@ -436,11 +451,11 @@ test('AppShell redirects regular users from staff routes and handles backend rea
   state.pathname = '/products/new'
   const view = render(React.createElement(AppShell, null, 'Protected'))
   assert.ok(screen.getByTestId('auth-redirecting'))
-  await waitFor(() => assert.equal(state.replace.mock.callCount(), 1))
+  await waitFor(() => assert.equal(state.replace.mock.calls.length, 1))
   state.session = { error: 'BackendReauthenticationRequired', user: { name: 'A', isStaff: true } }
   state.pathname = '/'
   view.rerender(React.createElement(AppShell, null, 'Protected'))
-  await waitFor(() => assert.equal(state.replace.mock.callCount(), 2))
+  await waitFor(() => assert.equal(state.replace.mock.calls.length, 2))
 })
 
 test('Dashboard displays fallback identity without a token', () => {
@@ -449,18 +464,18 @@ test('Dashboard displays fallback identity without a token', () => {
   render(React.createElement(Dashboard))
   assert.equal(screen.getByTestId('dashboard-greeting').textContent, 'Time to dominate, Athlete!')
   assert.match(document.body.textContent, /Current Weight--kg.*Current--%.*Goal--%/s)
-  assert.equal(state.request.mock.callCount(), 0)
+  assert.equal(state.request.mock.calls.length, 0)
 })
 
 test('Dashboard fetches measurements and fetched name with authenticated authorization', async () => {
   state.status = 'authenticated'
   state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
-  state.request.mock.mockImplementation(async () => ({ me: { firstName: 'Fetched', dashboard: { latestWeight: 0, latestBodyFat: 12, goalBodyFat: 10 } } }))
+  state.request.mockImplementation(async () => ({ me: { firstName: 'Fetched', dashboard: { latestWeight: 0, latestBodyFat: 12, goalBodyFat: 10 } } }))
   render(React.createElement(Dashboard))
   await waitFor(() => assert.equal(screen.getByTestId('dashboard-greeting').textContent, 'Time to dominate, Fetched!'))
   assert.match(document.body.textContent, /Current Weight0kg.*Current12%.*Goal10%/s)
-  assert.equal(state.request.mock.callCount(), 1)
-  const graphqlRequest = state.request.mock.calls[0].arguments
+  assert.equal(state.request.mock.calls.length, 1)
+  const graphqlRequest = state.request.mock.calls[0]
   assert.equal(new URL(graphqlRequest[0]).pathname, '/api/graphql')
   assert.equal(new Headers(graphqlRequest[3]).get('Authorization'), 'Bearer test-token')
 })
@@ -468,15 +483,15 @@ test('Dashboard fetches measurements and fetched name with authenticated authori
 test('Dashboard signs out when the backend has no current user and logs request errors', async () => {
   state.status = 'authenticated'
   state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
-  state.request.mock.mockImplementation(async () => ({ me: null }))
+  state.request.mockImplementation(async () => ({ me: null }))
   const view = render(React.createElement(Dashboard))
-  await waitFor(() => assert.equal(state.signOut.mock.callCount(), 1))
-  assert.deepEqual(state.signOut.mock.calls[0].arguments, [{ callbackUrl: '/login' }])
+  await waitFor(() => assert.equal(state.signOut.mock.calls.length, 1))
+  assert.deepEqual(state.signOut.mock.calls[0], [{ callbackUrl: '/login' }])
   cleanup()
   const originalError = console.error
   const errors = []
   console.error = (...args) => errors.push(args)
-  state.request.mock.mockImplementation(async () => { throw new Error('network down') })
+  state.request.mockImplementation(async () => { throw new Error('network down') })
   render(React.createElement(Dashboard))
   await waitFor(() => assert.equal(errors.length, 1))
   assert.equal(errors[0][0], 'Failed to fetch dashboard data')
@@ -488,9 +503,9 @@ test('Dashboard ignores a resolved request after unmount', async () => {
   let resolve
   state.status = 'authenticated'
   state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
-  state.request.mock.mockImplementation(() => new Promise((done) => { resolve = done }))
+  state.request.mockImplementation(() => new Promise((done) => { resolve = done }))
   const view = render(React.createElement(Dashboard))
-  await waitFor(() => assert.equal(state.request.mock.callCount(), 1))
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
   view.unmount()
   await act(async () => resolve({ me: { firstName: 'Late', dashboard: { latestWeight: 1, latestBodyFat: 2, goalBodyFat: 3 } } }))
   assert.equal(document.body.textContent, '')
@@ -531,32 +546,32 @@ test('Providers wraps children, root layout composes the shell, and test page re
 
 test('Login submits credentials and navigates to a safe callback on success', async () => {
   state.search = new URLSearchParams('callbackUrl=%2Fproducts%3Fpage%3D2')
-  state.signIn.mock.mockImplementation(async () => ({ ok: true }))
+  state.signIn.mockImplementation(async () => ({ ok: true }))
   const view = render(React.createElement(LoginPage))
   fireEvent.change(screen.getByPlaceholderText('Email'), { target: { value: 'user@example.com' } })
   fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'secret' } })
   fireEvent.submit(view.container.querySelector('form'))
-  await waitFor(() => assert.equal(state.signIn.mock.callCount(), 1))
-  assert.deepEqual(state.signIn.mock.calls[0].arguments, ['credentials', { email: 'user@example.com', password: 'secret', callbackUrl: '/products?page=2', redirect: false }])
-  await waitFor(() => assert.equal(state.push.mock.callCount(), 1))
-  assert.equal(state.refresh.mock.callCount(), 1)
-  assert.deepEqual(state.push.mock.calls[0].arguments, ['/products?page=2'])
+  await waitFor(() => assert.equal(state.signIn.mock.calls.length, 1))
+  assert.deepEqual(state.signIn.mock.calls[0], ['credentials', { email: 'user@example.com', password: 'secret', callbackUrl: '/products?page=2', redirect: false }])
+  await waitFor(() => assert.equal(state.push.mock.calls.length, 1))
+  assert.equal(state.refresh.mock.calls.length, 1)
+  assert.deepEqual(state.push.mock.calls[0], ['/products?page=2'])
 })
 
 test('Login falls back to home and alerts on rejected credentials', async () => {
   state.search = new URLSearchParams('callbackUrl=https%3A%2F%2Fevil.example.com')
-  state.signIn.mock.mockImplementation(async () => ({ ok: false }))
+  state.signIn.mockImplementation(async () => ({ ok: false }))
   const view = render(React.createElement(LoginPage))
   fireEvent.submit(view.container.querySelector('form'))
-  await waitFor(() => assert.equal(state.alert.mock.callCount(), 1))
-  assert.equal(state.push.mock.callCount(), 0)
+  await waitFor(() => assert.equal(state.alert.mock.calls.length, 1))
+  assert.equal(state.push.mock.calls.length, 0)
   assert.match(view.container.textContent, /Sign In/)
 })
 
 test('graphqlRequest resolves browser origin endpoint and forwards auth headers', async () => {
   const fetchResult = { result: 'ok' }
   state.session = { user: { name: 'Token User' }, accessToken: 'token-123' }
-  state.request.mock.mockImplementation(async () => fetchResult)
+  state.request.mockImplementation(async () => fetchResult)
   const { graphqlRequest } = await import('../src/lib/graphql.ts')
   const result = await graphqlRequest('query Demo', { key: 7 })
 
@@ -571,7 +586,7 @@ test('graphqlRequest falls back to relative endpoint without browser window and 
   const originalWindow = globalThis.window
   state.session = { user: { name: 'Tokenless User' } }
   delete process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT
-  state.request.mock.mockImplementation(async () => fetchResult)
+  state.request.mockImplementation(async () => fetchResult)
   globalThis.window = undefined
   try {
     const { graphqlRequest } = await import('../src/lib/graphql.ts')
@@ -590,7 +605,7 @@ test('graphqlRequest uses configured absolute endpoint without prepending window
   const fetchResult = { result: 'ok' }
   process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT = 'https://api.internal.example/graphql/'
   state.session = { user: { name: 'Token User' }, accessToken: 'token-123' }
-  state.request.mock.mockImplementation(async () => fetchResult)
+  state.request.mockImplementation(async () => fetchResult)
   const { graphqlRequest } = await import('../src/lib/graphql.ts')
   const result = await graphqlRequest('query Demo', { key: 13 })
 

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import test from 'node:test'
+import { test } from 'vitest'
 import { parse } from 'yaml'
 
 const readRepoFile = (path) => readFile(new URL(`../../${path}`, import.meta.url), 'utf8')
@@ -441,7 +441,7 @@ test('workflow publication and deployment paths are transitively gated by comple
     webappCommands.includes('npx tsc --noEmit'),
     'accepted frontend typecheck is missing',
   )
-  assert.ok(webappCommands.every((command) => !/eslint/i.test(command)), 'unsupported frontend lint is enabled')
+  assert.ok(webappCommands.includes('npm run lint'), 'frontend lint is missing')
 
   const backendValidation = [
     'pytest',

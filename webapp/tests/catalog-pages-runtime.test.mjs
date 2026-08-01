@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { afterEach, mock, test } from 'node:test'
+import { afterEach, test, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { JSDOM } from 'jsdom'
@@ -22,26 +22,20 @@ let readonlyProps = []
 let mountedRoot
 let mountedContainer
 
-mock.module('next-auth/react', {
-  namedExports: { useSession: () => ({ data: session }) },
-})
-mock.module('next/navigation', {
-  namedExports: {
-    useParams: () => ({ id: routeId }),
-    useSearchParams: () => ({ get: (name) => name === 'foodId' ? foodId : null }),
+vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
+vi.doMock('next/navigation', () => ({
+  useParams: () => ({ id: routeId }),
+  useSearchParams: () => ({ get: (name) => name === 'foodId' ? foodId : null }),
+}))
+vi.doMock('@/lib/graphql', () => ({
+  gql: (parts, ...values) => String.raw({ raw: parts }, ...values),
+  graphqlRequest: async (...args) => {
+    graphqlCalls.push(args)
+    return graphqlImpl(...args)
   },
-})
-mock.module('@/lib/graphql', {
-  namedExports: {
-    gql: (parts, ...values) => String.raw({ raw: parts }, ...values),
-    graphqlRequest: async (...args) => {
-      graphqlCalls.push(args)
-      return graphqlImpl(...args)
-    },
-  },
-})
-mock.module('@/components/EntityForm', {
-  defaultExport: (props) => {
+}))
+vi.doMock('@/components/EntityForm', () => ({
+  default: (props) => {
     entityProps = props
     return React.createElement(
       'section',
@@ -52,7 +46,7 @@ mock.module('@/components/EntityForm', {
       ),
     )
   },
-})
+}))
 
 const Field = (props) => {
   fieldProps.set(props.name, props)
@@ -62,17 +56,15 @@ const Readonly = (props) => {
   readonlyProps.push(props)
   return React.createElement('div', { 'data-readonly': props.label }, String(props.value ?? ''))
 }
-mock.module('@/components/FormField', {
-  namedExports: {
-    FormField: Field,
-    SelectField: Field,
-    TextareaField: Field,
-    CheckboxField: Field,
-    ReadonlyField: Readonly,
-  },
-})
-mock.module('@/components/DataTable', {
-  defaultExport: (props) => {
+vi.doMock('@/components/FormField', () => ({
+  FormField: Field,
+  SelectField: Field,
+  TextareaField: Field,
+  CheckboxField: Field,
+  ReadonlyField: Readonly,
+}))
+vi.doMock('@/components/DataTable', () => ({
+  default: (props) => {
     tableProps.push(props)
     return React.createElement(
       'div',
@@ -90,7 +82,7 @@ mock.module('@/components/DataTable', {
           ),
     )
   },
-})
+}))
 
 async function mount(Component) {
   mountedContainer = document.createElement('div')
@@ -150,6 +142,7 @@ afterEach(async () => {
   tableProps = []
   fieldProps = new Map()
   readonlyProps = []
+  vi.restoreAllMocks()
 })
 
 test('products list loads and formats rows, with navigation only for staff', async () => {
@@ -179,11 +172,11 @@ test('products list loads and formats rows, with navigation only for staff', asy
   assert.equal(latestTable().addHref, '/products/new')
 })
 
-test('products list logs request failures', async (t) => {
+test('products list logs request failures', async () => {
   const failure = new Error('offline')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   const { default: Page } = await import('../src/app/products/page.tsx')
   await mount(Page)
   await settle(() => assert.equal(latestTable().loading, false))
@@ -211,18 +204,18 @@ test('recipes list loads and rounds every macro, with navigation only for staff'
   assert.equal(latestTable().addHref, '/recipes/new')
 })
 
-test('recipes list logs request failures', async (t) => {
+test('recipes list logs request failures', async () => {
   const failure = new Error('recipes unavailable')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   const { default: Page } = await import('../src/app/recipes/page.tsx')
   await mount(Page)
   await settle(() => assert.equal(latestTable().loading, false))
   assert.deepEqual(errors, [['Failed to fetch recipes', failure]])
 })
 
-test('cupboard list formats active and finished inventory and handles failures', async (t) => {
+test('cupboard list formats active and finished inventory and handles failures', async () => {
   graphqlImpl = async () => ({ cupboardItems: [
     { id: 'c1', foodLabel: 'Oats', purchasedAt: '2025-01-15T00:00:00Z', consumedPerc: 12.6, remainingServings: 3.25, finished: false },
     { id: 'c2', foodLabel: 'Milk', purchasedAt: '2025-01-16T00:00:00Z', consumedPerc: 100, remainingServings: 0, finished: true },
@@ -242,7 +235,7 @@ test('cupboard list formats active and finished inventory and handles failures',
   const failure = new Error('cupboard unavailable')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   await mount(Page)
   await settle(() => assert.equal(latestTable().loading, false))
   assert.deepEqual(errors, [['Failed to fetch cupboard items', failure]])
@@ -347,7 +340,7 @@ test('product edit hydrates, formats servings, changes units, updates, and delet
   assert.deepEqual(graphqlCalls.at(-1)[1], { id: 'p7' })
 })
 
-test('product edit covers empty fallbacks, missing records, and request errors', async (t) => {
+test('product edit covers empty fallbacks, missing records, and request errors', async () => {
   const { default: Page } = await import('../src/app/products/[id]/page.tsx')
   graphqlImpl = async (query) => query.includes('query GetFoodProduct') ? { foodProduct: {
     name: 'Bare', brand: null, barcode: null, notes: '', nutritionalInfoSize: 1, nutritionalInfoUnit: 'g',
@@ -375,7 +368,7 @@ test('product edit covers empty fallbacks, missing records, and request errors',
   const failure = new Error('product failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   await mount(Page)
   await settle(() => assert.equal(entityProps?.title, 'Edit Food Product'))
   assert.deepEqual(errors, [['Failed to fetch food product', failure]])
@@ -427,11 +420,11 @@ test('recipe edit renders ingredient-derived values and covers empty and missing
   await settle(() => assert.equal(entityProps?.title, 'Edit Recipe'))
 })
 
-test('recipe edit logs request failures', async (t) => {
+test('recipe edit logs request failures', async () => {
   const failure = new Error('recipe failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   const { default: Page } = await import('../src/app/recipes/[id]/page.tsx')
   await mount(Page)
   await settle(() => assert.equal(entityProps?.title, 'Edit Recipe'))
@@ -469,12 +462,12 @@ test('new serving loads units, changes fields, saves, and tolerates a missing pr
   await settle(() => assert.equal(graphqlCalls.length, 1))
 })
 
-test('new serving logs unit lookup failures', async (t) => {
+test('new serving logs unit lookup failures', async () => {
   foodId = 'p2'
   const failure = new Error('units failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   const { default: Page } = await import('../src/app/servings/new/page.tsx')
   await mount(Page)
   await settle(() => assert.equal(errors.length, 1))
@@ -528,12 +521,12 @@ test('serving edit covers products without servings and completely missing produ
   await settle(() => assert.equal(entityProps?.title, 'Edit Serving'))
 })
 
-test('serving edit logs request failures', async (t) => {
+test('serving edit logs request failures', async () => {
   foodId = 'p5'
   const failure = new Error('serving failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   const { default: Page } = await import('../src/app/servings/[id]/page.tsx')
   await mount(Page)
   await settle(() => assert.equal(entityProps?.title, 'Edit Serving'))
@@ -568,7 +561,7 @@ test('new cupboard item sorts branded and unbranded foods, selects the first, ch
   })
 })
 
-test('new cupboard item handles empty choices and lookup failures', async (t) => {
+test('new cupboard item handles empty choices and lookup failures', async () => {
   const { default: Page } = await import('../src/app/cupboard/new/page.tsx')
   graphqlImpl = async () => ({ foodProducts: [], recipes: [] })
   await mount(Page)
@@ -581,7 +574,7 @@ test('new cupboard item handles empty choices and lookup failures', async (t) =>
   const failure = new Error('foods failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   await mount(Page)
   await settle(() => assert.equal(entityProps?.title, 'Add to Cupboard'))
   assert.deepEqual(errors, [['Failed to fetch foods', failure]])
@@ -604,7 +597,7 @@ test('cupboard edit hydrates item, changes progress, formats date, updates, and 
   assert.deepEqual(graphqlCalls.at(-1)[1], { id: 'c7' })
 })
 
-test('cupboard edit renders not-found state and logs request failures', async (t) => {
+test('cupboard edit renders not-found state and logs request failures', async () => {
   const { default: Page } = await import('../src/app/cupboard/[id]/page.tsx')
   graphqlImpl = async () => ({ cupboardItem: null })
   let container = await mount(Page)
@@ -615,7 +608,7 @@ test('cupboard edit renders not-found state and logs request failures', async (t
   const failure = new Error('item failed')
   graphqlImpl = async () => { throw failure }
   const errors = []
-  t.mock.method(console, 'error', (...args) => errors.push(args))
+  vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
   container = await mount(Page)
   await settle(() => assert.match(container.textContent, /Item not found/))
   assert.deepEqual(errors, [['Failed to fetch item', failure]])
