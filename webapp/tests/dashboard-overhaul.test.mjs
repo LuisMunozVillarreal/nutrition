@@ -105,6 +105,7 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /requestSequence/)
   assert.match(dashboardSource, /isCurrentLocalDate\(today\.day\)/)
   assert.match(dashboardSource, /!loading && todayIsCurrent/)
+  assert.match(dashboardSource, /today && todayIsCurrent \?/)
   assert.match(dashboardSource, /uppercase tracking-wider text-slate-400/)
   assert.doesNotMatch(dashboardSource, /Hydration/)
   assert.doesNotMatch(dashboardSource, /Measurement logging.*unavailable/i)

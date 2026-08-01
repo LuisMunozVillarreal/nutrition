@@ -201,7 +201,7 @@ export default function Dashboard() {
 
         <Card delay={0.3}>
           <CardHeader title="Today's Nutrition" icon={<UtensilsCrossed size={24} />} color="blue" />
-          {loading ? <LoadingValue /> : today ? (
+          {loading ? <LoadingValue /> : today && todayIsCurrent ? (
             <div>
               <div className="mb-2 flex items-end gap-2">
                 <span className="text-4xl font-black">{Math.round(today.energyKcal)}</span>
