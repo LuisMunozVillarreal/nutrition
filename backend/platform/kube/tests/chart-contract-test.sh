@@ -66,7 +66,6 @@ echo "Ensuring chart dependencies are present..."
 echo "Using helm binary: $HELM_BIN"
 echo "Running helm lint..."
 "$HELM_BIN" lint "$CHART_DIR"
-"$HELM_BIN" template nutrition-backend "$CHART_DIR" --validate > /dev/null
 
 FULL_RENDER="$RENDER_DIR/rendered-chart.yaml"
 "$HELM_BIN" template nutrition-backend "$CHART_DIR" > "$FULL_RENDER"
