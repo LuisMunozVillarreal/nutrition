@@ -91,6 +91,46 @@ def _request_context(user, *, bearer: bool = False):
     return type("Context", (), {"request": request})()
 
 
+def _begin_state(context) -> str:
+    """Start authorization and return its one-time state."""
+    result = schema_module.schema.execute_sync(
+        """
+            mutation {
+                beginGarminAuthorization { state }
+            }
+        """,
+        context_value=context,
+    )
+    assert result.errors is None
+    return result.data["beginGarminAuthorization"]["state"]
+
+
+def _complete_authorization(context, *, code: str, state: str):
+    """Execute the Garmin completion mutation for a test callback."""
+    return schema_module.schema.execute_sync(
+        """
+            mutation($code: String!, $state: String!) {
+                completeGarminAuthorization(code: $code, state: $state) {
+                    connected
+                }
+            }
+        """,
+        variable_values={"code": code, "state": state},
+        context_value=context,
+    )
+
+
+def _token_pair(account: str) -> GarminTokenPair:
+    """Return deterministic provider-free callback credentials."""
+    return GarminTokenPair(
+        access_token=f"access-{account}",
+        refresh_token=f"refresh-{account}",
+        expires_in=3600,
+        provider_account_id=account,
+        scope="read",
+    )
+
+
 def _create_connection_with_tokens(user):
     connection = GarminConnection.objects.create(user=user)
     token_pair = GarminTokenPair(
@@ -273,12 +313,18 @@ def test_failed_reconnect_preserves_existing_connection(
             user=user,
             status=GarminConnection.Status.DISCONNECTED,
         )
+    initial_generation = connection.connection_generation
     snapshot = (
         connection.pk,
         connection.status,
-        connection.connection_generation,
+        connection.provider,
+        connection.provider_account_id,
+        connection.provider_scopes,
         connection.access_token_encrypted,
         connection.refresh_token_encrypted,
+        connection.access_token_expires_at,
+        connection.last_synced_at,
+        connection.last_sync_summary,
     )
 
     def _exchange_failure(_code: str) -> GarminTokenPair:
@@ -315,13 +361,139 @@ def test_failed_reconnect_preserves_existing_connection(
 
     assert complete.errors is not None
     preserved = GarminConnection.objects.get(user=user)
+    assert preserved.connection_generation == initial_generation + 1
+    assert preserved.authorization_placeholder is False
     assert (
         preserved.pk,
         preserved.status,
-        preserved.connection_generation,
+        preserved.provider,
+        preserved.provider_account_id,
+        preserved.provider_scopes,
         preserved.access_token_encrypted,
         preserved.refresh_token_encrypted,
+        preserved.access_token_expires_at,
+        preserved.last_synced_at,
+        preserved.last_sync_summary,
     ) == snapshot
+
+
+def test_later_callback_owns_placeholder_when_first_exchange_fails(
+    monkeypatch,
+):
+    """A failed callback cannot delete a placeholder superseded by callback B."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-callback-owner-failure@example.com")
+    context = _request_context(user, bearer=True)
+    state_a = _begin_state(context)
+    state_b = _begin_state(context)
+    nested_result = {}
+
+    def _exchange(code: str) -> GarminTokenPair:
+        if code == "code-a":
+            nested_result["b"] = _complete_authorization(
+                context,
+                code="code-b",
+                state=state_b,
+            )
+            raise ValueError("exchange failed")
+        connection = GarminConnection.objects.get(user=user)
+        assert connection.connection_generation == 3
+        return _token_pair("account-b")
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    result_a = _complete_authorization(context, code="code-a", state=state_a)
+
+    assert result_a.errors is not None
+    assert nested_result["b"].errors is None
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.provider_account_id == "account-b"
+    assert connection.is_connected is True
+
+
+def test_superseded_successful_callback_fails_with_redacted_error(
+    monkeypatch,
+):
+    """Callback A cannot persist success after callback B claims ownership."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-callback-owner-success@example.com")
+    context = _request_context(user, bearer=True)
+    state_a = _begin_state(context)
+    state_b = _begin_state(context)
+    nested_result = {}
+
+    def _exchange(code: str) -> GarminTokenPair:
+        if code == "code-a":
+            nested_result["b"] = _complete_authorization(
+                context,
+                code="code-b",
+                state=state_b,
+            )
+            return _token_pair("account-a")
+        return _token_pair("account-b")
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    result_a = _complete_authorization(context, code="code-a", state=state_a)
+
+    assert nested_result["b"].errors is None
+    assert result_a.errors is not None
+    assert result_a.errors[0].message == (
+        "Garmin connection state changed during authorization"
+    )
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.provider_account_id == "account-b"
+
+
+def test_successful_callback_handles_concurrent_connection_removal(
+    monkeypatch,
+):
+    """A removed callback row produces a deterministic redacted error."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-callback-removal@example.com")
+    context = _request_context(user, bearer=True)
+    state = _begin_state(context)
+
+    def _exchange(_code: str) -> GarminTokenPair:
+        GarminConnection.objects.filter(user=user).delete()
+        return _token_pair("removed-account")
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    result = _complete_authorization(context, code="code", state=state)
+
+    assert result.errors is not None
+    assert result.errors[0].message == (
+        "Garmin connection state changed during authorization"
+    )
+    assert not GarminConnection.objects.filter(user=user).exists()
+
+
+def test_latest_failed_callback_cleans_inherited_placeholder(monkeypatch):
+    """Two failed initial callbacks do not leave an owned placeholder row."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-callback-double-failure@example.com")
+    context = _request_context(user, bearer=True)
+    state_a = _begin_state(context)
+    state_b = _begin_state(context)
+    nested_result = {}
+
+    def _exchange(code: str) -> GarminTokenPair:
+        if code == "code-a":
+            nested_result["b"] = _complete_authorization(
+                context,
+                code="code-b",
+                state=state_b,
+            )
+        raise ValueError("exchange failed")
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    result_a = _complete_authorization(context, code="code-a", state=state_a)
+
+    assert nested_result["b"].errors is not None
+    assert result_a.errors is not None
+    assert not GarminConnection.objects.filter(user=user).exists()
 
 
 def test_complete_garmin_auth_rejects_connection_change(

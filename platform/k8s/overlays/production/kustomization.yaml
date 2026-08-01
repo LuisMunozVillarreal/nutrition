@@ -12,4 +12,4 @@ patches:
   - path: ingress-patch.yaml
     target:
       kind: Ingress
-  - path: garmin-sync-enable-patch.yaml
+  - path: garmin-sync-production-env-patch.yaml

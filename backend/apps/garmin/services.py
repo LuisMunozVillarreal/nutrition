@@ -1306,6 +1306,7 @@ def _refresh_access_token_with_retry(
                     "provider_scopes",
                     "provider_account_id",
                     "connection_generation",
+                    "authorization_placeholder",
                     "status",
                     "updated_at",
                 ],

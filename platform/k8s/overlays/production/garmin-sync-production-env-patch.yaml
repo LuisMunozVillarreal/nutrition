@@ -3,7 +3,6 @@ kind: CronJob
 metadata:
   name: nutrition-garmin-sync
 spec:
-  suspend: false
   jobTemplate:
     spec:
       template:

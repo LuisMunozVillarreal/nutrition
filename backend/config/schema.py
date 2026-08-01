@@ -160,19 +160,20 @@ class GarminMutation:
         from django.db import transaction
 
         using = router.db_for_write(GarminConnection, instance=user)
-        connection_pk: int | None
-        expected_generation: int
+        connection_pk: int
+        attempt_generation: int
         expected_status: str
         expected_provider_account_id: str
 
         with transaction.atomic(using=using):
-            connection, created_connection = GarminConnection.objects.using(
+            connection, _ = GarminConnection.objects.using(
                 using
             ).get_or_create(
                 user=user,
                 defaults={
                     "provider": GARMIN_PROVIDER,
                     "status": GarminConnection.Status.DISCONNECTED,
+                    "authorization_placeholder": True,
                 },
             )
             connection = (
@@ -180,7 +181,6 @@ class GarminMutation:
                 .select_for_update()
                 .get(pk=connection.pk)
             )
-            expected_generation = connection.connection_generation
             expected_status = connection.status
             expected_provider_account_id = connection.provider_account_id
             connection_pk = connection.pk
@@ -191,48 +191,62 @@ class GarminMutation:
                 provider=GARMIN_PROVIDER,
                 using=using,
             )
+            connection.connection_generation += 1
+            attempt_generation = connection.connection_generation
+            connection.save(
+                using=using,
+                update_fields=["connection_generation", "updated_at"],
+            )
 
         try:
             token_pair = exchange_code_for_tokens(code)
         except Exception as exc:
-            if created_connection:
-                with transaction.atomic(using=using):
-                    placeholder = (
-                        GarminConnection.objects.using(using)
-                        .select_for_update()
-                        .filter(pk=connection_pk)
-                        .first()
-                    )
-                    if (
-                        placeholder is not None
-                        and placeholder.connection_generation
-                        == expected_generation
-                        and placeholder.status == expected_status
-                        and placeholder.provider_account_id
-                        == expected_provider_account_id
-                        and not placeholder.access_token_encrypted
-                        and not placeholder.refresh_token_encrypted
-                    ):
-                        placeholder.delete(using=using)
+            with transaction.atomic(using=using):
+                placeholder = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update()
+                    .filter(pk=connection_pk)
+                    .first()
+                )
+                if (
+                    placeholder is not None
+                    and placeholder.connection_generation == attempt_generation
+                    and placeholder.authorization_placeholder
+                    and placeholder.provider == GARMIN_PROVIDER
+                    and placeholder.status
+                    == GarminConnection.Status.DISCONNECTED
+                    and not placeholder.provider_account_id
+                    and not placeholder.provider_scopes
+                    and not placeholder.access_token_encrypted
+                    and not placeholder.refresh_token_encrypted
+                    and placeholder.access_token_expires_at is None
+                    and placeholder.last_synced_at is None
+                    and not placeholder.last_sync_summary
+                    and not placeholder.activities.exists()
+                ):
+                    placeholder.delete(using=using)
             raise ValueError(
                 "Garmin connection state changed during authorization"
             ) from exc
 
         with transaction.atomic(using=using):
-            connection = (
+            persisted_connection = (
                 GarminConnection.objects.using(using)
                 .select_for_update()
-                .get(pk=connection_pk)
+                .filter(pk=connection_pk)
+                .first()
             )
-            if (
-                connection.connection_generation != expected_generation
-                or connection.status != expected_status
-                or connection.provider_account_id
+            if persisted_connection is None or (
+                persisted_connection.connection_generation
+                != attempt_generation
+                or persisted_connection.status != expected_status
+                or persisted_connection.provider_account_id
                 != expected_provider_account_id
             ):
                 raise ValueError(
                     "Garmin connection state changed during authorization"
                 )
+            connection = persisted_connection
 
             if connection.provider != GARMIN_PROVIDER:
                 connection.provider = GARMIN_PROVIDER
@@ -248,7 +262,12 @@ class GarminMutation:
 
             updated_rows = (
                 GarminConnection.objects.using(using)
-                .filter(pk=connection.pk)
+                .filter(
+                    pk=connection.pk,
+                    connection_generation=attempt_generation,
+                    status=expected_status,
+                    provider_account_id=expected_provider_account_id,
+                )
                 .update(
                     provider=connection.provider,
                     provider_account_id=connection.provider_account_id,
@@ -258,6 +277,9 @@ class GarminMutation:
                     access_token_expires_at=connection.access_token_expires_at,
                     status=connection.status,
                     connection_generation=connection.connection_generation,
+                    authorization_placeholder=(
+                        connection.authorization_placeholder
+                    ),
                     last_synced_at=connection.last_synced_at,
                     last_sync_summary=connection.last_sync_summary,
                     updated_at=timezone.now(),
@@ -311,6 +333,7 @@ class GarminMutation:
                     "access_token_expires_at",
                     "status",
                     "connection_generation",
+                    "authorization_placeholder",
                     "last_synced_at",
                     "last_sync_summary",
                     "updated_at",
