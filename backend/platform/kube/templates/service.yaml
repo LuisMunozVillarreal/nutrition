@@ -6,9 +6,10 @@ metadata:
     {{- include "nutrition.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
+  {{- $service := .Values.service | default dict }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: {{ .Values.service.targetPort }}
+      targetPort: {{ default "public" $service.targetPort }}
       protocol: TCP
       name: http
   selector:

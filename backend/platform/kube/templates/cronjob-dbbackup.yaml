@@ -9,6 +9,8 @@ spec:
       template:
         spec:
           serviceAccountName: {{ include "nutrition.serviceAccountName" . }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
           volumes:
             - name: nutrition-gcp-db-backup-credentials
               secret:
@@ -17,6 +19,8 @@ spec:
           - name: {{ .Chart.Name }}-dbbackup
             image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
             imagePullPolicy: IfNotPresent
+            securityContext:
+              {{- toYaml .Values.securityContext | nindent 14 }}
             {{- with .Values.env }}
             env:
               {{- toYaml . | nindent 12 }}
