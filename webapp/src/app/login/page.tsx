@@ -99,6 +99,7 @@ function LoginForm() {
                 <h1 className="text-2xl font-bold">Login</h1>
                 <input
                     type="email"
+                    aria-label="Email"
                     placeholder="Email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -107,6 +108,7 @@ function LoginForm() {
                 />
                 <input
                     type="password"
+                    aria-label="Password"
                     placeholder="Password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
