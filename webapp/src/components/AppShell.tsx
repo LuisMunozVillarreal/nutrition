@@ -69,7 +69,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Sidebar />
-      <main className="main-content p-6 md:p-10">
+      <main className="main-content p-6 md:p-10" tabIndex={-1}>
         {children}
       </main>
     </>

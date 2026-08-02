@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import {
@@ -18,6 +19,8 @@ import {
   Weight,
   Calendar,
   CalendarDays,
+  Menu,
+  X,
 } from 'lucide-react'
 
 interface NavItem {
@@ -70,53 +73,192 @@ const navSections: NavSection[] = [
   },
 ]
 
+function focusMainContent() {
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>('.main-content')?.focus({ preventScroll: true })
+  })
+}
+
 export default function Sidebar() {
   const pathname = usePathname()
   const { data: session } = useSession()
+  const authenticated = Boolean(session)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLElement>(null)
+  const previousPathnameRef = useRef(pathname)
+
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false)
+    requestAnimationFrame(() => menuButtonRef.current?.focus())
+  }, [])
+
+  useEffect(() => {
+    if (previousPathnameRef.current === pathname) return
+    previousPathnameRef.current = pathname
+    setMenuOpen(false)
+    focusMainContent()
+  }, [pathname])
+
+  useEffect(() => {
+    if (!authenticated) setMenuOpen(false)
+  }, [authenticated])
+
+  useEffect(() => {
+    if (!menuOpen || !authenticated) return
+
+    const mobileMedia = window.matchMedia('(max-width: 768px)')
+    if (!mobileMedia.matches) {
+      setMenuOpen(false)
+      focusMainContent()
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu()
+        return
+      }
+
+      if (event.key === 'Tab') {
+        const focusable = Array.from(
+          drawerRef.current?.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          ) ?? [],
+        )
+        if (focusable.length === 0) return
+
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    const handleBreakpointChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        setMenuOpen(false)
+        focusMainContent()
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const mainContent = document.querySelector<HTMLElement>('.main-content')
+    const mobileHeader = document.querySelector<HTMLElement>('.mobile-header')
+    const mainWasInert = mainContent?.hasAttribute('inert') ?? false
+    const headerWasInert = mobileHeader?.hasAttribute('inert') ?? false
+    document.body.style.overflow = 'hidden'
+    mainContent?.setAttribute('inert', '')
+    mobileHeader?.setAttribute('inert', '')
+    document.addEventListener('keydown', handleKeyDown)
+    mobileMedia.addEventListener('change', handleBreakpointChange)
+    closeButtonRef.current?.focus()
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      if (!mainWasInert) mainContent?.removeAttribute('inert')
+      if (!headerWasInert) mobileHeader?.removeAttribute('inert')
+      document.removeEventListener('keydown', handleKeyDown)
+      mobileMedia.removeEventListener('change', handleBreakpointChange)
+    }
+  }, [authenticated, closeMenu, menuOpen])
 
   if (!session) return null
 
   return (
-    <nav className="sidebar" data-testid="sidebar">
-      <div className="px-6 mb-6">
-        <Link href="/" className="text-xl font-black tracking-tight text-white no-underline">
+    <>
+      <header className="mobile-header">
+        <Link href="/" aria-label="Go to dashboard" className="mobile-header-button">
+          <Home size={22} aria-hidden="true" />
+        </Link>
+        <Link href="/" className="text-lg font-black tracking-tight no-underline">
           <span className="text-gradient">Nutrition</span>
         </Link>
-      </div>
-
-      {navSections.map((section) => (
-        <div key={section.title || 'main'}>
-          {section.title && (
-            <div className="sidebar-section">{section.title}</div>
-          )}
-          {section.items.map((item) => {
-            const isActive = pathname === item.href ||
-              (item.href !== '/' && pathname.startsWith(item.href))
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`sidebar-link ${isActive ? 'active' : ''}`}
-                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-              >
-                {item.icon}
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
-      ))}
-
-      <div className="mt-auto pt-6 border-t border-white/5 mx-4">
         <button
-          onClick={() => signOut()}
-          className="sidebar-link w-full text-left"
-          data-testid="nav-logout"
+          ref={menuButtonRef}
+          type="button"
+          className="mobile-header-button"
+          aria-label="Open navigation menu"
+          aria-expanded={menuOpen}
+          aria-controls="primary-navigation"
+          onClick={() => setMenuOpen(true)}
         >
-          <LogOut size={18} />
-          Sign Out
+          <Menu size={24} aria-hidden="true" />
         </button>
-      </div>
-    </nav>
+      </header>
+      <button
+        type="button"
+        className={`sidebar-overlay ${menuOpen ? 'open' : ''}`}
+        aria-label="Close navigation menu"
+        tabIndex={-1}
+        onClick={closeMenu}
+      />
+      <nav
+        ref={drawerRef}
+        id="primary-navigation"
+        aria-label="Primary navigation"
+        className={`sidebar ${menuOpen ? 'open' : ''}`}
+        data-testid="sidebar"
+      >
+        <button
+          ref={closeButtonRef}
+          type="button"
+          className="sidebar-close"
+          aria-label="Close navigation menu"
+          onClick={closeMenu}
+        >
+          <X size={24} aria-hidden="true" />
+        </button>
+        <div className="px-6 mb-6">
+          <Link href="/" className="text-xl font-black tracking-tight text-white no-underline">
+            <span className="text-gradient">Nutrition</span>
+          </Link>
+        </div>
+
+        {navSections.map((section) => (
+          <div key={section.title || 'main'}>
+            {section.title && (
+              <div className="sidebar-section">{section.title}</div>
+            )}
+            {section.items.map((item) => {
+              const isActive = pathname === item.href ||
+                (item.href !== '/' && pathname.startsWith(item.href))
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`sidebar-link ${isActive ? 'active' : ''}`}
+                  data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  onClick={closeMenu}
+                >
+                  {item.icon}
+                  {item.label}
+                </Link>
+              )
+            })}
+          </div>
+        ))}
+
+        <div className="mt-auto pt-6 border-t border-white/5 mx-4">
+          <button
+            onClick={() => {
+              closeMenu()
+              void signOut()
+            }}
+            className="sidebar-link w-full text-left"
+            data-testid="nav-logout"
+          >
+            <LogOut size={18} />
+            Sign Out
+          </button>
+        </div>
+      </nav>
+    </>
   )
 }
