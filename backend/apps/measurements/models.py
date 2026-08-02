@@ -28,6 +28,17 @@ class Measurement(BaseModel):
         verbose_name="Weight (kg)",
     )
 
+    class Meta(BaseModel.Meta):
+        """Measurement database metadata."""
+
+        abstract = False
+        indexes = [
+            models.Index(
+                fields=["user", "-created_at", "-id"],
+                name="measurement_latest_idx",
+            )
+        ]
+
     def __str__(self) -> str:
         """Get string representation of the object.
 
