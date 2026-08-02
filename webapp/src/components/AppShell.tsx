@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { BACKEND_REAUTHENTICATION_REQUIRED } from '@/lib/sessionCapabilities'
-import { buildCallbackPath, decideRouteAccess } from '@/lib/routeAccess'
+import { buildCallbackPath, decideRouteAccess, safeCallbackPath } from '@/lib/routeAccess'
 import Sidebar from './Sidebar'
 
 function SessionLoading() {
@@ -21,7 +21,10 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const callbackPath = useMemo(
-    () => buildCallbackPath(pathname, searchParams.toString()),
+    () =>
+      pathname === '/login' || pathname === '/login/'
+        ? safeCallbackPath(searchParams.get('callbackUrl'))
+        : buildCallbackPath(pathname, searchParams.toString()),
     [pathname, searchParams],
   )
   const reauthenticationRequired =
