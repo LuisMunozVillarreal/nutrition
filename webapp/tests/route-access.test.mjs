@@ -103,14 +103,19 @@ test('login and public landing routes remain available without a session', async
 test('authenticated sessions leave the login route instead of rendering a login loop', async () => {
   const { decideRouteAccess } = await routePolicy()
 
-  assert.deepEqual(decideRouteAccess('/login', 'authenticated', false), {
-    kind: 'redirect',
-    destination: '/',
-  })
-  assert.deepEqual(decideRouteAccess('/login/', 'authenticated', true), {
-    kind: 'redirect',
-    destination: '/',
-  })
+  assert.deepEqual(
+    decideRouteAccess(
+      '/login',
+      'authenticated',
+      false,
+      '/products?sort=name',
+    ),
+    { kind: 'redirect', destination: '/products?sort=name' },
+  )
+  assert.deepEqual(
+    decideRouteAccess('/login/', 'authenticated', true, '/login'),
+    { kind: 'redirect', destination: '/' },
+  )
 })
 
 test('login callback destinations preserve local deep links and reject external redirects', async () => {

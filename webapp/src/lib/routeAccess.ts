@@ -64,7 +64,7 @@ export function decideRouteAccess(
   }
 
   if (isLoginPath(pathname)) {
-    return { kind: 'redirect', destination: '/' }
+    return { kind: 'redirect', destination: safeCallbackPath(callbackPath) }
   }
 
   const staffFallback = staffRouteDestination(pathname)
