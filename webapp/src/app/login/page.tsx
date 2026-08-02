@@ -8,18 +8,24 @@ import { safeCallbackPath } from '@/lib/routeAccess'
 
 const LOGIN_ERROR_MESSAGE =
     'Unable to sign in. Please check your connection or credentials and try again.'
+const LOGIN_RECOVERY_DELAY_MS = 10_000
 
 function LoginForm() {
     const submissionInFlight = useRef(false)
+    const submitButtonRef = useRef<HTMLButtonElement>(null)
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState<string | null>(null)
     const [isRequestPending, setIsRequestPending] = useState(false)
+    const [showRecovery, setShowRecovery] = useState(false)
     const [isNavigating, setIsNavigating] = useState(false)
     const [isNavigationPending, startNavigation] = useTransition()
     const router = useRouter()
     const searchParams = useSearchParams()
     const callbackPath = safeCallbackPath(searchParams.get('callbackUrl'))
+    const recoveryHref = callbackPath === '/'
+        ? '/login'
+        : `/login?callbackUrl=${encodeURIComponent(callbackPath)}`
     const isBusy = isRequestPending || isNavigating
 
     useEffect(() => {
@@ -28,6 +34,24 @@ function LoginForm() {
         submissionInFlight.current = false
         setIsNavigating(false)
     }, [isNavigating, isNavigationPending])
+
+    useEffect(() => {
+        if (!isRequestPending) {
+            setShowRecovery(false)
+            return
+        }
+
+        const recoveryTimer = window.setTimeout(
+            () => setShowRecovery(true),
+            LOGIN_RECOVERY_DELAY_MS
+        )
+        return () => window.clearTimeout(recoveryTimer)
+    }, [isRequestPending])
+
+    useEffect(() => {
+        if (!error || isBusy) return
+        submitButtonRef.current?.focus()
+    }, [error, isBusy])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -67,7 +91,10 @@ function LoginForm() {
 
     return (
         <div className="flex min-h-screen flex-col items-center justify-center p-24">
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4 bg-white p-8 rounded shadow text-black">
+            <form
+                onSubmit={handleSubmit}
+                className="flex flex-col gap-4 bg-white p-8 rounded shadow text-black"
+            >
                 <h1 className="text-2xl font-bold">Login</h1>
                 <input
                     type="email"
@@ -75,7 +102,7 @@ function LoginForm() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="border p-2 rounded"
-                    disabled={isBusy}
+                    readOnly={isBusy}
                 />
                 <input
                     type="password"
@@ -83,7 +110,7 @@ function LoginForm() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="border p-2 rounded"
-                    disabled={isBusy}
+                    readOnly={isBusy}
                 />
                 {error && (
                     <p role="alert" className="text-sm text-red-600">
@@ -91,9 +118,20 @@ function LoginForm() {
                     </p>
                 )}
                 <p role="status" aria-live="polite" className="sr-only">
-                    {isBusy ? 'Signing in...' : ''}
+                    {showRecovery
+                        ? 'Sign-in is taking longer than expected. Reload the login page to try again.'
+                        : isBusy ? 'Signing in...' : ''}
                 </p>
+                {showRecovery && (
+                    <p className="text-sm text-slate-600">
+                        Taking longer than expected?{' '}
+                        <a href={recoveryHref} className="font-medium text-blue-700 underline">
+                            Reload login page
+                        </a>
+                    </p>
+                )}
                 <button
+                    ref={submitButtonRef}
                     type="submit"
                     disabled={isBusy}
                     aria-busy={isBusy}
@@ -101,7 +139,7 @@ function LoginForm() {
                 >
                     {isBusy ? (
                         <>
-                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                             Signing in...
                         </>
                     ) : (
