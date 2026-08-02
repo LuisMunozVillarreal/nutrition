@@ -2,7 +2,7 @@
 
 import { LoaderCircle } from 'lucide-react'
 import { signIn } from 'next-auth/react'
-import { Suspense, useRef, useState, useTransition } from 'react'
+import { Suspense, useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { safeCallbackPath } from '@/lib/routeAccess'
 
@@ -14,12 +14,20 @@ function LoginForm() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState<string | null>(null)
-    const [isSubmitting, setIsSubmitting] = useState(false)
-    const [isPending, startTransition] = useTransition()
+    const [isRequestPending, setIsRequestPending] = useState(false)
+    const [isNavigating, setIsNavigating] = useState(false)
+    const [isNavigationPending, startNavigation] = useTransition()
     const router = useRouter()
     const searchParams = useSearchParams()
     const callbackPath = safeCallbackPath(searchParams.get('callbackUrl'))
-    const isBusy = isSubmitting || isPending
+    const isBusy = isRequestPending || isNavigating
+
+    useEffect(() => {
+        if (!isNavigating || isNavigationPending) return
+
+        submissionInFlight.current = false
+        setIsNavigating(false)
+    }, [isNavigating, isNavigationPending])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -27,7 +35,7 @@ function LoginForm() {
 
         submissionInFlight.current = true
         setError(null)
-        setIsSubmitting(true)
+        setIsRequestPending(true)
 
         try {
             const result = await signIn('credentials', {
@@ -40,18 +48,20 @@ function LoginForm() {
             if (!result?.ok) {
                 submissionInFlight.current = false
                 setError(LOGIN_ERROR_MESSAGE)
-                setIsSubmitting(false)
+                setIsRequestPending(false)
                 return
             }
 
-            startTransition(() => {
+            setIsRequestPending(false)
+            setIsNavigating(true)
+            startNavigation(() => {
                 router.refresh()
                 router.push(callbackPath)
             })
         } catch {
             submissionInFlight.current = false
             setError(LOGIN_ERROR_MESSAGE)
-            setIsSubmitting(false)
+            setIsRequestPending(false)
         }
     }
 
