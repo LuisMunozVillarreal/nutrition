@@ -6,8 +6,11 @@ export interface MeasurementFormState {
 export function prefillPreviousBodyFat(
   form: MeasurementFormState,
   previousBodyFat: number | null,
+  bodyFatTouched = false,
 ): MeasurementFormState {
-  if (form.bodyFatPerc !== '' || previousBodyFat === null) return form
+  if (bodyFatTouched || form.bodyFatPerc !== '' || previousBodyFat === null) {
+    return form
+  }
 
   return { ...form, bodyFatPerc: String(previousBodyFat) }
 }

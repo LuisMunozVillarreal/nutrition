@@ -16,6 +16,10 @@ test('previous body fat prefills only an untouched measurement form', async () =
     { bodyFatPerc: '19.2', weight: '' },
   )
   assert.deepEqual(
+    prefillPreviousBodyFat({ bodyFatPerc: '', weight: '' }, 18.4, true),
+    { bodyFatPerc: '', weight: '' },
+  )
+  assert.deepEqual(
     prefillPreviousBodyFat({ bodyFatPerc: '', weight: '' }, null),
     { bodyFatPerc: '', weight: '' },
   )
