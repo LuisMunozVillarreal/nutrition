@@ -24,10 +24,12 @@ When reporting that a pull request is ready:
 - Treat the preview URL as sensitive. Share the real value only in the owner's direct handoff; never add it to repository files, commits, pull-request text, review replies, issues, CI logs, screenshots, or public/multi-user channels. If the current channel is not private, ask the owner where to send it.
 - If a preview was not deployed, state that explicitly instead of implying the pull request is ready for visual inspection.
 
-## Codex Review Trigger
+## Pull-Request Review Policy
 
-When requesting a Codex review for this repository, post this exact comment:
-
-```text
-@codex review for correctness, security, authorization, data integrity, nutrition calculations and unit conversions, Django/GraphQL/Next.js contract regressions, database migrations, and deployment or preview-environment regressions. Follow all applicable AGENTS.md instructions. If you detect a sensitive deployment identifier, do not quote or reproduce it.
-```
+- Review pull requests with newly spawned, read-only local reviewer subagents; do not trigger or rely on external GitHub review bots.
+- Start with three independent review cycles. Report every substantiated finding without an artificial cap, and extend after a substantive final cycle until a fresh reviewer verifies the updated HEAD clean.
+- Give each reviewer the repository path, exact base and head SHAs, applicable instructions, complete changed scope, domain-specific correctness and security checks, confidentiality constraints, and structured finding requirements.
+- Reviewers must not edit files, commit, push, post to GitHub, change authentication or remotes, or resolve threads.
+- Independently verify findings before posting them. Prefix reviewer comments with `Reviewer:` and fix replies with `Coder:`, reply inline, and leave threads unresolved for reviewer verification.
+- Restore full CI—including preview deployment and end-to-end checks—and verify local, remote, and PR HEAD equality before starting the next cycle.
+- Review completion never authorizes merging; merge only with explicit approval for that pull request.
