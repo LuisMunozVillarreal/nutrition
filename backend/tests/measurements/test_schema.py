@@ -14,6 +14,13 @@ from config.schema import schema
 User = get_user_model()
 
 
+def test_measurement_has_latest_per_user_index():
+    """Latest measurement lookups use a bounded composite index."""
+    index_fields = {tuple(index.fields) for index in Measurement._meta.indexes}
+
+    assert ("user", "-created_at", "-id") in index_fields
+
+
 @pytest.mark.django_db
 class TestMeasurementsQuery:
     """Tests for measurement queries."""
