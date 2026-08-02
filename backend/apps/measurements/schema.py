@@ -76,6 +76,27 @@ class MeasurementQuery:
         ]
 
     @strawberry.field
+    def latest_measurement(self, info: Info) -> MeasurementType | None:
+        """Get the newest measurement for the current user.
+
+        Args:
+            info (Info): GraphQL execution info.
+
+        Returns:
+            MeasurementType | None: newest measurement or None.
+        """
+        user = get_request_user(info.context)
+        if user is None or not user.is_authenticated:
+            return None
+
+        measurement = (
+            Measurement.objects.filter(user=user)
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        return MeasurementType.from_model(measurement) if measurement else None
+
+    @strawberry.field
     def measurement(
         self, info: Info, id: strawberry.ID
     ) -> MeasurementType | None:

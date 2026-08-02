@@ -31,9 +31,11 @@ test('new measurement page loads the latest body fat without loading weight', as
     'utf8',
   )
 
-  assert.match(source, /latestBodyFat/)
+  assert.match(source, /latestMeasurement/)
+  assert.match(source, /bodyFatPerc/)
   assert.match(source, /prefillPreviousBodyFat/)
   assert.match(source, /useEffect/)
   assert.match(source, /catch\(/)
+  assert.doesNotMatch(source, /dashboard\(/)
   assert.doesNotMatch(source, /latestWeight/)
 })

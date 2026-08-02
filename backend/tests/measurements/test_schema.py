@@ -57,6 +57,41 @@ class TestMeasurementsQuery:
         assert len(result.data["measurements"]) == 1
         assert result.data["measurements"][0]["weight"] == 80.0
 
+    def test_latest_measurement_returns_current_users_newest_record(self, mocker):
+        """Latest measurement is bounded to the current user and newest record."""
+        user = User.objects.create_user(
+            email="latest@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        other_user = User.objects.create_user(
+            email="other-latest@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=175.0,
+        )
+        Measurement.objects.create(user=user, body_fat_perc=20.0, weight=80.0)
+        Measurement.objects.create(user=user, body_fat_perc=18.4, weight=79.0)
+        Measurement.objects.create(
+            user=other_user,
+            body_fat_perc=30.0,
+            weight=90.0,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            "{ latestMeasurement { bodyFatPerc weight } }",
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["latestMeasurement"] == {
+            "bodyFatPerc": 18.4,
+            "weight": 79.0,
+        }
+
     def test_measurement_detail(self, mocker):
         """Test single measurement query."""
         # Given a user with a measurement
