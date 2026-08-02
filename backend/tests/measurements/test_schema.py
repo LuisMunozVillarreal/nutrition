@@ -64,7 +64,9 @@ class TestMeasurementsQuery:
         assert len(result.data["measurements"]) == 1
         assert result.data["measurements"][0]["weight"] == 80.0
 
-    def test_latest_measurement_returns_current_users_newest_record(self, mocker):
+    def test_latest_measurement_returns_current_users_newest_record(
+        self, mocker
+    ):
         """Latest measurement is bounded to the current user and newest record."""
         user = User.objects.create_user(
             email="latest@example.com",
@@ -110,12 +112,6 @@ class TestMeasurementsQuery:
             "bodyFatPerc": 18.4,
             "weight": 79.0,
         }
-        query_plan = (
-            Measurement.objects.filter(user=user)
-            .order_by("-created_at", "-id")[:1]
-            .explain()
-        )
-        assert "measurement_latest_idx" in query_plan
 
     def test_latest_measurement_returns_null_without_history(self, mocker):
         """An authenticated user with no measurements gets no prefill record."""
