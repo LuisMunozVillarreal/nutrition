@@ -38,7 +38,16 @@ let sessionStatus = 'unauthenticated'
 let signInImplementation
 let React
 
-mock.module('next-auth/react', {
+const nextAuthUrl = new URL(
+  '../node_modules/next-auth/react/index.js',
+  import.meta.url,
+).href
+const nextNavUrl = new URL(
+  '../node_modules/next/navigation.js',
+  import.meta.url,
+).href
+
+mock.module(nextAuthUrl, {
   namedExports: {
     signIn: (...args) => {
       authenticationCalls.push(args)
@@ -48,7 +57,7 @@ mock.module('next-auth/react', {
   },
 })
 
-mock.module('next/navigation', {
+mock.module(nextNavUrl, {
   namedExports: {
     useRouter: () => {
       const [navigationAttempt, setNavigationAttempt] = React.useState(0)
