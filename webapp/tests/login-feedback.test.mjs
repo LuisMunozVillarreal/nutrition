@@ -29,9 +29,12 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const authenticationCalls = []
 const pushedPaths = []
+const replacedPaths = []
 let callbackUrl = null
 let navigationSuspender = null
 let refreshCount = 0
+let sessionData = null
+let sessionStatus = 'unauthenticated'
 let signInImplementation
 let React
 
@@ -41,6 +44,7 @@ mock.module('next-auth/react', {
       authenticationCalls.push(args)
       return signInImplementation(...args)
     },
+    useSession: () => ({ data: sessionData, status: sessionStatus }),
   },
 })
 
@@ -62,8 +66,12 @@ mock.module('next/navigation', {
         refresh: () => {
           refreshCount += 1
         },
+        replace: (path) => {
+          replacedPaths.push(path)
+        },
       }
     },
+    usePathname: () => '/login',
     useSearchParams: () =>
       new URLSearchParams(callbackUrl ? { callbackUrl } : undefined),
   },
@@ -74,6 +82,7 @@ const { act, cleanup, fireEvent, render, waitFor } = await import(
   '@testing-library/react'
 )
 const { default: LoginPage } = await import('../src/app/login/page.tsx')
+const { default: AppShell } = await import('../src/components/AppShell.tsx')
 
 function deferred() {
   let resolve
@@ -85,8 +94,12 @@ function deferred() {
   return { promise, reject, resolve }
 }
 
-function renderLogin() {
-  const view = render(React.createElement(LoginPage))
+function renderLogin({ withShell = false } = {}) {
+  const login = React.createElement(LoginPage)
+  const element = withShell
+    ? React.createElement(AppShell, null, login)
+    : login
+  const view = render(element)
   const email = view.getByPlaceholderText('Email')
   const password = view.getByPlaceholderText('Password')
   const button = view.getByRole('button', { name: 'Sign In' })
@@ -111,9 +124,12 @@ function assertControlsEnabled({ button, email, password }) {
 beforeEach(() => {
   authenticationCalls.length = 0
   pushedPaths.length = 0
+  replacedPaths.length = 0
   callbackUrl = null
   navigationSuspender = null
   refreshCount = 0
+  sessionData = null
+  sessionStatus = 'unauthenticated'
   signInImplementation = async () => ({ ok: false })
 })
 
@@ -268,6 +284,49 @@ test('successful authentication refreshes and navigates to the safe callback pat
     authenticationCalls[0][1].callbackUrl,
     '/products?sort=name',
   )
+})
+
+test('the authenticated session shell preserves the login callback instead of racing it to the landing page', async () => {
+  callbackUrl = '/products?sort=name'
+  signInImplementation = async () => {
+    sessionData = { user: { isStaff: false } }
+    sessionStatus = 'authenticated'
+    return { ok: true }
+  }
+  const controls = renderLogin({ withShell: true })
+
+  fireEvent.submit(controls.form)
+  await waitFor(() => assert.deepEqual(pushedPaths, ['/products?sort=name']))
+
+  controls.view.rerender(
+    React.createElement(AppShell, null, React.createElement(LoginPage)),
+  )
+  await waitFor(() =>
+    assert.deepEqual(replacedPaths, ['/products?sort=name']),
+  )
+})
+
+test('a never-settling post-authentication navigation retains callback recovery and duplicate blocking', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  callbackUrl = '/products?sort=name'
+  navigationSuspender = deferred()
+  signInImplementation = async () => ({ ok: true })
+  const controls = renderLogin()
+
+  await act(async () => {
+    fireEvent.submit(controls.form)
+    await Promise.resolve()
+  })
+  assert.deepEqual(pushedPaths, ['/products?sort=name'])
+
+  await act(async () => t.mock.timers.tick(10_000))
+
+  const recoveryLink = controls.view.getByRole('link', {
+    name: /reload login page/i,
+  })
+  assert.equal(recoveryLink.getAttribute('href'), '/products?sort=name')
+  fireEvent.submit(controls.form)
+  assert.equal(authenticationCalls.length, 1)
 })
 
 test('feedback remains active during navigation and a mounted form releases its latch when navigation settles', async () => {

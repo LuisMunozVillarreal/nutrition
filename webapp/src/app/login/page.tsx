@@ -23,10 +23,11 @@ function LoginForm() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const callbackPath = safeCallbackPath(searchParams.get('callbackUrl'))
-    const recoveryHref = callbackPath === '/'
+    const loginRecoveryHref = callbackPath === '/'
         ? '/login'
         : `/login?callbackUrl=${encodeURIComponent(callbackPath)}`
     const isBusy = isRequestPending || isNavigating
+    const recoveryHref = isNavigating ? callbackPath : loginRecoveryHref
 
     useEffect(() => {
         if (!isNavigating || isNavigationPending) return
@@ -36,7 +37,7 @@ function LoginForm() {
     }, [isNavigating, isNavigationPending])
 
     useEffect(() => {
-        if (!isRequestPending) {
+        if (!isBusy) {
             setShowRecovery(false)
             return
         }
@@ -46,7 +47,7 @@ function LoginForm() {
             LOGIN_RECOVERY_DELAY_MS
         )
         return () => window.clearTimeout(recoveryTimer)
-    }, [isRequestPending])
+    }, [isBusy])
 
     useEffect(() => {
         if (!error || isBusy) return
