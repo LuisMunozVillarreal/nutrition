@@ -77,10 +77,12 @@ const { default: LoginPage } = await import('../src/app/login/page.tsx')
 
 function deferred() {
   let resolve
-  const promise = new Promise((resolvePromise) => {
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
     resolve = resolvePromise
+    reject = rejectPromise
   })
-  return { promise, resolve }
+  return { promise, reject, resolve }
 }
 
 function renderLogin() {
@@ -99,7 +101,9 @@ function renderLogin() {
 
 function assertControlsEnabled({ button, email, password }) {
   assert.equal(email.disabled, false)
+  assert.equal(email.readOnly, false)
   assert.equal(password.disabled, false)
+  assert.equal(password.readOnly, false)
   assert.equal(button.disabled, false)
   assert.equal(button.getAttribute('aria-busy'), 'false')
 }
@@ -125,8 +129,10 @@ test('a deferred credentials request blocks duplicate submissions and shows prog
   fireEvent.submit(controls.form)
 
   assert.equal(authenticationCalls.length, 1)
-  assert.equal(controls.email.disabled, true)
-  assert.equal(controls.password.disabled, true)
+  assert.equal(controls.email.disabled, false)
+  assert.equal(controls.email.readOnly, true)
+  assert.equal(controls.password.disabled, false)
+  assert.equal(controls.password.readOnly, true)
   assert.equal(controls.button.disabled, true)
   assert.equal(controls.button.getAttribute('aria-busy'), 'true')
   assert.ok(
@@ -136,6 +142,56 @@ test('a deferred credentials request blocks duplicate submissions and shows prog
 
   request.resolve({ ok: false })
   await waitFor(() => assertControlsEnabled(controls))
+})
+
+test('the progress spinner stops for reduced motion while live text remains available', async () => {
+  const request = deferred()
+  signInImplementation = () => request.promise
+  const controls = renderLogin()
+
+  fireEvent.submit(controls.form)
+
+  const spinner = controls.button.querySelector('svg[aria-hidden="true"]')
+  assert.ok(spinner)
+  assert.equal(spinner.classList.contains('animate-spin'), true)
+  assert.equal(spinner.classList.contains('motion-reduce:animate-none'), true)
+  assert.equal(controls.view.getByRole('status').textContent, 'Signing in...')
+
+  request.resolve({ ok: false })
+  await waitFor(() => assertControlsEnabled(controls))
+})
+
+test('an unresolved credentials request offers safe page recovery while keeping duplicate submissions blocked', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  callbackUrl = '/products?sort=name'
+  signInImplementation = () => new Promise(() => {})
+  const controls = renderLogin()
+
+  fireEvent.submit(controls.form)
+  assert.equal(
+    controls.view.queryByRole('link', { name: /reload login page/i }),
+    null,
+  )
+
+  await act(async () => t.mock.timers.tick(10_000))
+
+  const recoveryLink = controls.view.getByRole('link', {
+    name: /reload login page/i,
+  })
+  assert.equal(
+    recoveryLink.getAttribute('href'),
+    '/login?callbackUrl=%2Fproducts%3Fsort%3Dname',
+  )
+  assert.match(
+    controls.view.getByRole('status').textContent,
+    /taking longer than expected/i,
+  )
+  fireEvent.submit(controls.form)
+  assert.equal(authenticationCalls.length, 1)
+  assert.equal(controls.email.readOnly, true)
+  assert.equal(controls.password.readOnly, true)
+  assert.equal(controls.button.disabled, true)
+  assert.equal(controls.button.getAttribute('aria-busy'), 'true')
 })
 
 test('a resolved unsuccessful credentials result restores controls and shows retry guidance', async () => {
@@ -152,13 +208,42 @@ test('a resolved unsuccessful credentials result restores controls and shows ret
   assertControlsEnabled(controls)
 })
 
-test('a rejected credentials request restores controls and shows retry guidance', async () => {
-  signInImplementation = async () => {
-    throw new Error('network unavailable')
-  }
+test('keyboard submission preserves text-entry focus while busy and focuses the retry button after an unsuccessful result', async () => {
+  const request = deferred()
+  signInImplementation = () => request.promise
   const controls = renderLogin()
+  controls.password.focus()
 
   fireEvent.submit(controls.form)
+
+  assert.equal(controls.password.disabled, false)
+  assert.equal(controls.password.readOnly, true)
+  assert.equal(document.activeElement, controls.password)
+
+  await act(async () => {
+    request.resolve({ ok: false })
+    await request.promise
+  })
+
+  await controls.view.findByRole('alert')
+  await waitFor(() => assert.equal(document.activeElement, controls.button))
+  assert.equal(controls.password.readOnly, false)
+})
+
+test('button submission restores focus to the retry button after a rejected request', async () => {
+  const request = deferred()
+  signInImplementation = () => request.promise
+  const controls = renderLogin()
+  controls.button.focus()
+
+  fireEvent.click(controls.button)
+  assert.equal(controls.button.disabled, true)
+  controls.button.blur()
+
+  await act(async () => {
+    request.reject(new Error('network unavailable'))
+    await request.promise.catch(() => {})
+  })
 
   const alert = await controls.view.findByRole('alert')
   assert.match(
@@ -166,6 +251,7 @@ test('a rejected credentials request restores controls and shows retry guidance'
     /check your connection or credentials and try again/i,
   )
   assertControlsEnabled(controls)
+  assert.equal(document.activeElement, controls.button)
 })
 
 test('successful authentication refreshes and navigates to the safe callback path', async () => {
@@ -193,8 +279,10 @@ test('feedback remains active during navigation and a mounted form releases its 
   fireEvent.submit(controls.form)
 
   await waitFor(() => assert.deepEqual(pushedPaths, ['/']))
-  assert.equal(controls.email.disabled, true)
-  assert.equal(controls.password.disabled, true)
+  assert.equal(controls.email.disabled, false)
+  assert.equal(controls.email.readOnly, true)
+  assert.equal(controls.password.disabled, false)
+  assert.equal(controls.password.readOnly, true)
   assert.equal(controls.button.disabled, true)
   assert.ok(
     controls.button.querySelector('svg.animate-spin[aria-hidden="true"]'),
