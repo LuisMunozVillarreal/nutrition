@@ -11,6 +11,50 @@ Then("I should see the measurements page title", () => {
         .and("contain.text", "Measurements");
 });
 
+When("I use a mobile viewport", () => {
+    cy.viewport(375, 667);
+});
+
+Then("I should see the mobile navigation", () => {
+    cy.get('[aria-label="Go to dashboard"]').should("be.visible");
+    cy.get('[aria-label="Open navigation menu"]')
+        .should("be.visible")
+        .and("have.attr", "aria-expanded", "false");
+    cy.get('[aria-label="Primary navigation"]').should("not.be.visible");
+});
+
+When("I open the mobile navigation", () => {
+    cy.get('[aria-label="Open navigation menu"]').click();
+});
+
+Then("I should see the open primary navigation", () => {
+    cy.get('[aria-label="Open navigation menu"]')
+        .should("have.attr", "aria-expanded", "true");
+    cy.get('[aria-label="Primary navigation"]').should("be.visible");
+});
+
+When("I close the mobile navigation with Escape", () => {
+    cy.get("body").trigger("keydown", { key: "Escape" });
+});
+
+Then("the mobile menu button should have focus", () => {
+    cy.get('[aria-label="Open navigation menu"]')
+        .should("have.attr", "aria-expanded", "false")
+        .and("be.focused");
+});
+
+When("I choose Plans from the mobile navigation", () => {
+    cy.get('[data-testid="nav-week-plans"]').click();
+});
+
+Then("I should be on the plans page with the mobile navigation closed", () => {
+    cy.location("pathname").should("equal", "/plans");
+    cy.get('[aria-label="Open navigation menu"]')
+        .should("have.attr", "aria-expanded", "false");
+    cy.get('[aria-label="Primary navigation"]').should("not.be.visible");
+    cy.get(".main-content").should("be.focused");
+});
+
 When("I navigate to the new measurement page", () => {
     cy.visit("/measurements/new");
     waitForFormReady();
