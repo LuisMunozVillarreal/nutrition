@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, ReadonlyField } from '@/components/FormField'
@@ -38,6 +38,7 @@ export default function NewMeasurementPage() {
     weight: '',
   })
   const [saving, setSaving] = useState(false)
+  const bodyFatTouched = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -50,6 +51,7 @@ export default function NewMeasurementPage() {
           setForm((previous) => prefillPreviousBodyFat(
             previous,
             result.me?.dashboard.latestBodyFat ?? null,
+            bodyFatTouched.current,
           ))
         }
       })
@@ -63,6 +65,7 @@ export default function NewMeasurementPage() {
   }, [])
 
   const handleChange = (name: string, value: string) => {
+    if (name === 'bodyFatPerc') bodyFatTouched.current = true
     setForm(prev => ({ ...prev, [name]: value }))
   }
 
