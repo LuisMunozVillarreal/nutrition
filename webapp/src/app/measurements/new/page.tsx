@@ -7,11 +7,9 @@ import { FormField, ReadonlyField } from '@/components/FormField'
 import { prefillPreviousBodyFat } from './measurementForm'
 
 const PREVIOUS_BODY_FAT_QUERY = gql`
-  query GetPreviousBodyFat($timezoneOffsetMinutes: Int!) {
-    me {
-      dashboard(timezoneOffsetMinutes: $timezoneOffsetMinutes) {
-        latestBodyFat
-      }
+  query GetPreviousBodyFat {
+    latestMeasurement {
+      bodyFatPerc
     }
   }
 `
@@ -25,10 +23,8 @@ const CREATE_MUTATION = gql`
 `
 
 interface PreviousBodyFatResponse {
-  me: {
-    dashboard: {
-      latestBodyFat: number | null
-    }
+  latestMeasurement: {
+    bodyFatPerc: number
   } | null
 }
 
@@ -43,14 +39,12 @@ export default function NewMeasurementPage() {
   useEffect(() => {
     let cancelled = false
 
-    void graphqlRequest<PreviousBodyFatResponse>(PREVIOUS_BODY_FAT_QUERY, {
-      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
-    })
+    void graphqlRequest<PreviousBodyFatResponse>(PREVIOUS_BODY_FAT_QUERY)
       .then((result) => {
         if (!cancelled) {
           setForm((previous) => prefillPreviousBodyFat(
             previous,
-            result.me?.dashboard.latestBodyFat ?? null,
+            result.latestMeasurement?.bodyFatPerc ?? null,
             bodyFatTouched.current,
           ))
         }
