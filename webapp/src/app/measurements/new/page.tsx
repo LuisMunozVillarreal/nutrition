@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, ReadonlyField } from '@/components/FormField'
-import { prefillPreviousBodyFat } from './measurementForm'
+import {
+  loadAndPrefillPreviousBodyFat,
+} from './measurementForm'
 
 const PREVIOUS_BODY_FAT_QUERY = gql`
   query GetPreviousBodyFat {
@@ -39,19 +41,20 @@ export default function NewMeasurementPage() {
   useEffect(() => {
     let cancelled = false
 
-    void graphqlRequest<PreviousBodyFatResponse>(PREVIOUS_BODY_FAT_QUERY)
-      .then((result) => {
-        if (!cancelled) {
-          setForm((previous) => prefillPreviousBodyFat(
-            previous,
-            result.latestMeasurement?.bodyFatPerc ?? null,
-            bodyFatTouched.current,
-          ))
-        }
-      })
-      .catch((error) => {
+    void loadAndPrefillPreviousBodyFat({
+      lookup: async () => {
+        const result = await graphqlRequest<PreviousBodyFatResponse>(
+          PREVIOUS_BODY_FAT_QUERY,
+        )
+        return result.latestMeasurement?.bodyFatPerc ?? null
+      },
+      updateForm: setForm,
+      isTouched: () => bodyFatTouched.current,
+      isCancelled: () => cancelled,
+      onError: (error) => {
         console.error('Failed to load the previous body fat percentage', error)
-      })
+      },
+    })
 
     return () => {
       cancelled = true

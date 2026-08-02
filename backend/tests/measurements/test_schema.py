@@ -78,8 +78,20 @@ class TestMeasurementsQuery:
             date_of_birth="2000-01-01",
             height=175.0,
         )
-        Measurement.objects.create(user=user, body_fat_perc=20.0, weight=80.0)
-        Measurement.objects.create(user=user, body_fat_perc=18.4, weight=79.0)
+        first = Measurement.objects.create(
+            user=user,
+            body_fat_perc=20.0,
+            weight=80.0,
+        )
+        second = Measurement.objects.create(
+            user=user,
+            body_fat_perc=18.4,
+            weight=79.0,
+        )
+        tied_created_at = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+        Measurement.objects.filter(id__in=[first.id, second.id]).update(
+            created_at=tied_created_at,
+        )
         Measurement.objects.create(
             user=other_user,
             body_fat_perc=30.0,
@@ -98,6 +110,41 @@ class TestMeasurementsQuery:
             "bodyFatPerc": 18.4,
             "weight": 79.0,
         }
+        query_plan = (
+            Measurement.objects.filter(user=user)
+            .order_by("-created_at", "-id")[:1]
+            .explain()
+        )
+        assert "measurement_latest_idx" in query_plan
+
+    def test_latest_measurement_returns_null_without_history(self, mocker):
+        """An authenticated user with no measurements gets no prefill record."""
+        user = User.objects.create_user(
+            email="no-measurements@example.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            "{ latestMeasurement { bodyFatPerc } }",
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["latestMeasurement"] is None
+
+    def test_latest_measurement_unauthenticated(self):
+        """Unauthenticated users cannot retrieve a latest measurement."""
+        result = schema.execute_sync(
+            "{ latestMeasurement { bodyFatPerc } }",
+            context_value=None,
+        )
+
+        assert result.errors is None
+        assert result.data["latestMeasurement"] is None
 
     def test_measurement_detail(self, mocker):
         """Test single measurement query."""
