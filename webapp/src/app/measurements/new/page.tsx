@@ -1,9 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
-import { FormField, SelectField, TextareaField, CheckboxField, ReadonlyField } from '@/components/FormField'
+import { FormField, ReadonlyField } from '@/components/FormField'
+import { prefillPreviousBodyFat } from './measurementForm'
+
+const PREVIOUS_BODY_FAT_QUERY = gql`
+  query GetPreviousBodyFat($timezoneOffsetMinutes: Int!) {
+    me {
+      dashboard(timezoneOffsetMinutes: $timezoneOffsetMinutes) {
+        latestBodyFat
+      }
+    }
+  }
+`
 
 const CREATE_MUTATION = gql`
   mutation CreateMeasurement($bodyFatPerc: Float!, $weight: Float!) {
@@ -13,12 +24,43 @@ const CREATE_MUTATION = gql`
   }
 `
 
+interface PreviousBodyFatResponse {
+  me: {
+    dashboard: {
+      latestBodyFat: number | null
+    }
+  } | null
+}
+
 export default function NewMeasurementPage() {
   const [form, setForm] = useState({
     bodyFatPerc: '',
     weight: '',
   })
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    void graphqlRequest<PreviousBodyFatResponse>(PREVIOUS_BODY_FAT_QUERY, {
+      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+    })
+      .then((result) => {
+        if (!cancelled) {
+          setForm((previous) => prefillPreviousBodyFat(
+            previous,
+            result.me?.dashboard.latestBodyFat ?? null,
+          ))
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load the previous body fat percentage', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleChange = (name: string, value: string) => {
     setForm(prev => ({ ...prev, [name]: value }))
