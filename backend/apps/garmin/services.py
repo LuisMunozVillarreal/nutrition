@@ -131,17 +131,26 @@ def _required_setting(name: str) -> str:
 
 def _normalize_https_origin(url: str) -> str:
     parsed = urlsplit(url)
-    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        # Unbracketed IPv6 literal: the whole authority is the host.
+        port = None
+        host = (parsed.netloc or "").lower()
+    else:
+        host = (parsed.hostname or "").lower()
     if not host:
         raise ValueError("GARMIN setting has an invalid hostname")
 
-    if parsed.port is None:
+    if port is None:
+        if ":" in host:
+            return f"{parsed.scheme}://[{host}]"
         return f"{parsed.scheme}://{host}"
 
     if ":" in host:
-        return f"{parsed.scheme}://[{host}]:{parsed.port}"
+        return f"{parsed.scheme}://[{host}]:{port}"
 
-    return f"{parsed.scheme}://{host}:{parsed.port}"
+    return f"{parsed.scheme}://{host}:{port}"
 
 
 def _required_origin_list(name: str) -> set[str]:
@@ -2390,6 +2399,6 @@ def sync_all_connections() -> dict[int, GarminSyncSummary]:
     for connection in query.order_by("pk"):
         try:
             results[connection.pk] = sync_connection(connection)
-        except ValueError:
+        except (ValueError, OperationalError):
             continue
     return results

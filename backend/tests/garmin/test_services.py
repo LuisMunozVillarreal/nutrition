@@ -30,6 +30,21 @@ from apps.plans.models import Day, WeekPlan
 User = get_user_model()
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://app.example.com", "https://app.example.com"),
+        ("https://app.example.com:443", "https://app.example.com:443"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ("https://2001:db8::1", "https://[2001:db8::1]"),
+        ("http://::1", "http://[::1]"),
+    ],
+)
+def test_normalize_https_origin_brackets_ipv6_hosts(raw: str, expected: str):
+    """IPv6 hosts are always bracket-wrapped, with or without an explicit port."""
+    assert services._normalize_https_origin(raw) == expected
+
+
 def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "GARMIN_ENABLED", True)
     monkeypatch.setattr(settings, "GARMIN_CLIENT_ID", "garmin-client-id")
