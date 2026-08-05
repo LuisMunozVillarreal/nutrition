@@ -22,6 +22,75 @@ from apps.measurements.models import Measurement
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
 
+# WeekPlanType fields that traverse the days relation (and therefore need the
+# batched day prefetch to avoid per-plan query growth).
+_DAY_DEPENDENT_FIELDS = frozenset(
+    {
+        "days",
+        "twee",
+        "energyKcalGoal",
+        "energyKcal",
+    }
+)
+
+
+def _requested_field_names(info: Info) -> set[str]:
+    """Return the GraphQL field names selected on the current field's type."""
+    names: set[str] = set()
+    for field in info.selected_fields:
+        for selection in field.selections:
+            name = getattr(selection, "name", None)
+            if name:
+                names.add(name)
+    return names
+
+
+def _day_queryset() -> models.QuerySet:
+    """Build the Day queryset with all TDEE dependencies preloaded.
+
+    Selects the plan measurement and reverse one-to-one steps, prefetches
+    intakes, and annotates the exercise calories aggregate so ``tdee`` and
+    ``twee`` never issue per-day SQL.
+    """
+    return (
+        Day.objects.select_related("plan__measurement", "steps")
+        .prefetch_related(
+            Prefetch(
+                "intakes",
+                queryset=Intake.objects.order_by("meal_order", "created_at"),
+            )
+        )
+        .annotate(eat_total=models.Sum("exercises__kcals"))
+        .order_by("day")
+    )
+
+
+def _day_tdee(day: Day) -> Decimal:
+    """Compute a day's TDEE from prefetched or annotated data.
+
+    Mirrors ``Day.tdee`` but consumes the batched plan measurement, steps,
+    intakes, and the annotated exercise total instead of issuing queries.
+
+    Args:
+        day (Day): the day model instance.
+
+    Returns:
+        Decimal: the total daily energy expenditure.
+    """
+    if not day.tracked:
+        return (day.plan.measurement.bmr * day.plan.EXERCISE_RATE).normalize()
+
+    if hasattr(day, "steps"):
+        neat = day.steps.kcals
+    else:
+        neat = Decimal("0")
+    tef = day.energy_kcal * Decimal("0.1")
+    if hasattr(day, "eat_total"):
+        eat_total = Decimal(day.eat_total or 0)
+    else:
+        eat_total = Decimal(day.eat or 0)
+    return day.plan.measurement.bmr + neat + tef + eat_total
+
 
 def _validated_week_plan_parameters(
     measurement: Measurement,
@@ -206,7 +275,7 @@ class DayType:
         """
         if self.model is None:
             return 0.0
-        return float(self.model.tdee) if self.model.tdee else 0.0
+        return float(_day_tdee(self.model))
 
 
 @strawberry.type
@@ -230,6 +299,8 @@ class WeekPlanType:
         """
         model = self.model
         if model is not None:
+            # The conditional week_plans/week_plan prefetch builds this cache
+            # with _day_queryset(), so TDEE dependencies are already loaded.
             return [DayType.from_model(d) for d in model.days.all()]
         return [
             DayType.from_model(d)
@@ -268,7 +339,10 @@ class WeekPlanType:
         """
         if self.model is None:
             return 0.0
-        return float(self.model.twee)
+        total = Decimal("0")
+        for day in self.model.days.all():
+            total += _day_tdee(day)
+        return float(total)
 
     @strawberry.field
     def energy_kcal_goal(self) -> float:
@@ -311,23 +385,14 @@ class PlanQuery:
         if user is None or not user.is_authenticated:
             return []
 
+        queryset = WeekPlan.objects.filter(user=user)
+        if _requested_field_names(info) & _DAY_DEPENDENT_FIELDS:
+            queryset = queryset.prefetch_related(
+                Prefetch("days", queryset=_day_queryset())
+            )
         return [
             WeekPlanType.from_model(p)
-            for p in WeekPlan.objects.filter(user=user)
-            .prefetch_related(
-                Prefetch(
-                    "days",
-                    queryset=Day.objects.prefetch_related(
-                        Prefetch(
-                            "intakes",
-                            queryset=Intake.objects.order_by(
-                                "meal_order", "created_at"
-                            ),
-                        )
-                    ).order_by("day"),
-                )
-            )
-            .order_by("-start_date")
+            for p in queryset.order_by("-start_date")
         ]
 
     @strawberry.field
@@ -346,19 +411,12 @@ class PlanQuery:
             return None
 
         try:
-            obj = WeekPlan.objects.prefetch_related(
-                Prefetch(
-                    "days",
-                    queryset=Day.objects.prefetch_related(
-                        Prefetch(
-                            "intakes",
-                            queryset=Intake.objects.order_by(
-                                "meal_order", "created_at"
-                            ),
-                        )
-                    ).order_by("day"),
+            queryset = WeekPlan.objects.filter(pk=id, user=user)
+            if _requested_field_names(info) & _DAY_DEPENDENT_FIELDS:
+                queryset = queryset.prefetch_related(
+                    Prefetch("days", queryset=_day_queryset())
                 )
-            ).get(pk=id, user=user)
+            obj = queryset.get()
         except WeekPlan.DoesNotExist:
             return None
         return WeekPlanType.from_model(obj)
