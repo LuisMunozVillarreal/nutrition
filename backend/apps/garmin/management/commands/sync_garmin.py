@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, router
 from django.db.models import Q
@@ -34,6 +35,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):  # type: ignore[override]
         """Synchronize selected connections and emit a redacted summary."""
+        if not bool(getattr(settings, "GARMIN_ENABLED", False)):
+            self.stdout.write("Garmin integration is disabled; skipping sync.")
+            return
+
         user_id = options.get("user_id")
         using = router.db_for_write(GarminConnection)
         queryset = GarminConnection.objects.using(using).all()

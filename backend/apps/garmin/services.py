@@ -1206,9 +1206,12 @@ def begin_authorization(user: Any) -> tuple[str, datetime.datetime, str]:
     using = router.db_for_write(GarminOAuthState, instance=user)
     now = timezone.now()
     with transaction.atomic(using=using):
-        type(user).objects.using(using).select_for_update(of=("self",)).get(
-            pk=user.pk
-        )
+        try:
+            type(user).objects.using(using).select_for_update(
+                of=("self",)
+            ).get(pk=user.pk)
+        except ObjectDoesNotExist as exc:
+            raise PermissionError("Authentication required") from exc
         GarminOAuthState.prune_expired(
             now=now,
             user=user,
