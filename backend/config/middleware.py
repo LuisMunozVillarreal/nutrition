@@ -125,6 +125,14 @@ class TrustedForwardedProtoMiddleware:
             trusted = False
             try:
                 peer_ip = ipaddress.ip_address(peer)
+                # Normalise IPv4-mapped IPv6 peers (::ffff:a.b.c.d) so a
+                # dual-stack proxy connecting over IPv4 is matched against
+                # the IPv4 network it actually uses.
+                if (
+                    isinstance(peer_ip, ipaddress.IPv6Address)
+                    and peer_ip.ipv4_mapped is not None
+                ):
+                    peer_ip = peer_ip.ipv4_mapped
                 trusted = any(peer_ip in net for net in self.allowed_nets)
             except ValueError:
                 trusted = False

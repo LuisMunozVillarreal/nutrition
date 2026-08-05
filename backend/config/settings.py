@@ -23,7 +23,12 @@ SECRET_KEY = ENV("SECRET_KEY")
 DEBUG = ENV("DEBUG", default=False)
 
 ALLOWED_HOSTS = ENV("ALLOWED_HOSTS", default=[])
-ALLOWED_CIDR_NETS = ["10.0.0.0/8"]
+# Trust boundary for X-Forwarded-Proto: the peer (the TLS-terminating
+# ingress pod) must come from one of these networks or the header is
+# stripped. Env-overridable so a future pod-CIDR change does not silently
+# reintroduce the redirect loop; the 10.0.0.0/8 default matches the
+# current cluster pod CIDR.
+ALLOWED_CIDR_NETS = ENV.list("ALLOWED_CIDR_NETS", default=["10.0.0.0/8"])
 
 CORS_ALLOWED_ORIGINS = ENV.list(
     "DJANGO_CORS_ALLOWED_ORIGINS", default=["http://localhost:3000"]
