@@ -1,12 +1,14 @@
 """Tests for the clone_preview_secrets script."""
 
 import json
+from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import main
+from clone_preview_secrets import SECRET_SCHEMA, main
 from sanitise_branch import sanitise_branch_name
 
 
@@ -58,7 +60,10 @@ def test_main_success(mock_run, mocker):
     assert (
         "Creating least-privilege preview secret nutrition-gemini-api-key..."
     ) in result.output
-    assert mock_run.call_count == 11
+    assert (
+        "Creating least-privilege preview secret nutrition-health-sync-secrets..."
+    ) in result.output
+    assert mock_run.call_count == 13
 
     # Secrets are created directly in the target namespace and never read from
     # staging.
@@ -86,7 +91,7 @@ def test_main_apply_payload(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     for call in apply_calls:
         payload = json.loads(call.kwargs["input"].decode("utf-8"))
@@ -138,6 +143,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         "token-2",
         "token-3",
         "token-4",
+        "token-5",
     ]
     mocker.patch(
         "clone_preview_secrets.secrets.token_urlsafe",
@@ -156,7 +162,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     seen_values: list[str] = []
     for call in apply_calls:
@@ -167,5 +173,40 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
     assert sorted(seen_values) == sorted(
-        ["token-1", "token-2", "token-3", "token-4", "{}"]
+        [
+            "token-1",
+            "token-2",
+            "token-3",
+            "token-4",
+            "token-5",
+            "10.0.0.0/8",
+            "{}",
+        ]
     )
+
+
+def test_preview_generates_every_secret_referenced_by_base_workloads():
+    """Preview namespaces generate every Secret required by base workloads."""
+    repository = Path(__file__).resolve().parents[2]
+    required: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            secret_ref = value.get("secretKeyRef")
+            if isinstance(secret_ref, dict) and "name" in secret_ref:
+                required.add(secret_ref["name"])
+            secret_volume = value.get("secret")
+            if isinstance(secret_volume, dict) and "secretName" in secret_volume:
+                required.add(secret_volume["secretName"])
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    for manifest_name in ("backend.yaml", "webapp.yaml"):
+        manifest = repository / "platform/k8s/base" / manifest_name
+        for document in yaml.safe_load_all(manifest.read_text()):
+            collect(document)
+
+    assert required <= set(SECRET_SCHEMA)

@@ -25,6 +25,10 @@ SECRET_SCHEMA = {
     "nutrition-gcp-db-backup-credentials": {
         "nutrition-gcp-db-backup-credentials.json": lambda: "{}",
     },
+    "nutrition-health-sync-secrets": {
+        "token-pepper": lambda: secrets.token_urlsafe(64),
+        "trusted-proxy-cidrs": lambda: "10.0.0.0/8",
+    },
 }
 NAMESPACE_PREFIX = "nutrition-staging--"
 
