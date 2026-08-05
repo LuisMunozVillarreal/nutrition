@@ -5,6 +5,9 @@ import time
 
 import pytest
 import requests
+import urllib3.connection
+import urllib3.exceptions
+import urllib3.util
 from requests.adapters import HTTPAdapter
 
 from apps.foods.nutrition_facts_finder import (
@@ -470,8 +473,6 @@ def test_scraper_adapter_uses_resolved_ip_and_preserves_tls_hostname(
 
 def test_scraper_adapter_pins_connection_to_validated_ip(monkeypatch):
     """The adapter builds a real pool pinned to the validated IP."""
-    import urllib3.connection
-
     recorded: dict[str, object] = {}
 
     def recording_connect(self):
@@ -491,10 +492,13 @@ def test_scraper_adapter_pins_connection_to_validated_ip(monkeypatch):
     pool = adapter.get_connection_with_tls_context(
         request, verify=True, proxies=None, cert=None
     )
-    connection = pool._new_conn()
-    assert connection.host == "203.0.113.10"
     with pytest.raises(urllib3.exceptions.ConnectTimeoutError):
-        connection.connect()
+        pool.urlopen(
+            "GET",
+            "/page?x=1",
+            retries=False,
+            timeout=urllib3.util.Timeout(connect=4, read=4),
+        )
 
     assert recorded["host"] == "203.0.113.10"
     assert recorded["assert_hostname"] == "good.example.com"
