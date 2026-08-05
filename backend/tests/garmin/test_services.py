@@ -1422,6 +1422,12 @@ def test_refresh_constraint_translation_redacts_when_precheck_bypassed(
     other = _create_user("garmin-constraint-refresh-other@example.com")
     _connection_with_token(owner)
     other_connection = _connection_with_token(other, provider_account_id="")
+    other_snapshot = (
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.provider_account_id,
+        other_connection.connection_generation,
+    )
     monkeypatch.setattr(
         services,
         "_reject_external_account_claim",
@@ -1443,6 +1449,14 @@ def test_refresh_constraint_translation_redacts_when_precheck_bypassed(
         match="Garmin account already connected to another user",
     ):
         services._ensure_access_token(other_connection, force_refresh=True)
+
+    other_connection.refresh_from_db()
+    assert (
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.provider_account_id,
+        other_connection.connection_generation,
+    ) == other_snapshot
 
 
 def test_ownership_conflict_detector_recognizes_sqlite_message():
