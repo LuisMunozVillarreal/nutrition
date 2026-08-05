@@ -224,6 +224,51 @@ class TestPlanGraphQLBudget:
         )
         assert day_tdee == float(day.tdee)
 
+    def test_week_plans_fragment_query_has_bounded_budget(self, mocker):
+        """Named fragment day selections keep the hydration bounded."""
+        fragment_query = (
+            "{ weekPlans { id ...WeekPlanFragment } } "
+            "fragment WeekPlanFragment on WeekPlanType { days { id tdee } }"
+        )
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-fragment-budget-small@test.com",
+            plan_count=1,
+            query=fragment_query,
+            include_intakes=True,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-fragment-budget-large@test.com",
+            plan_count=4,
+            query=fragment_query,
+            include_intakes=True,
+        )
+
+        assert small_count == large_count
+
+    def test_week_plans_inline_fragment_query_has_bounded_budget(self, mocker):
+        """Inline fragment day selections also trigger the hydration."""
+        inline_query = (
+            "{ weekPlans { id ... on WeekPlanType { days { id tdee } } } }"
+        )
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-inline-fragment-budget-small@test.com",
+            plan_count=1,
+            query=inline_query,
+            include_intakes=True,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-inline-fragment-budget-large@test.com",
+            plan_count=4,
+            query=inline_query,
+            include_intakes=True,
+        )
+
+        assert small_count == large_count
+
     def test_days_and_intakes_query_has_bounded_budget(self, mocker):
         """Intake nesting no longer adds query growth per day."""
         nested_query = "{ weekPlans { id days { id intakes { id meal } } } }"

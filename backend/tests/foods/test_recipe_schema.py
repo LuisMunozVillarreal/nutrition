@@ -117,6 +117,65 @@ class TestRecipeQuery:
 
         assert small_count == large_count
 
+    def _count_recipes_with_food_label_fragment_query(
+        self, mocker, recipe_count: int
+    ) -> int:
+        """Count SQL queries for fragment-selected food labels."""
+        user = _create_user(f"rq-foodlabel-fragment-{recipe_count}@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        product = FoodProduct.objects.create(
+            name="Fragment Ingredient",
+            size=100,
+            size_unit="g",
+            num_servings=1,
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+
+        for index in range(recipe_count):
+            recipe = Recipe.objects.create(
+                name=f"Recipe {index}",
+                size=100,
+                size_unit="g",
+                num_servings=1,
+            )
+            RecipeIngredient.objects.create(
+                recipe=recipe,
+                food=serving,
+                num_servings=1,
+            )
+
+        query = (
+            "{ recipes { id name ...IngredientFields } } "
+            "fragment IngredientFields on RecipeType "
+            "{ ingredients { id foodLabel } }"
+        )
+        with CaptureQueriesContext(connection) as captured:
+            result = schema.execute_sync(query, context_value=mock_context)
+
+        assert result.errors is None
+        assert (
+            "Fragment Ingredient"
+            in result.data["recipes"][0]["ingredients"][0]["foodLabel"]
+        )
+        return len(captured)
+
+    def test_recipes_food_label_fragment_query_has_bounded_budget(
+        self, mocker
+    ):
+        """Fragment-selected food labels stay bounded too."""
+        small_count = self._count_recipes_with_food_label_fragment_query(
+            mocker, 1
+        )
+        large_count = self._count_recipes_with_food_label_fragment_query(
+            mocker, 4
+        )
+
+        assert small_count == large_count
+
     def test_recipes_scalar_only_query_is_lean(self, mocker):
         """Scalar-only recipe queries skip the ingredients hydration."""
         user = _create_user("rq-scalar-budget@test.com")
