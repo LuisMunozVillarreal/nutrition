@@ -10,7 +10,7 @@ import jwt
 import strawberry
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist
 from django.db import IntegrityError, router
 from django.utils import timezone
 from strawberry.types import Info
@@ -251,21 +251,27 @@ class GarminMutation:
                     "authorization_placeholder": True,
                 },
             )
-            connection = (
-                GarminConnection.objects.using(using)
-                .select_for_update()
-                .get(pk=connection.pk)
-            )
+            try:
+                connection = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update()
+                    .get(pk=connection.pk)
+                )
+            except ObjectDoesNotExist as exc:
+                raise ValueError("Garmin connection is not active") from exc
             expected_status = connection.status
             expected_provider_account_id = connection.provider_account_id
             connection_pk = connection.pk
 
-            GarminOAuthState.consume_for_user(
-                user=user,
-                raw_state=state,
-                provider=GARMIN_PROVIDER,
-                using=using,
-            )
+            try:
+                GarminOAuthState.consume_for_user(
+                    user=user,
+                    raw_state=state,
+                    provider=GARMIN_PROVIDER,
+                    using=using,
+                )
+            except (GarminOAuthState.DoesNotExist, ValueError) as exc:
+                raise ValueError("OAuth state is invalid or expired") from exc
             connection.connection_generation += 1
             attempt_generation = connection.connection_generation
             connection.save(

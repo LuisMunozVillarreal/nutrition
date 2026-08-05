@@ -467,6 +467,22 @@ def test_complete_garmin_authorization_consumes_state_even_when_exchange_fails(
     assert call_count["tokens"] == 1
 
 
+def test_complete_garmin_authorization_unknown_state_is_redacted(monkeypatch):
+    """Completion with a never-issued state surfaces the redacted message."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("complete-forged@example.com")
+    context = _request_context(user, bearer=True)
+
+    result = _complete_authorization(
+        context, code="forged-code", state="forged-state"
+    )
+
+    assert result.errors
+    message = str(result.errors[0])
+    assert "OAuth state is invalid or expired" in message
+    assert "matching query does not exist" not in message
+
+
 @pytest.mark.parametrize(
     "existing_status",
     [GarminConnection.Status.ACTIVE, GarminConnection.Status.DISCONNECTED],
