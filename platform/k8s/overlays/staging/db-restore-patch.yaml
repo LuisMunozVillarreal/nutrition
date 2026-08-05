@@ -12,6 +12,13 @@ spec:
           env:
             - name: ENVIRONMENT
               value: "staging"
+            - name: CACHE_URL
+              value: "redis://nutrition-redis:6379/1"
+            - name: HEALTH_SYNC_TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  key: token-pepper
+                  name: nutrition-health-sync-secrets
             - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:

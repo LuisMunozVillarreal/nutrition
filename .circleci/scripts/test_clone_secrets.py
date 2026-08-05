@@ -93,6 +93,7 @@ def test_main_success(mock_run, mocker):
         "nutrition-postgresql",
         "nutrition-django-secret-key",
         "nutrition-gemini-api-key",
+        "nutrition-health-sync-secrets",
     ]:
         assert (
             f"Creating least-privilege preview secret {generated}..."
@@ -102,7 +103,7 @@ def test_main_success(mock_run, mocker):
         f"to {expected_ns}..."
     ) in result.output
 
-    # The only staging read is the backup-credentials copy; the four generated
+    # The only staging read is the backup-credentials copy; generated
     # secrets never read from staging.
     staging_reads = [
         call.args[0]
@@ -136,7 +137,7 @@ def test_main_apply_payload(mock_run, mocker):
 
     expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
     apply_calls = _apply_calls(mock_run, expected_ns)
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     generated_seen = 0
     copied_seen = 0
@@ -164,7 +165,7 @@ def test_main_apply_payload(mock_run, mocker):
             assert "data" not in payload
             generated_seen += 1
 
-    assert generated_seen == 4
+    assert generated_seen == 5
     assert copied_seen == 1
 
 
@@ -193,7 +194,13 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
     """Test generated secret values are fresh and never empty/stubbed."""
     runner = CliRunner()
     mocker.patch("time.sleep")
-    generated_tokens = ["token-1", "token-2", "token-3", "token-4"]
+    generated_tokens = [
+        "token-1",
+        "token-2",
+        "token-3",
+        "token-4",
+        "token-5",
+    ]
     mocker.patch(
         "clone_preview_secrets.secrets.token_urlsafe",
         side_effect=lambda _n: generated_tokens.pop(0),
@@ -205,7 +212,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
 
     assert result.exit_code == 0
     apply_calls = _apply_calls(mock_run, expected_ns)
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     generated_values: list[str] = []
     for call in apply_calls:
@@ -217,5 +224,12 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
             generated_values.extend(payload["stringData"].values())
 
     assert sorted(generated_values) == sorted(
-        ["token-1", "token-2", "token-3", "token-4"]
+        [
+            "token-1",
+            "token-2",
+            "token-3",
+            "token-4",
+            "token-5",
+            "10.0.0.0/8",
+        ]
     )
