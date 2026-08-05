@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
 import { subscribeToPromise } from '@/lib/promiseSubscription'
+import HealthSyncPanel from './HealthSyncPanel'
 
 const STEPS_QUERY = gql`
   query {
@@ -12,6 +13,8 @@ const STEPS_QUERY = gql`
       dayId
       steps
       kcals
+      source
+      syncedAt
     }
   }
 `
@@ -27,6 +30,8 @@ interface DayStepsRow {
   dayId: number
   steps: number
   kcals: number
+  source: string
+  syncedAt: string | null
 }
 
 const columns: Column<DayStepsRow>[] = [
@@ -34,6 +39,16 @@ const columns: Column<DayStepsRow>[] = [
   { key: 'dayId', label: 'Day', accessor: (r) => r.dayId },
   { key: 'steps', label: 'Steps', accessor: (r) => r.steps.toLocaleString() },
   { key: 'kcals', label: 'Kcals', accessor: (r) => Math.round(r.kcals) },
+  {
+    key: 'source',
+    label: 'Source',
+    accessor: (r) => r.source === 'health_connect' ? 'Health Connect' : 'Manual',
+  },
+  {
+    key: 'syncedAt',
+    label: 'Last synced',
+    accessor: (r) => r.syncedAt ? new Date(r.syncedAt).toLocaleString() : '—',
+  },
 ]
 
 export default function StepsPage() {
@@ -67,6 +82,7 @@ export default function StepsPage() {
   return (
     <div>
       <h1 className="page-title mb-6" data-testid="steps-title">Day Steps</h1>
+      <HealthSyncPanel />
       <DataTable
         columns={columns}
         data={data}
