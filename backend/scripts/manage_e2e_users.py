@@ -9,18 +9,24 @@ from typing import cast
 
 import django
 from django.db import transaction
+from django.utils import timezone
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 from apps.exercises.models import Exercise  # noqa: E402
 from apps.foods.models import Food  # noqa: E402
-from apps.garmin.models import GarminConnection  # noqa: E402
+from apps.garmin.models import (  # noqa: E402
+    GARMIN_PROVIDER,
+    GarminConnection,
+    GarminOAuthState,
+)
 from apps.users.models import User  # noqa: E402
 from scripts.e2e_lifecycle import LifecyclePayload  # noqa: E402
 from scripts.e2e_lifecycle import read_lifecycle_payload  # noqa: E402
 
 _GARMIN_PLACEHOLDER_CIPHERTEXT = "invalid-e2e-placeholder"
+_GARMIN_PROVIDER_ERROR_STATE = "e2e-provider-error-state"
 
 
 def create_e2e_user(email: str, password: str, *, is_staff: bool) -> User:
@@ -108,6 +114,19 @@ def reset_garmin_connection(payload: LifecyclePayload) -> None:
             # Deliberately invalid and non-secret. Status and disconnect only
             # inspect/erase this value, so no provider configuration is needed.
             refresh_token_encrypted=_GARMIN_PLACEHOLDER_CIPHERTEXT,
+        )
+        # Seed a deterministic unconsumed OAuth state so the deployed
+        # provider-error scenario can exercise the bearer cancellation
+        # mutation exactly once per run.
+        GarminOAuthState.objects.filter(
+            user=user,
+            provider=GARMIN_PROVIDER,
+        ).delete()
+        GarminOAuthState.create_for_user(
+            user,
+            _GARMIN_PROVIDER_ERROR_STATE,
+            provider=GARMIN_PROVIDER,
+            expires_at=timezone.now() + datetime.timedelta(hours=1),
         )
 
 

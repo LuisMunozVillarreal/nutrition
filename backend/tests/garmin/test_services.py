@@ -864,10 +864,12 @@ def test_sync_all_connections_counts_every_malformed_list_item_and_continues(
     first = _connection_with_token(
         first_user,
         access_token="first-list-items-token",
+        provider_account_id="provider-user-1",
     )
     second = _connection_with_token(
         second_user,
         access_token="second-list-items-token",
+        provider_account_id="provider-user-2",
     )
     first_valid = _activity_payload(
         activity_id="valid-after-malformed-items",
@@ -875,6 +877,7 @@ def test_sync_all_connections_counts_every_malformed_list_item_and_continues(
         started_at=timezone.make_aware(
             datetime.combine(first_day.day, time(8, 0))
         ).isoformat(),
+        user_id="provider-user-1",
     )
     second_valid = _activity_payload(
         activity_id="valid-on-later-connection",
@@ -882,6 +885,7 @@ def test_sync_all_connections_counts_every_malformed_list_item_and_continues(
         started_at=timezone.make_aware(
             datetime.combine(second_day.day, time(9, 0))
         ).isoformat(),
+        user_id="provider-user-2",
     )
 
     def _request(*_, headers, **__):
@@ -1229,10 +1233,12 @@ def test_sync_all_connections_continues_after_extreme_numeric_row(
     first = _connection_with_token(
         first_user,
         access_token="first-extreme-token",
+        provider_account_id="provider-user-1",
     )
     second = _connection_with_token(
         second_user,
         access_token="second-valid-token",
+        provider_account_id="provider-user-2",
     )
     first_payload = _activity_payload(
         activity_id="first-extreme-epoch",
@@ -1240,6 +1246,7 @@ def test_sync_all_connections_continues_after_extreme_numeric_row(
         started_at=timezone.make_aware(
             datetime.combine(first_day.day, time(8, 0))
         ).isoformat(),
+        user_id="provider-user-1",
     )
     first_payload["startTime"] = 10**1000
     second_payload = _activity_payload(
@@ -1248,6 +1255,7 @@ def test_sync_all_connections_continues_after_extreme_numeric_row(
         started_at=timezone.make_aware(
             datetime.combine(second_day.day, time(9, 0))
         ).isoformat(),
+        user_id="provider-user-2",
     )
 
     def _iter(access_token: str, *_, **__):
@@ -1267,6 +1275,97 @@ def test_sync_all_connections_continues_after_extreme_numeric_row(
         connection=second,
         provider_activity_id="second-valid-row",
     ).exists()
+
+
+def test_claim_ownership_conflict_from_activity_payload_is_redacted(
+    monkeypatch,
+):
+    """A second user cannot claim a provider account another user owns."""
+    _configure_garmin(monkeypatch)
+    first_user, first_day = _create_user_with_day(
+        "garmin-claim-first@example.com"
+    )
+    second_user = _create_user("garmin-claim-second@example.com")
+    first = _connection_with_token(first_user, provider_account_id="")
+    second = _connection_with_token(second_user, provider_account_id="")
+
+    first_payload = _activity_payload(
+        activity_id="claimed-activity",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(first_day.day, time(8, 0))
+        ).isoformat(),
+        user_id="shared-account",
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [first_payload],
+    )
+    services.sync_connection(first)
+
+    second_payload = _activity_payload(
+        activity_id="second-claimed-activity",
+        activity_type="cycle",
+        started_at="2026-08-01T10:00:00+00:00",
+        user_id="shared-account",
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [second_payload],
+    )
+    with pytest.raises(
+        ValueError,
+        match="Garmin account already connected to another user",
+    ):
+        services.sync_connection(second)
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.provider_account_id == "shared-account"
+    assert second.provider_account_id == ""
+    assert not GarminActivity.objects.filter(connection=second).exists()
+
+
+def test_refresh_rotation_cannot_claim_another_users_account(monkeypatch):
+    """Refresh responses cannot transfer an owned account to another user."""
+    _configure_garmin(monkeypatch)
+    owner = _create_user("garmin-refresh-owner@example.com")
+    other = _create_user("garmin-refresh-other@example.com")
+    _connection_with_token(owner)
+    other_connection = _connection_with_token(other, provider_account_id="")
+    other_snapshot = (
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.provider_account_id,
+        other_connection.connection_generation,
+    )
+
+    monkeypatch.setattr(
+        services,
+        "_request_json",
+        lambda *_, **__: {
+            "access_token": "rotated-other",
+            "refresh_token": "rotated-other-refresh",
+            "expires_in": 1800,
+            "userId": "provider-user",
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin account already connected to another user",
+    ):
+        services._ensure_access_token(other_connection, force_refresh=True)
+
+    other_connection.refresh_from_db()
+    assert (
+        other_connection.access_token_encrypted,
+        other_connection.refresh_token_encrypted,
+        other_connection.provider_account_id,
+        other_connection.connection_generation,
+    ) == other_snapshot
 
 
 def test_sync_connection_stores_unmatched_activity_without_day_as_pending(

@@ -34,6 +34,8 @@ function registerGarminPassthroughAliases(): void {
       req.alias = 'garminDisconnect'
     } else if (operation === 'CompleteGarminAuthorization') {
       req.alias = 'garminStateRejection'
+    } else if (operation === 'CancelGarminAuthorization') {
+      req.alias = 'garminAuthorizationCancelled'
     }
 
     req.continue()
@@ -161,13 +163,20 @@ Then('the deployed backend should reject the Garmin callback state', () => {
 })
 
 Given('I visit Garmin callback with provider error', () => {
+  registerGarminPassthroughAliases()
   cy.visit(
-    '/settings/garmin-callback?error=access_denied&error_description=User%20cancelled',
+    '/settings/garmin-callback?error=access_denied&error_description=User%20cancelled&state=e2e-provider-error-state',
   )
 })
 
 Then('I should see a Garmin callback error', () => {
+  cy.wait('@garminAuthorizationCancelled').then(({ request, response }) => {
+    expectBearerAuthorization(request.headers)
+    expect(response?.statusCode).to.equal(200)
+    expect(response?.body?.errors).to.equal(undefined)
+    expect(response?.body?.data?.cancelGarminAuthorization).to.equal(true)
+  })
   cy.get('[data-testid="garmin-callback-error"]', { timeout: 10000 })
     .should('be.visible')
-    .and('contain.text', 'Garmin sign-in failed')
+    .and('contain.text', 'Garmin sign-in was cancelled.')
 })

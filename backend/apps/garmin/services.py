@@ -32,11 +32,13 @@ from apps.plans.models import Day
 
 from .models import (
     GARMIN_PROVIDER,
+    GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT,
     GarminActivity,
     GarminConnection,
     GarminOAuthState,
     GarminTokenPair,
     ensure_token_encryption_available,
+    is_provider_account_ownership_conflict,
 )
 
 _ACTIVITY_TYPE_CYCLE = "cycle"
@@ -1372,6 +1374,17 @@ def _refresh_access_token_with_retry(
                 raise ValueError(
                     "Garmin provider account changed during refresh"
                 )
+            if (
+                token_pair.provider_account_id
+                and token_pair.provider_account_id
+                != current.provider_account_id
+            ):
+                _reject_external_account_claim(
+                    provider=current.provider,
+                    provider_account_id=token_pair.provider_account_id,
+                    exclude_pk=current.pk,
+                    using=using,
+                )
 
             # Preserve explicitly missing fields from the token response.
             merged_scope = token_pair.scope
@@ -1402,20 +1415,27 @@ def _refresh_access_token_with_retry(
                 ),
                 expires_in=token_pair.expires_in,
             )
-            current.save(
-                using=using,
-                update_fields=[
-                    "access_token_encrypted",
-                    "refresh_token_encrypted",
-                    "access_token_expires_at",
-                    "provider_scopes",
-                    "provider_account_id",
-                    "connection_generation",
-                    "authorization_placeholder",
-                    "status",
-                    "updated_at",
-                ],
-            )
+            try:
+                current.save(
+                    using=using,
+                    update_fields=[
+                        "access_token_encrypted",
+                        "refresh_token_encrypted",
+                        "access_token_expires_at",
+                        "provider_scopes",
+                        "provider_account_id",
+                        "connection_generation",
+                        "authorization_placeholder",
+                        "status",
+                        "updated_at",
+                    ],
+                )
+            except IntegrityError as exc:
+                if is_provider_account_ownership_conflict(exc):
+                    raise ValueError(
+                        GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT
+                    ) from exc
+                raise
             current.refresh_from_db(
                 fields=[
                     "connection_generation",
@@ -1465,6 +1485,34 @@ def _ensure_access_token(
     return _refresh_access_token_with_retry(connection, using)
 
 
+def _reject_external_account_claim(
+    *,
+    provider: str,
+    provider_account_id: str,
+    exclude_pk: int,
+    using: str,
+) -> None:
+    """Reject claims on an account already owned by another connection.
+
+    The unique constraint remains the final arbiter under concurrency; this
+    pre-check inside the atomic block guarantees a deterministic redacted
+    error for sequential cross-user collisions without leaking ownership.
+    """
+    if not provider_account_id:
+        return
+    claimed_by_other = (
+        GarminConnection.objects.using(using)
+        .filter(
+            provider=provider,
+            provider_account_id=provider_account_id,
+        )
+        .exclude(pk=exclude_pk)
+        .exists()
+    )
+    if claimed_by_other:
+        raise ValueError(GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT)
+
+
 def _claim_provider_account_id(
     *,
     connection_pk: int,
@@ -1497,16 +1545,29 @@ def _claim_provider_account_id(
                 raise ValueError("Garmin connection state changed during sync")
             return current.connection_generation, current.provider_account_id
 
+        _reject_external_account_claim(
+            provider=current.provider,
+            provider_account_id=provider_account_id,
+            exclude_pk=current.pk,
+            using=using,
+        )
         current.provider_account_id = provider_account_id
         current.connection_generation += 1
-        current.save(
-            using=using,
-            update_fields=[
-                "provider_account_id",
-                "connection_generation",
-                "updated_at",
-            ],
-        )
+        try:
+            current.save(
+                using=using,
+                update_fields=[
+                    "provider_account_id",
+                    "connection_generation",
+                    "updated_at",
+                ],
+            )
+        except IntegrityError as exc:
+            if is_provider_account_ownership_conflict(exc):
+                raise ValueError(
+                    GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT
+                ) from exc
+            raise
         return current.connection_generation, current.provider_account_id
 
 
@@ -2118,9 +2179,16 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                 ],
             )
     except (IntegrityError, OperationalError) as exc:
+        if is_provider_account_ownership_conflict(exc):
+            raise ValueError(
+                GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT
+            ) from exc
         raise ValueError("Garmin activity import failed") from exc
     except ValueError as exc:
-        if "Garmin connection state changed during sync" in str(exc):
+        if (
+            "Garmin connection state changed during sync" in str(exc)
+            or str(exc) == GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT
+        ):
             raise
         raise ValueError("Garmin activity import failed") from exc
 
