@@ -14,6 +14,7 @@ from django.db.models.query import QuerySet
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from apps.exercises.models import DaySteps, Exercise
 from apps.foods.models import CupboardItem, FoodProduct
 from apps.foods.signals.handlers.cupboard import (
     CupboardItemConsumptionTooBigError,
@@ -146,6 +147,82 @@ class TestPlanGraphQLBudget:
         )
 
         assert small_count == large_count
+
+    def test_week_plans_tdee_query_has_bounded_budget(self, mocker):
+        """TDEE resolution adds no query growth per plan or day."""
+        tdee_query = "{ weekPlans { id days { id tdee } } }"
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-tdee-budget-small@test.com",
+            plan_count=1,
+            query=tdee_query,
+            include_intakes=True,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-tdee-budget-large@test.com",
+            plan_count=4,
+            query=tdee_query,
+            include_intakes=True,
+        )
+
+        assert small_count == large_count
+
+    def test_week_plans_twee_query_has_bounded_budget(self, mocker):
+        """TWEE aggregation is batched instead of summing per-day TDEE."""
+        twee_query = "{ weekPlans { id twee } }"
+        small_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-twee-budget-small@test.com",
+            plan_count=1,
+            query=twee_query,
+            include_intakes=True,
+        )
+        large_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-twee-budget-large@test.com",
+            plan_count=4,
+            query=twee_query,
+            include_intakes=True,
+        )
+
+        assert small_count == large_count
+
+    def test_week_plans_scalar_only_query_is_lean(self, mocker):
+        """Scalar-only week plan queries skip the days hydration."""
+        scalar_count = _count_week_plan_nested_queries(
+            mocker,
+            user_email="plan-scalar-budget@test.com",
+            plan_count=4,
+            query="{ weekPlans { id startDate proteinGKg } }",
+            include_intakes=True,
+        )
+
+        assert scalar_count == 1
+
+    def test_week_plan_tdee_and_twee_match_model_values(self, mocker):
+        """Batched tdee/twee resolution matches the model properties."""
+        user, plan = _create_user_and_plan("plan-tdee-values@test.com")
+        day = Day.objects.filter(plan=plan).first()
+        DaySteps.objects.create(day=day, steps=1000)
+        Exercise.objects.create(
+            day=day, type=Exercise.EXERCISE_WALK, kcals=100
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            "{ weekPlans { id twee days { id tdee } } }",
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        week = result.data["weekPlans"][0]
+        assert week["twee"] == float(plan.twee)
+        day_tdee = next(
+            item["tdee"] for item in week["days"] if item["id"] == str(day.id)
+        )
+        assert day_tdee == float(day.tdee)
 
     def test_days_and_intakes_query_has_bounded_budget(self, mocker):
         """Intake nesting no longer adds query growth per day."""
