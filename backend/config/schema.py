@@ -392,8 +392,25 @@ class GarminMutation:
             enabled=bool(settings.GARMIN_ENABLED),
             connected=connection.is_connected,
             has_refresh_token=connection.has_refresh_token,
-            last_synced_at=None,
-            last_sync_summary=None,
+            last_synced_at=(
+                connection.last_synced_at.isoformat()
+                if connection.last_synced_at
+                else None
+            ),
+            last_sync_summary=(
+                GarminSyncSummaryType(
+                    imported=connection.last_sync_summary.get("imported", 0),
+                    duplicates=connection.last_sync_summary.get(
+                        "duplicates", 0
+                    ),
+                    unsupported=connection.last_sync_summary.get(
+                        "unsupported", 0
+                    ),
+                    invalid=connection.last_sync_summary.get("invalid", 0),
+                )
+                if connection.last_sync_summary
+                else None
+            ),
         )
 
     @strawberry.mutation
