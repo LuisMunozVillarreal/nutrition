@@ -2506,6 +2506,38 @@ def test_sync_connection_rejects_payloads_missing_local_start(monkeypatch):
     )
 
 
+def test_sync_connection_rejects_payloads_missing_duration(monkeypatch):
+    """A missing duration fails closed instead of fabricating a zero."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("sync-missing-duration@example.com")
+    connection = _connection_with_token(user)
+
+    payload = _activity_payload(
+        activity_id="missing-duration-1",
+        activity_type="cycle",
+        started_at="2026-08-01T10:00:00+00:00",
+    )
+    del payload["duration"]
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [payload],
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=0,
+        unsupported=0,
+        invalid=1,
+    )
+    assert not GarminActivity.objects.filter(
+        connection=connection,
+        provider_activity_id="missing-duration-1",
+    ).exists()
+
+
 def test_sync_connection_rolls_back_on_activity_error(monkeypatch):
     """Any create failure must abort the run without persisted side-effects."""
     _configure_garmin(monkeypatch)

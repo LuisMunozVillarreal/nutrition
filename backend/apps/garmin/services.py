@@ -789,7 +789,7 @@ def _extract_payload_duration(payload: dict[str, object]) -> object:
         return payload["durationSeconds"]
     if payload.get("duration_seconds") is not None:
         return payload["duration_seconds"]
-    return 0
+    raise ValueError("duration is missing")
 
 
 def _extract_payload_activity_id(payload: dict[str, object]) -> object:
@@ -1164,7 +1164,7 @@ def _parse_token_payload(
         raise ValueError("Garmin token response has invalid expires_in")
 
     try:
-        max_ttl = int(getattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS"))
+        max_ttl = int(getattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", 0))
     except (TypeError, ValueError):
         max_ttl = 0
 
@@ -1685,10 +1685,6 @@ def _ensure_exercise(
             continue
         setattr(exercise, field, value)
         updated.append(field)
-
-    if exercise.type != Exercise.EXERCISE_CYCLE:
-        exercise.type = Exercise.EXERCISE_CYCLE
-        updated.append("type")
 
     if updated:
         exercise.save(using=using, update_fields=updated)
