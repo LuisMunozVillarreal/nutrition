@@ -51,7 +51,12 @@ if not CSRF_TRUSTED_ORIGINS and IS_PRODUCTION:
         f"https://{host}" for host in ALLOWED_HOSTS if host
     ]
 
-SECURE_PROXY_SSL_HEADER = None
+# The Traefik ingress terminates TLS and overwrites X-Forwarded-Proto with the
+# real scheme (client-supplied values are not trusted), so proxied requests can
+# be recognised as secure. Trust is additionally bounded by
+# TrustedForwardedProtoMiddleware, which strips the header unless the source
+# address is inside ALLOWED_CIDR_NETS (the backend Service is ClusterIP-only).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 SESSION_COOKIE_SECURE = ENV.bool(
     "SESSION_COOKIE_SECURE",
@@ -110,6 +115,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "allow_cidr.middleware.AllowCIDRMiddleware",
+    "config.middleware.TrustedForwardedProtoMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
