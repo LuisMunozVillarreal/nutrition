@@ -12,6 +12,8 @@ from pathlib import Path
 
 ADVISORY_ID_RE = re.compile(r"(GHSA-[A-Za-z0-9-]+|CVE-\d{4}-\d+)")
 
+UNIDENTIFIED_VULNERABILITY_LABEL = "<unidentified high/critical vulnerability>"
+
 
 def _load_allowlist(path: Path) -> set[str]:
     """Load allowlist entries from a text file.
@@ -135,6 +137,7 @@ def evaluate_frontend_audit(
 
     for vulnerability in vulnerabilities.values():
         if not isinstance(vulnerability, dict):
+            unwaived_advisories.add(UNIDENTIFIED_VULNERABILITY_LABEL)
             continue
 
         severity = str(vulnerability.get("severity", "")).lower()
@@ -142,6 +145,9 @@ def evaluate_frontend_audit(
             continue
 
         ids = _extract_advisory_ids(vulnerability)
+        if not ids:
+            unwaived_advisories.add(UNIDENTIFIED_VULNERABILITY_LABEL)
+            continue
         unwaived_advisories.update(ids.difference(allowlist))
 
     if audit_exit_code not in (0, 1):
