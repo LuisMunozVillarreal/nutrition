@@ -2589,6 +2589,45 @@ def test_sync_connection_rejects_payloads_missing_duration(monkeypatch):
     ).exists()
 
 
+def test_sync_connection_deleted_mid_sync_raises_redacted(monkeypatch):
+    """A connection deleted mid-sync fails closed instead of a raw traceback."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("sync-deleted@example.com")
+    connection = _connection_with_token(user)
+    GarminConnection.objects.filter(pk=connection.pk).delete()
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [
+            _activity_payload(
+                activity_id="deleted-1",
+                activity_type="cycle",
+                started_at="2026-08-01T10:00:00+00:00",
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin activity import failed",
+    ):
+        services.sync_connection(connection)
+
+
+def test_reconcile_pending_deleted_connection_fails_closed(monkeypatch):
+    """Reconciliation on a deleted connection reports a stable failure."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day("reconcile-deleted@example.com")
+    connection = _connection_with_token(user)
+    GarminConnection.objects.filter(pk=connection.pk).delete()
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin connection is not active",
+    ):
+        services.reconcile_pending_garmin_activities(connection)
+
+
 def test_sync_connection_rolls_back_on_activity_error(monkeypatch):
     """Any create failure must abort the run without persisted side-effects."""
     _configure_garmin(monkeypatch)
