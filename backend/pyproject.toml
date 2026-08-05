@@ -25,6 +25,7 @@ dependencies = [
     "pint>=0.24.4",
     "psycopg2>=2.9.10",
     "requests>=2.33.0",
+    "redis>=5,<7",
     "strawberry-django-auth>=0.378.4",
     "strawberry-graphql[django]>=0.288.1",
     "supervisor>=4.2.5",
