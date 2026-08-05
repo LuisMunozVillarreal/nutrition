@@ -14,6 +14,7 @@ SECRETS = [
     "nutrition-django-secret-key",
     "nutrition-gemini-api-key",
     "nutrition-gcp-db-backup-credentials",
+    "nutrition-health-sync-secrets",
 ]
 SOURCE_NS = "nutrition-staging"
 
