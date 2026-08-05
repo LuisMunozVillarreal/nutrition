@@ -9,6 +9,7 @@ from typing import cast
 
 import strawberry
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, router, transaction
 from django.db.models import Prefetch
 from strawberry.types import Info
@@ -525,7 +526,10 @@ class PlanMutation:
 
         using = router.db_for_write(WeekPlan, instance=user)
         with transaction.atomic(using=using):
-            _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            try:
+                _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            except ObjectDoesNotExist as e:
+                raise PermissionError("Authentication required") from e
 
             try:
                 measurement = Measurement.objects.using(using).get(

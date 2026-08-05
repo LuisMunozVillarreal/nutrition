@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import Annotated
 
 import strawberry
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import router, transaction
 from strawberry.types import Info
 
@@ -372,7 +373,10 @@ class ExerciseMutation:
             if stale_obj.day_id is None:
                 raise ValueError("Exercise not found")
 
-            _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            try:
+                _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            except ObjectDoesNotExist as e:
+                raise PermissionError("Authentication required") from e
             day_locks = lock_plan_aggregate_rows(
                 using=using, day_ids=(stale_obj.day_id,)
             )
@@ -421,6 +425,8 @@ class ExerciseMutation:
 
                 if changed_fields:
                     obj.save(using=using, update_fields=changed_fields)
+            except Exercise.DoesNotExist as e:
+                raise ValueError("Exercise not found") from e
             finally:
                 day_locks.clear_markers()
 
