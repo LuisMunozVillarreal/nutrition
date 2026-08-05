@@ -275,3 +275,135 @@ def test_non_vulnerability_nonzero_status_fails(tmp_path: Path) -> None:
     )
     if exit_code != 1:
         raise AssertionError("Expected audit exit code 1")
+
+
+def test_high_critical_entry_without_identifier_fails(tmp_path: Path) -> None:
+    """High/critical entries with no extractable ID must fail closed.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
+    exit_code = _run(
+        tmp_path,
+        {
+            "auditReportVersion": 3,
+            "vulnerabilities": {
+                "broken-entry": {
+                    "severity": "critical",
+                }
+            },
+            "metadata": {"vulnerabilities": {"high": 0, "critical": 1}},
+        },
+        ["broken-entry"],
+        exit_code=1,
+    )
+    if exit_code != 1:
+        raise AssertionError("Expected audit exit code 1")
+
+
+def test_non_dict_vulnerability_entry_fails(tmp_path: Path) -> None:
+    """Malformed non-dict vulnerability entries must fail closed.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
+    exit_code = _run(
+        tmp_path,
+        {
+            "auditReportVersion": 3,
+            "vulnerabilities": {"x": "oops"},
+            "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
+        },
+        [],
+        exit_code=1,
+    )
+    if exit_code != 1:
+        raise AssertionError("Expected audit exit code 1")
+
+
+def test_allowlist_comment_lines_are_tolerated(tmp_path: Path) -> None:
+    """Allowlist comment lines must not affect waiver matching.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
+    report_path = tmp_path / "npm-audit-report.json"
+    allowlist_path = tmp_path / "allowlist.txt"
+    report_path.write_text(
+        json.dumps(
+            {
+                "auditReportVersion": 3,
+                "vulnerabilities": {
+                    "lodash": {
+                        "name": "lodash",
+                        "severity": "high",
+                        "via": ["GHSA-xxxx-yyyy-zzzz"],
+                    }
+                },
+                "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    allowlist_path.write_text(
+        "# temporary waiver\nGHSA-xxxx-yyyy-zzzz\n",
+        encoding="utf-8",
+    )
+    result = audit_parser.main(
+        [
+            "--audit-report",
+            str(report_path),
+            "--allowlist",
+            str(allowlist_path),
+            "--exit-code",
+            "1",
+        ]
+    )
+    if result != 0:
+        raise AssertionError("Expected audit exit code 0")
+
+
+def test_invalid_json_report_fails(tmp_path: Path) -> None:
+    """Unparseable audit reports must fail the gate.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
+    report_path = tmp_path / "npm-audit-report.json"
+    allowlist_path = tmp_path / "allowlist.txt"
+    report_path.write_text("{not-json", encoding="utf-8")
+    allowlist_path.write_text("", encoding="utf-8")
+    result = audit_parser.main(
+        [
+            "--audit-report",
+            str(report_path),
+            "--allowlist",
+            str(allowlist_path),
+            "--exit-code",
+            "1",
+        ]
+    )
+    if result != 1:
+        raise AssertionError("Expected audit exit code 1")
+
+
+def test_missing_report_file_fails(tmp_path: Path) -> None:
+    """Missing audit report files must fail the gate.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+    """
+    allowlist_path = tmp_path / "allowlist.txt"
+    allowlist_path.write_text("", encoding="utf-8")
+    result = audit_parser.main(
+        [
+            "--audit-report",
+            str(tmp_path / "does-not-exist.json"),
+            "--allowlist",
+            str(allowlist_path),
+            "--exit-code",
+            "1",
+        ]
+    )
+    if result != 1:
+        raise AssertionError("Expected audit exit code 1")
