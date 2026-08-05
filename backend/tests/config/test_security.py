@@ -140,3 +140,48 @@ def test_spoofed_forwarded_proto_from_untrusted_source_is_ignored(client):
     )
     assert response.status_code == 301
     assert response["Location"].startswith("https://")
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    SECURE_SSL_REDIRECT=True,
+    SECURE_HSTS_SECONDS=86400,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
+)
+def test_proxied_https_from_ipv4_mapped_peer_is_trusted(client):
+    """An IPv4-mapped IPv6 peer from the trusted CIDR must be matched."""
+    response = client.get(
+        "/admin/login/",
+        secure=False,
+        follow=False,
+        REMOTE_ADDR="::ffff:10.0.0.5",
+        HTTP_X_FORWARDED_PROTO="https",
+    )
+    assert response.status_code == 200
+    assert "Strict-Transport-Security" in response.headers
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    SECURE_SSL_REDIRECT=True,
+    SECURE_HSTS_SECONDS=86400,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
+    ALLOWED_CIDR_NETS=["192.0.2.0/24"],
+)
+def test_allowed_cidr_nets_trust_boundary_is_configurable(client):
+    """The trust boundary must follow the setting, not a hardcoded value."""
+    response = client.get(
+        "/admin/login/",
+        secure=False,
+        follow=False,
+        REMOTE_ADDR="192.0.2.1",
+        HTTP_X_FORWARDED_PROTO="https",
+    )
+    assert response.status_code == 200
+    assert "Strict-Transport-Security" in response.headers
