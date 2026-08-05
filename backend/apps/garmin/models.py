@@ -10,6 +10,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import models, router, transaction
+from django.db.models import Q
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
@@ -19,7 +20,39 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
 GARMIN_PROVIDER = "garmin"
+_GARMIN_CONNECTION_ACCOUNT_UNIQUE_CONSTRAINT = (
+    "garmin_connection_blank_provider_account_uniq"
+)
+GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT = (
+    "Garmin account already connected to another user"
+)
 _TOKEN_ACCESS_SKEW = timedelta(seconds=30)
+
+
+def is_provider_account_ownership_conflict(exc: BaseException) -> bool:
+    """Return whether an IntegrityError is the connection account constraint.
+
+    The conditional unique constraint is the final arbiter for concurrent
+    cross-user claims, so its violation must be distinguishable from other
+    integrity failures (e.g. activity dedupe rows) to preserve redaction.
+    """
+    cause = exc.__cause__
+    if cause is not None:
+        diag = getattr(cause, "diag", None)
+        if (
+            diag is not None
+            and getattr(diag, "constraint_name", None)
+            == _GARMIN_CONNECTION_ACCOUNT_UNIQUE_CONSTRAINT
+        ):
+            return True
+        message = str(cause)
+    else:
+        message = str(exc)
+    return _GARMIN_CONNECTION_ACCOUNT_UNIQUE_CONSTRAINT in message or (
+        "UNIQUE constraint failed" in message
+        and "garmin_garminconnection" in message
+        and "provider_account_id" in message
+    )
 
 
 def _encryption_keys() -> list[bytes]:
@@ -108,6 +141,15 @@ class GarminConnection(BaseModel):
 
     last_synced_at = models.DateTimeField(null=True, blank=True)
     last_sync_summary = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_account_id"],
+                condition=~Q(provider_account_id=""),
+                name="garmin_connection_blank_provider_account_uniq",
+            ),
+        ]
 
     def __str__(self) -> str:
         """Return a non-sensitive connection label."""

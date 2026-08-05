@@ -11,7 +11,7 @@ import strawberry
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core.exceptions import ImproperlyConfigured
-from django.db import router
+from django.db import IntegrityError, router
 from django.utils import timezone
 from strawberry.types import Info
 
@@ -26,8 +26,10 @@ from apps.foods.schema import (
 )
 from apps.garmin.models import (
     GARMIN_PROVIDER,
+    GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT,
     GarminConnection,
     GarminOAuthState,
+    is_provider_account_ownership_conflict,
 )
 from apps.garmin.services import (
     begin_authorization,
@@ -274,37 +276,16 @@ class GarminMutation:
         try:
             token_pair = exchange_code_for_tokens(code)
         except Exception as exc:
-            with transaction.atomic(using=using):
-                placeholder = (
-                    GarminConnection.objects.using(using)
-                    .select_for_update()
-                    .filter(pk=connection_pk)
-                    .first()
-                )
-                if (
-                    placeholder is not None
-                    and placeholder.connection_generation == attempt_generation
-                    and placeholder.authorization_placeholder
-                    and placeholder.provider == GARMIN_PROVIDER
-                    and placeholder.status
-                    == GarminConnection.Status.DISCONNECTED
-                    and not placeholder.provider_account_id
-                    and not placeholder.provider_scopes
-                    and not placeholder.access_token_encrypted
-                    and not placeholder.refresh_token_encrypted
-                    and placeholder.access_token_expires_at is None
-                    and placeholder.last_synced_at is None
-                    and not placeholder.last_sync_summary
-                    and not placeholder.activities.exists()
-                ):
-                    GarminConnection.objects.using(using).filter(
-                        pk=placeholder.pk,
-                        authorization_placeholder=True,
-                    ).delete()
+            _delete_pristine_authorization_placeholder(
+                connection_pk=connection_pk,
+                attempt_generation=attempt_generation,
+                using=using,
+            )
             raise ValueError(
                 "Garmin connection state changed during authorization"
             ) from exc
 
+        ownership_conflict = False
         with transaction.atomic(using=using):
             persisted_connection = (
                 GarminConnection.objects.using(using)
@@ -336,35 +317,71 @@ class GarminMutation:
                 connection.last_sync_summary = {}
                 connection.last_synced_at = None
 
-            updated_rows = (
-                GarminConnection.objects.using(using)
+            if (
+                connection.provider_account_id
+                and GarminConnection.objects.using(using)
                 .filter(
-                    pk=connection.pk,
-                    connection_generation=attempt_generation,
-                    status=expected_status,
-                    provider_account_id=expected_provider_account_id,
-                )
-                .update(
                     provider=connection.provider,
                     provider_account_id=connection.provider_account_id,
-                    provider_scopes=connection.provider_scopes,
-                    access_token_encrypted=connection.access_token_encrypted,
-                    refresh_token_encrypted=connection.refresh_token_encrypted,
-                    access_token_expires_at=connection.access_token_expires_at,
-                    status=connection.status,
-                    connection_generation=connection.connection_generation,
-                    authorization_placeholder=(
-                        connection.authorization_placeholder
-                    ),
-                    last_synced_at=connection.last_synced_at,
-                    last_sync_summary=connection.last_sync_summary,
-                    updated_at=timezone.now(),
                 )
+                .exclude(pk=connection.pk)
+                .exists()
+            ):
+                ownership_conflict = True
+            else:
+                updated_rows = 0
+                try:
+                    updated_rows = (
+                        GarminConnection.objects.using(using)
+                        .filter(
+                            pk=connection.pk,
+                            connection_generation=attempt_generation,
+                            status=expected_status,
+                            provider_account_id=(expected_provider_account_id),
+                        )
+                        .update(
+                            provider=connection.provider,
+                            provider_account_id=(
+                                connection.provider_account_id
+                            ),
+                            provider_scopes=connection.provider_scopes,
+                            access_token_encrypted=(
+                                connection.access_token_encrypted
+                            ),
+                            refresh_token_encrypted=(
+                                connection.refresh_token_encrypted
+                            ),
+                            access_token_expires_at=(
+                                connection.access_token_expires_at
+                            ),
+                            status=connection.status,
+                            connection_generation=(
+                                connection.connection_generation
+                            ),
+                            authorization_placeholder=(
+                                connection.authorization_placeholder
+                            ),
+                            last_synced_at=connection.last_synced_at,
+                            last_sync_summary=connection.last_sync_summary,
+                            updated_at=timezone.now(),
+                        )
+                    )
+                except IntegrityError as exc:
+                    if not is_provider_account_ownership_conflict(exc):
+                        raise
+                    ownership_conflict = True
+                if not ownership_conflict and updated_rows != 1:
+                    raise ValueError(
+                        "Garmin connection state changed during authorization"
+                    )
+
+        if ownership_conflict:
+            _delete_pristine_authorization_placeholder(
+                connection_pk=connection_pk,
+                attempt_generation=attempt_generation,
+                using=using,
             )
-            if updated_rows != 1:
-                raise ValueError(
-                    "Garmin connection state changed during authorization"
-                )
+            raise ValueError(GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT)
 
         return GarminStatus(
             enabled=bool(settings.GARMIN_ENABLED),
@@ -429,6 +446,43 @@ class GarminMutation:
                     pass
 
         return True
+
+
+def _delete_pristine_authorization_placeholder(
+    *,
+    connection_pk: int,
+    attempt_generation: int,
+    using: str,
+) -> None:
+    """Delete a callback-created placeholder that never received credentials."""
+    from django.db import transaction
+
+    with transaction.atomic(using=using):
+        placeholder = (
+            GarminConnection.objects.using(using)
+            .select_for_update()
+            .filter(pk=connection_pk)
+            .first()
+        )
+        if (
+            placeholder is not None
+            and placeholder.connection_generation == attempt_generation
+            and placeholder.authorization_placeholder
+            and placeholder.provider == GARMIN_PROVIDER
+            and placeholder.status == GarminConnection.Status.DISCONNECTED
+            and not placeholder.provider_account_id
+            and not placeholder.provider_scopes
+            and not placeholder.access_token_encrypted
+            and not placeholder.refresh_token_encrypted
+            and placeholder.access_token_expires_at is None
+            and placeholder.last_synced_at is None
+            and not placeholder.last_sync_summary
+            and not placeholder.activities.exists()
+        ):
+            GarminConnection.objects.using(using).filter(
+                pk=placeholder.pk,
+                authorization_placeholder=True,
+            ).delete()
 
 
 def authenticated_session_user(context: Any) -> Any:

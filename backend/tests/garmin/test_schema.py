@@ -10,6 +10,7 @@ import pytest
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.utils import timezone
 
 import config.schema as schema_module
@@ -182,14 +183,14 @@ def _disconnect(context):
     )
 
 
-def _create_connection_with_tokens(user):
+def _create_connection_with_tokens(user, *, account: str = "provider-user"):
     connection = GarminConnection.objects.create(user=user)
     token_pair = GarminTokenPair(
         access_token="access-token",
         refresh_token="refresh-token",
         expires_in=3600,
         scope="read write",
-        provider_account_id="provider-user",
+        provider_account_id=account,
     )
     connection.set_tokens(token_pair, expires_in=token_pair.expires_in)
     connection.save(
@@ -827,7 +828,10 @@ def test_disconnected_account_switch_with_history_is_rejected_without_side_effec
         connection,
         account="provider-user",
     )
-    other_connection = _create_connection_with_tokens(other_user)
+    other_connection = _create_connection_with_tokens(
+        other_user,
+        account="provider-user-other",
+    )
     other_snapshot = (
         other_connection.provider_account_id,
         other_connection.access_token_encrypted,
@@ -914,6 +918,105 @@ def test_same_account_reconnect_with_history_succeeds(monkeypatch):
     assert connection.is_connected is True
     assert connection.provider_account_id == "provider-user"
     assert GarminActivity.objects.filter(pk=activity.pk).exists()
+
+
+def test_cross_user_callback_ownership_conflict_is_redacted(monkeypatch):
+    """Another user's callback cannot claim an already-owned provider account."""
+    _configure_garmin(monkeypatch)
+    user_a = _create_user("garmin-owner-a@example.com")
+    user_b = _create_user("garmin-owner-b@example.com")
+    context_b = _request_context(user_b, bearer=True)
+    connection_a = _create_connection_with_tokens(user_a)
+    snapshot_a = (
+        connection_a.provider_account_id,
+        connection_a.access_token_encrypted,
+        connection_a.refresh_token_encrypted,
+        connection_a.connection_generation,
+    )
+
+    state_b = _begin_state(context_b)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-user"),
+    )
+
+    result = _complete_authorization(context_b, code="code-x", state=state_b)
+
+    assert result.errors is not None
+    assert (
+        result.errors[0].message
+        == "Garmin account already connected to another user"
+    )
+    connection_a.refresh_from_db()
+    assert (
+        connection_a.provider_account_id,
+        connection_a.access_token_encrypted,
+        connection_a.refresh_token_encrypted,
+        connection_a.connection_generation,
+    ) == snapshot_a
+    assert not GarminConnection.objects.filter(user=user_b).exists()
+    remaining_states = GarminOAuthState.objects.filter(user=user_b)
+    assert remaining_states.exists()
+    assert all(state.consumed_at is not None for state in remaining_states)
+    assert (
+        GarminOAuthState.count_active(
+            user=user_b,
+            provider=GARMIN_PROVIDER,
+            now=timezone.now(),
+        )
+        == 0
+    )
+
+
+def test_same_user_reauthorization_with_existing_ownership_succeeds(
+    monkeypatch,
+):
+    """Reauthorizing the same owned account must keep working."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-owner-reauth@example.com")
+    context = _request_context(user, bearer=True)
+    _create_connection_with_tokens(user)
+
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _: _token_pair("provider-user"),
+    )
+    result = _complete_authorization(context, code="code-reauth", state=state)
+
+    assert result.errors is None
+    connection = GarminConnection.objects.get(user=user)
+    assert connection.provider_account_id == "provider-user"
+    assert connection.status == GarminConnection.Status.ACTIVE
+
+
+def test_blank_provider_account_connections_coexist():
+    """Blank provider identities must not conflict under the unique constraint."""
+    user_a = _create_user("garmin-blank-a@example.com")
+    user_b = _create_user("garmin-blank-b@example.com")
+    first = GarminConnection.objects.create(user=user_a)
+    second = GarminConnection.objects.create(user=user_b)
+    assert first.provider_account_id == ""
+    assert second.provider_account_id == ""
+
+
+def test_duplicate_nonblank_provider_account_raises_integrity_error():
+    """The conditional unique constraint forbids cross-user account reuse."""
+    user_a = _create_user("garmin-dup-a@example.com")
+    user_b = _create_user("garmin-dup-b@example.com")
+    GarminConnection.objects.create(
+        user=user_a,
+        provider=GARMIN_PROVIDER,
+        provider_account_id="dup-account",
+    )
+    with pytest.raises(IntegrityError):
+        GarminConnection.objects.create(
+            user=user_b,
+            provider=GARMIN_PROVIDER,
+            provider_account_id="dup-account",
+        )
 
 
 def test_account_switch_without_history_is_allowed_and_resets_sync_metadata(
