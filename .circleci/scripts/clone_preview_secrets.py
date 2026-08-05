@@ -22,6 +22,10 @@ GENERATED_SECRET_SCHEMA = {
     "nutrition-gemini-api-key": {
         "gemini-api-key": lambda: secrets.token_urlsafe(32),
     },
+    "nutrition-health-sync-secrets": {
+        "token-pepper": lambda: secrets.token_urlsafe(64),
+        "trusted-proxy-cidrs": lambda: "10.0.0.0/8",
+    },
 }
 
 # The db-restore init container pulls a production database snapshot into every

@@ -4,3 +4,4 @@ resources:
   - backend.yaml
   - webapp.yaml
   - postgres.yaml
+  - redis.yaml

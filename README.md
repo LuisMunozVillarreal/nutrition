@@ -4,6 +4,33 @@
 
 Check [these instructions](backend/README.md)
 
+## Samsung Health step sync
+
+The Android companion in [`android-health-sync/`](android-health-sync/) reads daily
+step aggregates from Health Connect and uploads them with a revocable, step-only
+device credential. Device credentials expire after 180 days and can be revoked from
+the steps page. Production must configure a dedicated
+`HEALTH_SYNC_TOKEN_PEPPER`; during rotation, place prior values in the
+comma-separated `HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS` setting until active
+devices have rehashed. Pairing throttles use Django's cache, so production must
+use a shared cache backend and also enforce request/body limits at the reverse
+proxy. When deployed behind trusted proxies, set
+`HEALTH_SYNC_TRUSTED_PROXY_COUNT` to the exact number of proxies that overwrite
+the forwarded-address chain and list the direct proxy networks in
+`HEALTH_SYNC_TRUSTED_PROXY_CIDRS`; leave both empty/zero when clients connect
+directly. Non-development startup fails closed unless `CACHE_URL` selects a
+shared cache and `HEALTH_SYNC_TOKEN_PEPPER` differs from `SECRET_KEY`. Uploads
+are also bounded globally, by client address, and per paired device. Kubernetes
+deployments must provision the `nutrition-health-sync-secrets` Secret with
+independent `token-pepper` and `trusted-proxy-cidrs` keys before rollout. During
+pepper rotation, its optional `token-pepper-fallbacks` key contains the prior
+values until the 180-day device-token lifetime has elapsed; the CIDR value must
+identify only the direct trusted proxy network. The base manifests include an
+internal, non-persistent Redis cache used only for rate limits.
+
+Samsung Health must be configured to share step data with Health Connect. See
+the companion README for build, pairing, permission, and sync instructions.
+
 ## Deploy to production
 
 Check [these instructions](platform/README.md)
