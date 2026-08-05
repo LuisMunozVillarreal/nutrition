@@ -138,13 +138,14 @@ def _validate_host(hostname: str) -> str:
     name = _normalize_host(hostname)
     try:
         ip = ipaddress.ip_address(name)
+    except ValueError:
+        pass
+    else:
         if not _is_public_ip(ip):
             raise NutritionFactsFetchError(
                 f"Disallowed IP address: {hostname}"
             )
         return name
-    except ValueError:
-        pass
 
     try:
         addrs = socket.getaddrinfo(
@@ -158,7 +159,8 @@ def _validate_host(hostname: str) -> str:
             f"Unresolvable host: {hostname}"
         ) from exc
 
-    # All resolved endpoints must be publicly routable.
+    # All resolved endpoints must be publicly routable; every record is
+    # inspected before any address is selected for the connection.
     resolved_records = addrs
     if (
         isinstance(addrs, tuple)
@@ -166,16 +168,20 @@ def _validate_host(hostname: str) -> str:
         and not isinstance(addrs[0], tuple)
     ):
         resolved_records = [addrs]
+    selected_ip: str | None = None
     for _, _, _, _, address in resolved_records:
         resolved = ipaddress.ip_address(address[0])
         if not _is_public_ip(resolved):
             raise NutritionFactsFetchError(
                 f"Disallowed resolved IP for host {hostname}: {resolved}"
             )
-        return str(resolved)
-    raise NutritionFactsFetchError(
-        f"No addresses resolved for host: {hostname}"
-    )
+        if selected_ip is None:
+            selected_ip = str(resolved)
+    if selected_ip is None:
+        raise NutritionFactsFetchError(
+            f"No addresses resolved for host: {hostname}"
+        )
+    return selected_ip
 
 
 def _validate_url(url: str) -> tuple[str, str, str]:

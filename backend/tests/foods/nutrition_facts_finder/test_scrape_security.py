@@ -66,6 +66,36 @@ def _private_dns_addrinfo(*_, **__):
     ]
 
 
+def _mixed_same_host_addrinfo(*_, **__):
+    return [
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 443),
+        ),
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("10.0.0.9", 443),
+        ),
+    ]
+
+
+class _HeaderOnlyResponse:
+    """Fake response exposing only headers for validation tests."""
+
+    def __init__(self, headers: dict[str, str]) -> None:
+        self.headers = headers
+
+    def iter_content(self, _chunk_size: int = 1):
+        """Yield no content for header-only validation tests."""
+        return iter(())
+
+
 def test_scrape_rejects_disallowed_scrape_host(monkeypatch, requests_mock):
     """Hosts outside the allowlist are rejected before network access."""
     monkeypatch.setattr(
@@ -436,6 +466,114 @@ def test_scraper_adapter_uses_resolved_ip_and_preserves_tls_hostname(
     assert captures["connection_port"] == 443
     assert captures["pool_kwargs"]["assert_hostname"] == "good.example.com"
     assert captures["pool_kwargs"]["server_hostname"] == "good.example.com"
+
+
+def test_scraper_adapter_pins_connection_to_validated_ip(monkeypatch):
+    """The adapter builds a real pool pinned to the validated IP."""
+    import urllib3.connection
+
+    recorded: dict[str, object] = {}
+
+    def recording_connect(self):
+        """Record connection target attributes and abort the attempt."""
+        recorded["host"] = self.host
+        recorded["assert_hostname"] = getattr(self, "assert_hostname", None)
+        recorded["server_hostname"] = getattr(self, "server_hostname", None)
+        raise urllib3.exceptions.ConnectTimeoutError("instrumented")
+
+    monkeypatch.setattr(
+        urllib3.connection.HTTPSConnection, "connect", recording_connect
+    )
+    adapter = _ScraperHTTPSAdapter({"good.example.com": "203.0.113.10"})
+    request = requests.Request(
+        "GET", "https://good.example.com/page?x=1"
+    ).prepare()
+    pool = adapter.get_connection_with_tls_context(
+        request, verify=True, proxies=None, cert=None
+    )
+    connection = pool._new_conn()
+    assert connection.host == "203.0.113.10"
+    with pytest.raises(urllib3.exceptions.ConnectTimeoutError):
+        connection.connect()
+
+    assert recorded["host"] == "203.0.113.10"
+    assert recorded["assert_hostname"] == "good.example.com"
+    assert recorded["server_hostname"] == "good.example.com"
+
+
+def test_validate_url_rejects_unsupported_url_forms():
+    """Non-https schemes, credentials, and explicit ports are rejected."""
+    unsupported_urls = [
+        ("http://good.example.com/page", "https scheme"),
+        (
+            "https://user:pass@good.example.com/page",
+            "Credentials in URL",
+        ),
+        (
+            "https://good.example.com:8443/page",
+            "Ports are not supported",
+        ),
+    ]
+    for url, message in unsupported_urls:
+        with pytest.raises(ValueError, match=message):
+            _validate_url(url)
+
+
+def test_validate_host_rejects_mixed_records(monkeypatch):
+    """Every resolved record must be public; mixed hosts are rejected."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _mixed_same_host_addrinfo,
+    )
+
+    with pytest.raises(ValueError, match="Disallowed resolved IP"):
+        _validate_url("https://good.example.com/page")
+
+
+def test_resolve_redirect_url_rejects_protocol_relative():
+    """Protocol-relative redirect targets are rejected."""
+    with pytest.raises(
+        ValueError, match="Protocol-relative redirects are disallowed"
+    ):
+        _resolve_redirect_url(
+            "https://good.example.com/page",
+            "//other.example.com/next",
+            "good.example.com",
+        )
+
+
+def test_follow_redirects_rejects_missing_location(monkeypatch, requests_mock):
+    """Redirect responses without a Location header are rejected."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    requests_mock.get("https://good.example.com/page", status_code=302)
+
+    with pytest.raises(ValueError, match="Redirect missing Location header"):
+        _follow_redirects("https://good.example.com/page")
+
+
+def test_response_bytes_rejects_disallowed_content_type():
+    """Non-HTML content types are rejected before parsing."""
+    with pytest.raises(ValueError, match="Disallowed response type"):
+        _response_bytes(
+            _HeaderOnlyResponse({"Content-Type": "application/pdf"})
+        )
+
+
+def test_response_bytes_rejects_invalid_content_length():
+    """Malformed Content-Length headers are rejected."""
+    with pytest.raises(ValueError, match="Invalid Content-Length"):
+        _response_bytes(
+            _HeaderOnlyResponse(
+                {"Content-Type": "text/html", "Content-Length": "abc"}
+            )
+        )
 
 
 def test_scraper_session_disables_environment_proxies():
