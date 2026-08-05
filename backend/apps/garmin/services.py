@@ -1416,20 +1416,21 @@ def _refresh_access_token_with_retry(
                 expires_in=token_pair.expires_in,
             )
             try:
-                current.save(
-                    using=using,
-                    update_fields=[
-                        "access_token_encrypted",
-                        "refresh_token_encrypted",
-                        "access_token_expires_at",
-                        "provider_scopes",
-                        "provider_account_id",
-                        "connection_generation",
-                        "authorization_placeholder",
-                        "status",
-                        "updated_at",
-                    ],
-                )
+                with transaction.atomic(using=using):
+                    current.save(
+                        using=using,
+                        update_fields=[
+                            "access_token_encrypted",
+                            "refresh_token_encrypted",
+                            "access_token_expires_at",
+                            "provider_scopes",
+                            "provider_account_id",
+                            "connection_generation",
+                            "authorization_placeholder",
+                            "status",
+                            "updated_at",
+                        ],
+                    )
             except IntegrityError as exc:
                 if is_provider_account_ownership_conflict(exc):
                     raise ValueError(
@@ -1554,14 +1555,15 @@ def _claim_provider_account_id(
         current.provider_account_id = provider_account_id
         current.connection_generation += 1
         try:
-            current.save(
-                using=using,
-                update_fields=[
-                    "provider_account_id",
-                    "connection_generation",
-                    "updated_at",
-                ],
-            )
+            with transaction.atomic(using=using):
+                current.save(
+                    using=using,
+                    update_fields=[
+                        "provider_account_id",
+                        "connection_generation",
+                        "updated_at",
+                    ],
+                )
         except IntegrityError as exc:
             if is_provider_account_ownership_conflict(exc):
                 raise ValueError(
