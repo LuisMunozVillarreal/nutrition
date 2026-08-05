@@ -82,7 +82,6 @@ def test_healthz_endpoint_bypasses_ssl_redirect(client):
     SECURE_SSL_REDIRECT=True,
     SECURE_HSTS_SECONDS=86400,
     SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
-    SECURE_HSTS_PRELOAD=True,
     ALLOWED_HOSTS=["example.com"],
     CSRF_TRUSTED_ORIGINS=["https://example.com"],
     DEBUG=False,
@@ -94,4 +93,50 @@ def test_deploy_check_is_clean_with_hardened_security_settings() -> None:
     security_messages = [
         msg.id for msg in messages if msg.id and msg.id.startswith("security.")
     ]
-    assert security_messages == []
+    # security.W021 (HSTS preload advisory) is deliberately accepted: enabling
+    # preload is a one-way commitment and is not active for this deployment.
+    assert set(security_messages) <= {"security.W021"}
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    SECURE_SSL_REDIRECT=True,
+    SECURE_HSTS_SECONDS=86400,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
+)
+def test_proxied_https_from_trusted_cidr_is_not_redirected(client):
+    """Proxied HTTPS from the trusted cluster CIDR must not redirect-loop."""
+    response = client.get(
+        "/admin/login/",
+        secure=False,
+        follow=False,
+        REMOTE_ADDR="10.0.0.5",
+        HTTP_X_FORWARDED_PROTO="https",
+    )
+    assert response.status_code == 200
+    assert "Strict-Transport-Security" in response.headers
+
+
+@pytest.mark.django_db
+@override_settings(
+    SESSION_COOKIE_SECURE=True,
+    CSRF_COOKIE_SECURE=True,
+    SECURE_SSL_REDIRECT=True,
+    SECURE_HSTS_SECONDS=86400,
+    SECURE_HSTS_INCLUDE_SUBDOMAINS=True,
+    SECURE_HSTS_PRELOAD=True,
+)
+def test_spoofed_forwarded_proto_from_untrusted_source_is_ignored(client):
+    """A spoofed forwarded-proto header must not bypass the HTTPS redirect."""
+    response = client.get(
+        "/admin/login/",
+        secure=False,
+        follow=False,
+        REMOTE_ADDR="203.0.113.9",
+        HTTP_X_FORWARDED_PROTO="https",
+    )
+    assert response.status_code == 301
+    assert response["Location"].startswith("https://")
