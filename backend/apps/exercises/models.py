@@ -53,9 +53,6 @@ class _ExerciseOwnerChanged(RuntimeError):
     """Signal that exercise owner day changed while acquiring locks."""
 
 
-_ExerciseLocks = tuple[str, int] | tuple[()]
-
-
 def get_exercise_deletion_locks() -> ExerciseDeletionLocks | None:
     """Return active exercise deletion locks for signal handlers."""
     return _active_exercise_deletion_locks.get()

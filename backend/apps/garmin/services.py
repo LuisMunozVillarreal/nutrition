@@ -13,7 +13,7 @@ from urllib.parse import urlencode, urlsplit
 
 import requests
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import (
     IntegrityError,
     OperationalError,
@@ -1329,17 +1329,18 @@ def revoke_refresh_token(refresh_token: str) -> None:
 def _refresh_access_token_with_retry(
     connection: GarminConnection,
     using: str,
-    *,
-    force_refresh: bool = False,
 ) -> tuple[str, int, str]:
     """Refresh with minimal lock scope and optimistic concurrency control."""
     for attempt in range(2):
         with transaction.atomic(using=using):
-            current = (
-                GarminConnection.objects.using(using)
-                .select_for_update(of=("self",))
-                .get(pk=connection.pk)
-            )
+            try:
+                current = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update(of=("self",))
+                    .get(pk=connection.pk)
+                )
+            except ObjectDoesNotExist as exc:
+                raise ValueError("Garmin connection is not active") from exc
             if not current.is_active:
                 raise ValueError("Garmin connection is not active")
 
@@ -1353,11 +1354,14 @@ def _refresh_access_token_with_retry(
         token_pair = refresh_access_token(current)
 
         with transaction.atomic(using=using):
-            current = (
-                GarminConnection.objects.using(using)
-                .select_for_update(of=("self",))
-                .get(pk=connection.pk)
-            )
+            try:
+                current = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update(of=("self",))
+                    .get(pk=connection.pk)
+                )
+            except ObjectDoesNotExist as exc:
+                raise ValueError("Garmin connection is not active") from exc
             if not current.is_active:
                 raise ValueError("Garmin connection is not active")
             if (
@@ -1472,7 +1476,6 @@ def _ensure_access_token(
             return _refresh_access_token_with_retry(
                 connection,
                 using,
-                force_refresh=True,
             )
         access_token = connection.access_token
         if access_token:
@@ -1524,11 +1527,14 @@ def _claim_provider_account_id(
 ) -> tuple[int, str]:
     """Atomically claim the first authoritative activity account identity."""
     with transaction.atomic(using=using):
-        current = (
-            GarminConnection.objects.using(using)
-            .select_for_update(of=("self",))
-            .get(pk=connection_pk)
-        )
+        try:
+            current = (
+                GarminConnection.objects.using(using)
+                .select_for_update(of=("self",))
+                .get(pk=connection_pk)
+            )
+        except ObjectDoesNotExist as exc:
+            raise ValueError("Garmin connection is not active") from exc
         if not current.is_active:
             raise ValueError("Garmin connection is not active")
         if (
@@ -1806,18 +1812,14 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
 
     def _flush_batch(
         batch: dict[tuple[str, str], NormalizedActivity],
-    ) -> tuple[int, int, int, int]:
+    ) -> tuple[int, int]:
         imported_count = 0
         duplicates_count = 0
-        unsupported_count = 0
-        invalid_count = 0
 
         if not batch:
             return (
                 imported_count,
                 duplicates_count,
-                unsupported_count,
-                invalid_count,
             )
 
         batch_filters = Q()
@@ -1828,16 +1830,19 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
             )
 
         with transaction.atomic(using=using):
-            connection = (
-                GarminConnection.objects.using(using)
-                .select_for_update(of=("self",))
-                .get(pk=connection_model_pk)
-            )
+            try:
+                connection = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update(of=("self",))
+                    .get(pk=connection_model_pk)
+                )
 
-            _ = lock_user_for_garmin_sync(
-                using=using,
-                user_id=connection.user_id,
-            )
+                _ = lock_user_for_garmin_sync(
+                    using=using,
+                    user_id=connection.user_id,
+                )
+            except ObjectDoesNotExist as exc:
+                raise ValueError("Garmin connection is not active") from exc
             if not connection.is_active:
                 raise ValueError("Garmin connection is not active")
             if (
@@ -2075,8 +2080,6 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
         return (
             imported_count,
             duplicates_count,
-            unsupported_count,
-            invalid_count,
         )
 
     try:
@@ -2119,37 +2122,26 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
             ] = normalized
             batch_candidates += 1
             if batch_candidates >= batch_size:
-                (
-                    imported_delta,
-                    duplicates_delta,
-                    unsupported_delta,
-                    invalid_delta,
-                ) = _flush_batch(pending_batch)
+                imported_delta, duplicates_delta = _flush_batch(pending_batch)
                 imported += imported_delta
                 duplicates += duplicates_delta
-                unsupported += unsupported_delta
-                invalid += invalid_delta
                 pending_batch = {}
                 batch_candidates = 0
 
         if pending_batch:
-            (
-                imported_delta,
-                duplicates_delta,
-                unsupported_delta,
-                invalid_delta,
-            ) = _flush_batch(pending_batch)
+            imported_delta, duplicates_delta = _flush_batch(pending_batch)
             imported += imported_delta
             duplicates += duplicates_delta
-            unsupported += unsupported_delta
-            invalid += invalid_delta
 
         with transaction.atomic(using=using):
-            connection = (
-                GarminConnection.objects.using(using)
-                .select_for_update(of=("self",))
-                .get(pk=connection_model_pk)
-            )
+            try:
+                connection = (
+                    GarminConnection.objects.using(using)
+                    .select_for_update(of=("self",))
+                    .get(pk=connection_model_pk)
+                )
+            except ObjectDoesNotExist as exc:
+                raise ValueError("Garmin connection is not active") from exc
 
             if not connection.is_active:
                 raise ValueError("Garmin connection is not active")
@@ -2204,18 +2196,21 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
 
     reconciled = 0
     with transaction.atomic(using=using):
-        connection = (
-            GarminConnection.objects.using(using)
-            .select_for_update(of=("self",))
-            .get(pk=connection.pk)
-        )
+        try:
+            connection = (
+                GarminConnection.objects.using(using)
+                .select_for_update(of=("self",))
+                .get(pk=connection.pk)
+            )
+
+            _ = lock_user_for_garmin_sync(
+                using=using,
+                user_id=connection.user_id,
+            )
+        except ObjectDoesNotExist as exc:
+            raise ValueError("Garmin connection is not active") from exc
         if not connection.is_active:
             raise ValueError("Garmin connection is not active")
-
-        _ = lock_user_for_garmin_sync(
-            using=using,
-            user_id=connection.user_id,
-        )
 
         expected_generation = connection.connection_generation
         expected_provider_account_id = connection.provider_account_id
