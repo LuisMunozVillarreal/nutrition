@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 from strawberry.django.views import GraphQLView
 
+from apps.health_sync.views import pair_device, upload_steps
 from config.schema import schema
 
 urlpatterns = [
@@ -19,4 +20,6 @@ urlpatterns = [
         RedirectView.as_view(url=settings.STATIC_URL + "favicon.ico"),
     ),
     path("graphql/", csrf_exempt(GraphQLView.as_view(schema=schema))),
+    path("api/health-sync/pair/", pair_device, name="health-sync-pair"),
+    path("api/health-sync/steps/", upload_steps, name="health-sync-steps"),
 ]

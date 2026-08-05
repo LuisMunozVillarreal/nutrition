@@ -1,10 +1,12 @@
 """Tests for the clone_preview_secrets script."""
 
 import json
+from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import main
+from clone_preview_secrets import SECRETS, main
 
 
 @pytest.fixture
@@ -57,7 +59,7 @@ def test_main_success(mock_run, mocker):
     mock_apply = mocker.MagicMock()
     mock_apply.returncode = 0
 
-    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 5
+    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 6
 
     # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
@@ -74,11 +76,12 @@ def test_main_success(mock_run, mocker):
     )
     assert msg_exists in result.output
     assert "Copying nutrition-webapp-nextauth-secret" in result.output
+    assert "Copying nutrition-health-sync-secrets" in result.output
 
     # And it should call kubectl get namespace once,
-    # plus get+apply for 5 secrets
-    # Total calls: 1 + (5 * 2) = 11 calls
-    assert mock_run.call_count == 11
+    # plus get+apply for 6 secrets
+    # Total calls: 1 + (6 * 2) = 13 calls
+    assert mock_run.call_count == 13
 
     # And it should remove unwanted metadata fields
     last_apply_call = mock_run.call_args_list[-1]
@@ -87,3 +90,33 @@ def test_main_success(mock_run, mocker):
     assert "uid" not in applied_json["metadata"]
     assert "resourceVersion" not in applied_json["metadata"]
     assert "creationTimestamp" not in applied_json["metadata"]
+
+
+def test_preview_clones_every_secret_referenced_by_base_workloads():
+    """Preview namespaces receive every Secret required by base workloads."""
+    repository = Path(__file__).resolve().parents[2]
+    required = set()
+
+    def collect(value):
+        if isinstance(value, dict):
+            secret_ref = value.get("secretKeyRef")
+            if isinstance(secret_ref, dict) and "name" in secret_ref:
+                required.add(secret_ref["name"])
+            secret_volume = value.get("secret")
+            if (
+                isinstance(secret_volume, dict)
+                and "secretName" in secret_volume
+            ):
+                required.add(secret_volume["secretName"])
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    for manifest_name in ("backend.yaml", "webapp.yaml"):
+        manifest = repository / "platform/k8s/base" / manifest_name
+        for document in yaml.safe_load_all(manifest.read_text()):
+            collect(document)
+
+    assert required <= set(SECRETS)
