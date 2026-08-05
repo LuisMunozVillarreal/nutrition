@@ -7,6 +7,7 @@ import re
 from decimal import Decimal
 
 import strawberry
+from django.core.exceptions import ObjectDoesNotExist
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
@@ -139,6 +140,8 @@ class DayStepsType:
     day_id: int
     steps: int
     kcals: float
+    source: str
+    synced_at: str | None
     created_at: str
 
     @staticmethod
@@ -151,11 +154,26 @@ class DayStepsType:
         Returns:
             DayStepsType: the GraphQL type.
         """
+        try:
+            step_import = obj.step_import
+        except ObjectDoesNotExist:
+            step_import = None
+
         return DayStepsType(
             id=strawberry.ID(str(obj.id)),
             day_id=obj.day_id,
             steps=obj.steps,
             kcals=float(obj.kcals),
+            source=(
+                step_import.source
+                if step_import is not None and step_import.is_active
+                else "manual"
+            ),
+            synced_at=(
+                step_import.observed_at.isoformat()
+                if step_import is not None and step_import.is_active
+                else None
+            ),
             created_at=obj.created_at.isoformat(),
         )
 
@@ -225,7 +243,9 @@ class ExerciseQuery:
             DayStepsType.from_model(ds)
             for ds in DaySteps.objects.filter(
                 day__plan__user=user,
-            ).order_by("-day__day")
+            )
+            .select_related("step_import")
+            .order_by("-day__day")
         ]
 
     @strawberry.field
@@ -244,7 +264,10 @@ class ExerciseQuery:
             return None
 
         try:
-            obj = DaySteps.objects.get(pk=id, day__plan__user=user)
+            obj = DaySteps.objects.select_related("step_import").get(
+                pk=id,
+                day__plan__user=user,
+            )
         except DaySteps.DoesNotExist:
             return None
 
@@ -416,14 +439,9 @@ class ExerciseMutation:
             raise PermissionError("Authentication required")
         validated_steps = _validated_non_negative_int(steps, "steps")
 
-        from apps.plans.models import Day
+        from apps.health_sync.services import create_manual_day_steps
 
-        try:
-            day = Day.objects.get(pk=day_id, plan__user=user)
-        except Day.DoesNotExist as e:
-            raise ValueError("Day not found") from e
-
-        obj = DaySteps.objects.create(day=day, steps=validated_steps)
+        obj = create_manual_day_steps(user, day_id, validated_steps)
         return DayStepsType.from_model(obj)
 
     @strawberry.mutation
@@ -452,13 +470,9 @@ class ExerciseMutation:
             raise PermissionError("Authentication required")
         validated_steps = _validated_non_negative_int(steps, "steps")
 
-        try:
-            obj = DaySteps.objects.get(pk=id, day__plan__user=user)
-        except DaySteps.DoesNotExist as e:
-            raise ValueError("Day steps not found") from e
+        from apps.health_sync.services import update_manual_day_steps
 
-        obj.steps = validated_steps
-        obj.save()
+        obj = update_manual_day_steps(user, int(id), validated_steps)
         return DayStepsType.from_model(obj)
 
     @strawberry.mutation
@@ -480,10 +494,7 @@ class ExerciseMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        try:
-            obj = DaySteps.objects.get(pk=id, day__plan__user=user)
-        except DaySteps.DoesNotExist as e:
-            raise ValueError("Day steps not found") from e
+        from apps.health_sync.services import delete_manual_day_steps
 
-        obj.delete()
+        delete_manual_day_steps(user, int(id))
         return True
