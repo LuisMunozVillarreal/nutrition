@@ -140,7 +140,14 @@ def evaluate_frontend_audit(
             unwaived_advisories.add(UNIDENTIFIED_VULNERABILITY_LABEL)
             continue
 
-        severity = str(vulnerability.get("severity", "")).lower()
+        severity = vulnerability.get("severity")
+        if not isinstance(severity, str) or not severity.strip():
+            # Missing, empty, or non-string severity is malformed input:
+            # treat it as unidentified (fail closed) so it cannot slip
+            # through the gate without scrutiny.
+            unwaived_advisories.add(UNIDENTIFIED_VULNERABILITY_LABEL)
+            continue
+        severity = severity.strip().lower()
         if severity not in {"high", "critical"}:
             continue
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 import check_frontend_dependency_audit as audit_parser
 
 
@@ -312,6 +314,37 @@ def test_non_dict_vulnerability_entry_fails(tmp_path: Path) -> None:
         {
             "auditReportVersion": 3,
             "vulnerabilities": {"x": "oops"},
+            "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
+        },
+        [],
+        exit_code=1,
+    )
+    if exit_code != 1:
+        raise AssertionError("Expected audit exit code 1")
+
+
+@pytest.mark.parametrize("severity", [None, "", "  ", 5, ["high"]])
+def test_malformed_severity_entry_fails(
+    tmp_path: Path, severity: object
+) -> None:
+    """Entries with missing/empty/non-string severity must fail closed.
+
+    Args:
+        tmp_path: Temporary directory fixture path.
+        severity: Malformed severity value to exercise.
+    """
+    entry: dict[str, object] = {
+        "severity": severity,
+        "via": ["GHSA-aaaa-bbbb-cccc"],
+        "name": "lodash",
+    }
+    if severity is None:
+        entry.pop("severity")
+    exit_code = _run(
+        tmp_path,
+        {
+            "auditReportVersion": 3,
+            "vulnerabilities": {"lodash": entry},
             "metadata": {"vulnerabilities": {"high": 1, "critical": 0}},
         },
         [],
