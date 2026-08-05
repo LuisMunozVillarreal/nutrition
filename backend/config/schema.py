@@ -98,6 +98,10 @@ class GarminQuery:
                 last_sync_summary=None,
             )
 
+        summary = connection.last_sync_summary
+        if not isinstance(summary, dict):
+            summary = None
+
         return GarminStatus(
             enabled=bool(settings.GARMIN_ENABLED),
             connected=connection.is_connected,
@@ -109,16 +113,12 @@ class GarminQuery:
             ),
             last_sync_summary=(
                 GarminSyncSummaryType(
-                    imported=connection.last_sync_summary.get("imported", 0),
-                    duplicates=connection.last_sync_summary.get(
-                        "duplicates", 0
-                    ),
-                    unsupported=connection.last_sync_summary.get(
-                        "unsupported", 0
-                    ),
-                    invalid=connection.last_sync_summary.get("invalid", 0),
+                    imported=summary.get("imported", 0),
+                    duplicates=summary.get("duplicates", 0),
+                    unsupported=summary.get("unsupported", 0),
+                    invalid=summary.get("invalid", 0),
                 )
-                if connection.last_sync_summary
+                if summary
                 else None
             ),
         )

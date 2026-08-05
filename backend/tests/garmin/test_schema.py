@@ -1136,6 +1136,34 @@ def test_disconnected_status_retains_identity_only_internally(monkeypatch):
     assert "refresh-token" not in rendered
 
 
+def test_garmin_status_tolerates_tampered_summary(monkeypatch):
+    """A truthy non-dict summary must not surface a raw AttributeError."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-status-tampered@example.com")
+    context = _request_context(user, bearer=True)
+    connection = _create_connection_with_tokens(user)
+    connection.last_sync_summary = "tampered"
+    connection.save(update_fields=["last_sync_summary"])
+
+    result = schema_module.schema.execute_sync(
+        """
+            query {
+                garminStatus {
+                    connected
+                    lastSyncSummary { imported }
+                }
+            }
+        """,
+        context_value=context,
+    )
+
+    assert result.errors is None
+    assert result.data["garminStatus"] == {
+        "connected": True,
+        "lastSyncSummary": None,
+    }
+
+
 def test_garmin_manual_sync_mutation_is_not_exposed():
     """Garmin sync is not executed inline from GraphQL."""
     user = _create_user("garmin-no-sync@example.com")
