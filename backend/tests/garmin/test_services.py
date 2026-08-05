@@ -2773,6 +2773,16 @@ def test_begin_authorization_uses_router_alias_with_user_instance(
     }
 
 
+def test_begin_authorization_deleted_user_raises_redacted(monkeypatch):
+    """A user row deleted mid-request surfaces the redacted auth error."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("begin-auth-deleted@example.com")
+    type(user).objects.filter(pk=user.pk).delete()
+
+    with pytest.raises(PermissionError, match="Authentication required"):
+        services.begin_authorization(user)
+
+
 def test_provider_config_rejects_unapproved_origin(monkeypatch):
     """Provider endpoints must be in a configured HTTPS origin allowlist."""
     _configure_garmin(monkeypatch)

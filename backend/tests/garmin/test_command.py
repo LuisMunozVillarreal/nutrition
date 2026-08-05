@@ -18,6 +18,12 @@ from apps.garmin.services import GarminSyncSummary
 User = get_user_model()
 
 
+@pytest.fixture(autouse=True)
+def _enable_garmin(settings):
+    """The command tests exercise the enabled integration by default."""
+    settings.GARMIN_ENABLED = True
+
+
 def _create_user(email: str):
     return User.objects.create_user(
         email=email,
@@ -219,6 +225,18 @@ def test_sync_command_continues_to_reconcile_when_sync_fails(monkeypatch):
     assert rows[0]["error"] == "sync_failed"
     assert rows[0]["reconciled"] == "ok"
     assert captured["connection_id"] == connection.pk
+
+
+def test_sync_command_noop_when_garmin_disabled(settings):
+    """The command must no-op cleanly when the integration is disabled."""
+    settings.GARMIN_ENABLED = False
+    user = _create_user("command-disabled@example.com")
+    _usable_connection(user)
+
+    output = io.StringIO()
+    Command(stdout=output).handle(user_id=user.id)
+
+    assert "disabled" in output.getvalue()
 
 
 def test_sync_command_with_no_active_connections_succeeds():
