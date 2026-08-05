@@ -68,6 +68,72 @@ class TestRecipeQuery:
         assert result.errors is None
         return len(captured)
 
+    def _count_recipes_with_food_label_query(
+        self, mocker, recipe_count: int
+    ) -> int:
+        """Create recipes and count SQL queries for nested food labels."""
+        user = _create_user(f"rq-foodlabel-{recipe_count}-bounded@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        product = FoodProduct.objects.create(
+            name="Ingredient",
+            size=100,
+            size_unit="g",
+            num_servings=1,
+            nutritional_info_size=100,
+            nutritional_info_unit="g",
+        )
+        serving = product.servings.get(serving_size=100, serving_unit="g")
+
+        for index in range(recipe_count):
+            recipe = Recipe.objects.create(
+                name=f"Recipe {index}",
+                size=100,
+                size_unit="g",
+                num_servings=1,
+            )
+            RecipeIngredient.objects.create(
+                recipe=recipe,
+                food=serving,
+                num_servings=1,
+            )
+
+        query = "{ recipes { id name ingredients { id foodLabel } } }"
+        with CaptureQueriesContext(connection) as captured:
+            result = schema.execute_sync(query, context_value=mock_context)
+
+        assert result.errors is None
+        assert (
+            "Ingredient"
+            in result.data["recipes"][0]["ingredients"][0]["foodLabel"]
+        )
+        return len(captured)
+
+    def test_recipes_food_label_query_has_bounded_budget(self, mocker):
+        """Ingredient labels no longer issue one query per ingredient."""
+        small_count = self._count_recipes_with_food_label_query(mocker, 1)
+        large_count = self._count_recipes_with_food_label_query(mocker, 4)
+
+        assert small_count == large_count
+
+    def test_recipes_scalar_only_query_is_lean(self, mocker):
+        """Scalar-only recipe queries skip the ingredients hydration."""
+        user = _create_user("rq-scalar-budget@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        Recipe.objects.create(
+            name="Solo", size=100, size_unit="g", num_servings=1
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            result = schema.execute_sync(
+                "{ recipes { id name } }", context_value=mock_context
+            )
+
+        assert result.errors is None
+        assert len(captured) == 1
+
     def test_recipes_query(self, mocker):
         """Test listing recipes."""
         # Given an authenticated user and some recipes

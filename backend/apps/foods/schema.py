@@ -276,6 +276,17 @@ class FoodProductType:
         return wrapped
 
 
+def _requested_field_names(info: Info) -> set[str]:
+    """Return the GraphQL field names selected on the current field's type."""
+    names: set[str] = set()
+    for field in info.selected_fields:
+        for selection in field.selections:
+            name = getattr(selection, "name", None)
+            if name:
+                names.add(name)
+    return names
+
+
 @strawberry.type
 class FoodQuery:
     """Food queries."""
@@ -294,17 +305,17 @@ class FoodQuery:
         if user is None or not user.is_authenticated:
             return []
 
-        return [
-            FoodProductType.from_model(fp)
-            for fp in FoodProduct.objects.prefetch_related(
+        queryset = FoodProduct.objects.order_by("name")
+        if "servings" in _requested_field_names(info):
+            queryset = queryset.prefetch_related(
                 Prefetch(
                     "servings",
                     queryset=Serving.objects.select_related("food").order_by(
                         "id"
                     ),
                 )
-            ).order_by("name")
-        ]
+            )
+        return [FoodProductType.from_model(fp) for fp in queryset]
 
     @strawberry.field
     def food_product(
@@ -870,18 +881,17 @@ class RecipeQuery:
         user = get_request_user(info.context)
         if user is None or not user.is_authenticated:
             return []
-        return [
-            RecipeType.from_model(r)
-            for r in Recipe.objects.prefetch_related(
+        queryset = Recipe.objects.order_by("name")
+        if "ingredients" in _requested_field_names(info):
+            queryset = queryset.prefetch_related(
                 Prefetch(
                     "ingredients",
                     queryset=RecipeIngredient.objects.select_related(
-                        "food"
+                        "food__food"
                     ).order_by("id"),
-                ),
-                "ingredients__food",
-            ).order_by("name")
-        ]
+                )
+            )
+        return [RecipeType.from_model(r) for r in queryset]
 
     @strawberry.field
     def recipe(self, info: Info, id: strawberry.ID) -> RecipeType | None:
@@ -903,10 +913,9 @@ class RecipeQuery:
                     Prefetch(
                         "ingredients",
                         queryset=RecipeIngredient.objects.select_related(
-                            "food"
+                            "food__food"
                         ).order_by("id"),
                     ),
-                    "ingredients__food",
                 ).get(pk=id)
             )
         except Recipe.DoesNotExist:
