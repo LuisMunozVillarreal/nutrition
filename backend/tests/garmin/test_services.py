@@ -2506,6 +2506,57 @@ def test_sync_connection_rejects_payloads_missing_local_start(monkeypatch):
     )
 
 
+@pytest.mark.parametrize(
+    "payload_key,expected_duration",
+    [
+        ("duration", 30),
+        ("durationSeconds", 40),
+        ("duration_seconds", 50),
+    ],
+)
+def test_sync_connection_accepts_noncanonical_duration_keys(
+    monkeypatch,
+    payload_key: str,
+    expected_duration: int,
+):
+    """Every documented duration key shape is accepted and persisted."""
+    _configure_garmin(monkeypatch)
+    user, _day = _create_user_with_day(
+        f"sync-duration-{payload_key}@example.com"
+    )
+    connection = _connection_with_token(user)
+
+    payload = _activity_payload(
+        activity_id=f"duration-{payload_key}",
+        activity_type="cycle",
+        started_at="2026-08-01T10:00:00+00:00",
+        duration=expected_duration,
+    )
+    payload = {
+        key: value for key, value in payload.items() if key != "duration"
+    }
+    payload[payload_key] = expected_duration
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [payload],
+    )
+
+    summary = services.sync_connection(connection)
+
+    assert summary == GarminSyncSummary(
+        imported=1,
+        duplicates=0,
+        unsupported=0,
+        invalid=0,
+    )
+    activity = GarminActivity.objects.get(
+        connection=connection,
+        provider_activity_id=f"duration-{payload_key}",
+    )
+    assert activity.duration_seconds == expected_duration
+
+
 def test_sync_connection_rejects_payloads_missing_duration(monkeypatch):
     """A missing duration fails closed instead of fabricating a zero."""
     _configure_garmin(monkeypatch)
