@@ -2,6 +2,7 @@
 
 import datetime
 import math
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import cast
 
@@ -277,13 +278,30 @@ class FoodProductType:
 
 
 def _requested_field_names(info: Info) -> set[str]:
-    """Return the GraphQL field names selected on the current field's type."""
+    """Return the GraphQL field names selected on the current field's type.
+
+    Recurses into named and inline fragment selections so conditional
+    hydration stays bounded for fragment-based queries too.
+
+    Args:
+        info (Info): GraphQL execution info.
+
+    Returns:
+        set[str]: names of selected fields on the current type.
+    """
     names: set[str] = set()
-    for field in info.selected_fields:
-        for selection in field.selections:
+
+    def _visit(selections: Iterable[object]) -> None:
+        for selection in selections:
             name = getattr(selection, "name", None)
             if name:
                 names.add(name)
+            nested = getattr(selection, "selections", None)
+            if nested:
+                _visit(nested)
+
+    for field in info.selected_fields:
+        _visit(field.selections)
     return names
 
 
@@ -772,9 +790,6 @@ class RecipeIngredientType:
         model = self.model
         if model is None:
             return ""
-        cached_food = model.__dict__.get("food")
-        if cached_food is not None:
-            return str(cached_food)
         return str(model.food)
 
 
