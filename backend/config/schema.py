@@ -21,6 +21,7 @@ from apps.foods.schema import (
     RecipeQuery,
 )
 from apps.goals.schema import GoalMutation, GoalQuery
+from apps.health_sync.schema import HealthSyncMutation, HealthSyncQuery
 from apps.libs.graphql import get_request_user
 from apps.measurements.models import Measurement
 from apps.measurements.schema import MeasurementMutation, MeasurementQuery
@@ -171,10 +172,13 @@ class AuthPayload:
 
 
 @strawberry.type
+# Each mixin contributes a separate owner-scoped GraphQL domain.
+# pylint: disable=too-many-ancestors
 class Query(
     MeasurementQuery,
     GoalQuery,
     ExerciseQuery,
+    HealthSyncQuery,
     PlanQuery,
     FoodQuery,
     RecipeQuery,
@@ -215,10 +219,13 @@ class Query(
 
 
 @strawberry.type
+# Each mixin contributes a separate owner-scoped GraphQL domain.
+# pylint: disable=too-many-ancestors
 class Mutation(
     MeasurementMutation,
     GoalMutation,
     ExerciseMutation,
+    HealthSyncMutation,
     PlanMutation,
     FoodMutation,
     RecipeMutation,
