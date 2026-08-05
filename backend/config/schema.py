@@ -596,7 +596,7 @@ class UserType:
 
         safe_offset = max(-14 * 60, min(14 * 60, timezone_offset_minutes))
         local_today = (
-            datetime.now(timezone.utc) - timedelta(minutes=safe_offset)
+            datetime.now(dt_timezone.utc) - timedelta(minutes=safe_offset)
         ).date()
         today = (
             Day.objects.filter(plan__user_id=self.id, day=local_today)
