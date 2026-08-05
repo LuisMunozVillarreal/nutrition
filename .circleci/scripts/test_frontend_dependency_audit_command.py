@@ -33,7 +33,8 @@ def _extract_frontend_dependency_audit_command() -> list[str]:
     body_indent: int | None = None
     command_lines: list[str] = []
 
-    for raw_line in lines[command_line + 1 :]:
+    audit_block_start = command_line + 1
+    for raw_line in lines[audit_block_start:]:
         if raw_line.strip() == "":
             if body_indent is None:
                 continue
