@@ -331,41 +331,46 @@ class GarminMutation:
             else:
                 updated_rows = 0
                 try:
-                    updated_rows = (
-                        GarminConnection.objects.using(using)
-                        .filter(
-                            pk=connection.pk,
-                            connection_generation=attempt_generation,
-                            status=expected_status,
-                            provider_account_id=(expected_provider_account_id),
+                    with transaction.atomic(using=using):
+                        updated_rows = (
+                            GarminConnection.objects.using(using)
+                            .filter(
+                                pk=connection.pk,
+                                connection_generation=attempt_generation,
+                                status=expected_status,
+                                provider_account_id=(
+                                    expected_provider_account_id
+                                ),
+                            )
+                            .update(
+                                provider=connection.provider,
+                                provider_account_id=(
+                                    connection.provider_account_id
+                                ),
+                                provider_scopes=connection.provider_scopes,
+                                access_token_encrypted=(
+                                    connection.access_token_encrypted
+                                ),
+                                refresh_token_encrypted=(
+                                    connection.refresh_token_encrypted
+                                ),
+                                access_token_expires_at=(
+                                    connection.access_token_expires_at
+                                ),
+                                status=connection.status,
+                                connection_generation=(
+                                    connection.connection_generation
+                                ),
+                                authorization_placeholder=(
+                                    connection.authorization_placeholder
+                                ),
+                                last_synced_at=connection.last_synced_at,
+                                last_sync_summary=(
+                                    connection.last_sync_summary
+                                ),
+                                updated_at=timezone.now(),
+                            )
                         )
-                        .update(
-                            provider=connection.provider,
-                            provider_account_id=(
-                                connection.provider_account_id
-                            ),
-                            provider_scopes=connection.provider_scopes,
-                            access_token_encrypted=(
-                                connection.access_token_encrypted
-                            ),
-                            refresh_token_encrypted=(
-                                connection.refresh_token_encrypted
-                            ),
-                            access_token_expires_at=(
-                                connection.access_token_expires_at
-                            ),
-                            status=connection.status,
-                            connection_generation=(
-                                connection.connection_generation
-                            ),
-                            authorization_placeholder=(
-                                connection.authorization_placeholder
-                            ),
-                            last_synced_at=connection.last_synced_at,
-                            last_sync_summary=connection.last_sync_summary,
-                            updated_at=timezone.now(),
-                        )
-                    )
                 except IntegrityError as exc:
                     if not is_provider_account_ownership_conflict(exc):
                         raise

@@ -17,9 +17,11 @@ from django.utils import timezone
 import apps.garmin.services as services
 from apps.exercises.models import Exercise
 from apps.garmin.models import (
+    GARMIN_PROVIDER,
     GarminActivity,
     GarminConnection,
     GarminOAuthState,
+    is_provider_account_ownership_conflict,
 )
 from apps.garmin.services import GarminSyncSummary
 from apps.measurements.models import Measurement
@@ -1366,6 +1368,119 @@ def test_refresh_rotation_cannot_claim_another_users_account(monkeypatch):
         other_connection.provider_account_id,
         other_connection.connection_generation,
     ) == other_snapshot
+
+
+def test_claim_constraint_translation_redacts_when_precheck_bypassed(
+    monkeypatch,
+):
+    """A raw unique violation still becomes the redacted ownership error."""
+    _configure_garmin(monkeypatch)
+    owner, owner_day = _create_user_with_day(
+        "garmin-constraint-owner@example.com"
+    )
+    claimant = _create_user("garmin-constraint-claimant@example.com")
+    _connection_with_token(owner)
+    claimant_connection = _connection_with_token(
+        claimant,
+        provider_account_id="",
+    )
+    monkeypatch.setattr(
+        services,
+        "_reject_external_account_claim",
+        lambda *args, **kwargs: None,
+    )
+    payload = _activity_payload(
+        activity_id="constraint-claim",
+        activity_type="cycle",
+        started_at=timezone.make_aware(
+            datetime.combine(owner_day.day, time(8, 0))
+        ).isoformat(),
+        user_id="provider-user",
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [payload],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin account already connected to another user",
+    ):
+        services.sync_connection(claimant_connection)
+
+    claimant_connection.refresh_from_db()
+    assert claimant_connection.provider_account_id == ""
+
+
+def test_refresh_constraint_translation_redacts_when_precheck_bypassed(
+    monkeypatch,
+):
+    """A raw refresh unique violation still becomes the redacted error."""
+    _configure_garmin(monkeypatch)
+    owner = _create_user("garmin-constraint-refresh-owner@example.com")
+    other = _create_user("garmin-constraint-refresh-other@example.com")
+    _connection_with_token(owner)
+    other_connection = _connection_with_token(other, provider_account_id="")
+    monkeypatch.setattr(
+        services,
+        "_reject_external_account_claim",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        services,
+        "_request_json",
+        lambda *_, **__: {
+            "access_token": "rotated-other",
+            "refresh_token": "rotated-other-refresh",
+            "expires_in": 1800,
+            "userId": "provider-user",
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Garmin account already connected to another user",
+    ):
+        services._ensure_access_token(other_connection, force_refresh=True)
+
+
+def test_ownership_conflict_detector_recognizes_sqlite_message():
+    """The SQLite fallback recognizes the connection account constraint."""
+    user_a = _create_user("garmin-detect-a@example.com")
+    user_b = _create_user("garmin-detect-b@example.com")
+    GarminConnection.objects.create(
+        user=user_a,
+        provider=GARMIN_PROVIDER,
+        provider_account_id="detect-account",
+    )
+    with pytest.raises(IntegrityError) as excinfo:
+        GarminConnection.objects.create(
+            user=user_b,
+            provider=GARMIN_PROVIDER,
+            provider_account_id="detect-account",
+        )
+    assert is_provider_account_ownership_conflict(excinfo.value)
+
+
+def test_ownership_conflict_detector_ignores_unrelated_integrity_errors():
+    """Other tables' unique violations are not ownership conflicts."""
+    user = _create_user("garmin-detect-c@example.com")
+    expires_at = timezone.now() + timedelta(hours=1)
+    GarminOAuthState.objects.create(
+        user=user,
+        provider=GARMIN_PROVIDER,
+        state_hash="duplicate-hash",
+        expires_at=expires_at,
+    )
+    with pytest.raises(IntegrityError) as excinfo:
+        GarminOAuthState.objects.create(
+            user=user,
+            provider=GARMIN_PROVIDER,
+            state_hash="duplicate-hash",
+            expires_at=expires_at,
+        )
+    assert not is_provider_account_ownership_conflict(excinfo.value)
 
 
 def test_sync_connection_stores_unmatched_activity_without_day_as_pending(
