@@ -7,9 +7,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 import check_frontend_dependency_audit as audit_parser
+import pytest
 
 
 def _run(
