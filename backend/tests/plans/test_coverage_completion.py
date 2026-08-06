@@ -12,6 +12,8 @@ from apps.plans.schema import (
     DayType,
     PlanMutation,
     PlanQuery,
+    WeekPlanType,
+    _day_tdee,
     _validated_week_plan_parameters,
 )
 
@@ -19,7 +21,8 @@ from apps.plans.schema import (
 def _info(user):
     """Build the request context shape consumed by GraphQL helpers."""
     return SimpleNamespace(
-        context=SimpleNamespace(request=SimpleNamespace(user=user))
+        context=SimpleNamespace(request=SimpleNamespace(user=user)),
+        selected_fields=[],
     )
 
 
@@ -52,15 +55,27 @@ def test_plan_queries_return_none_when_owned_object_is_missing(
     mocker, resolver, model, owner_filter
 ):
     """Owned-object lookups translate model absence into nullable results."""
+    user = _authenticated_user()
+    queryset_mock = mocker.Mock()
+    queryset_mock.get.side_effect = model.DoesNotExist
+    filter_mock = mocker.patch.object(
+        model.objects, "filter", return_value=queryset_mock
+    )
     get_mock = mocker.patch.object(
         model.objects, "get", side_effect=model.DoesNotExist
     )
-    user = _authenticated_user()
 
     result = getattr(PlanQuery(), resolver)(_info(user), "404")
 
     assert result is None
-    get_mock.assert_called_once_with(pk="404", **{owner_filter: user})
+    if resolver == "week_plan":
+        filter_mock.assert_called_once_with(pk="404", user=user)
+        queryset_mock.get.assert_called_once_with()
+    elif resolver == "day":
+        filter_mock.assert_called_once_with(plan__user=user)
+        queryset_mock.get.assert_called_once_with(pk="404")
+    else:
+        get_mock.assert_called_once_with(pk="404", day__plan__user=user)
 
 
 @pytest.mark.parametrize(
@@ -85,17 +100,26 @@ def test_plan_queries_convert_found_owned_objects(
 ):
     """Owned-object query success paths delegate to their GraphQL wrappers."""
     obj = mocker.Mock()
-    get_mock = mocker.patch.object(model.objects, "get", return_value=obj)
     converted = mocker.Mock()
     converter = mocker.patch(
         f"{graphql_type}.from_model", return_value=converted
     )
-
     user = _authenticated_user()
+    queryset_mock = mocker.Mock()
+    queryset_mock.get.return_value = obj
+    filter_mock = mocker.patch.object(
+        model.objects, "filter", return_value=queryset_mock
+    )
+    get_mock = mocker.patch.object(model.objects, "get", return_value=obj)
+
     result = getattr(PlanQuery(), resolver)(_info(user), "1")
 
     assert result is converted
-    get_mock.assert_called_once_with(pk="1", **{owner_filter: user})
+    if resolver == "week_plan":
+        filter_mock.assert_called_once_with(pk="1", user=user)
+        queryset_mock.get.assert_called_once_with()
+    else:
+        get_mock.assert_called_once_with(pk="1", day__plan__user=user)
     converter.assert_called_once_with(obj)
 
 
@@ -118,13 +142,87 @@ def test_day_type_orders_and_converts_intakes(mocker):
     filter_mock = mocker.patch.object(
         Intake.objects, "filter", return_value=queryset
     )
-    day = SimpleNamespace(id=2)
+    day = SimpleNamespace(id=2, model=None)
 
     result = DayType.intakes(day)
 
     filter_mock.assert_called_once_with(day_id=2)
     queryset.order_by.assert_called_once_with("meal_order", "created_at")
     assert [str(item.id) for item in result] == ["1"]
+
+
+def test_day_tdee_untracked_uses_bmr_rate():
+    """Untracked days resolve TDEE straight from the plan BMR."""
+    day = SimpleNamespace(
+        tracked=False,
+        plan=SimpleNamespace(
+            measurement=SimpleNamespace(bmr=Decimal("2000")),
+            EXERCISE_RATE=Decimal("1.375"),
+        ),
+    )
+
+    assert _day_tdee(day) == (Decimal("2000") * Decimal("1.375")).normalize()
+
+
+def test_day_tdee_falls_back_to_eat_when_unannotated():
+    """Days without the batched eat_total annotation use the plain sum."""
+    day = SimpleNamespace(
+        tracked=True,
+        steps=SimpleNamespace(kcals=Decimal("100")),
+        energy_kcal=Decimal("2000"),
+        eat=Decimal("300"),
+        plan=SimpleNamespace(
+            measurement=SimpleNamespace(bmr=Decimal("2000")),
+            EXERCISE_RATE=Decimal("1.375"),
+        ),
+    )
+
+    assert _day_tdee(day) == Decimal("2600")
+
+
+def test_day_type_tdee_returns_zero_without_model():
+    """A wrapper without a model yields a zero TDEE instead of querying."""
+    assert DayType.tdee(SimpleNamespace(model=None)) == 0.0
+
+
+def test_week_plan_type_days_fallback_queries_without_model(mocker):
+    """Days resolve per-object when the wrapper has no prefetched model."""
+    day = mocker.Mock()
+    queryset = mocker.Mock()
+    queryset.order_by.return_value = [day]
+    filter_mock = mocker.patch.object(
+        Day.objects, "filter", return_value=queryset
+    )
+    converted = mocker.Mock()
+    mocker.patch(
+        "apps.plans.schema.DayType.from_model", return_value=converted
+    )
+    value = SimpleNamespace(id=9, model=None)
+
+    assert WeekPlanType.days(value) == [converted]
+    filter_mock.assert_called_once_with(plan_id=9)
+
+
+def test_week_plan_type_scalars_return_zero_without_model():
+    """TWEE and energy scalars fail soft on model-less wrappers."""
+    value = SimpleNamespace(model=None)
+
+    assert WeekPlanType.twee(value) == 0.0
+    assert WeekPlanType.energy_kcal_goal(value) == 0.0
+    assert WeekPlanType.energy_kcal(value) == 0.0
+
+
+def test_week_plan_type_energy_scalars_read_model_values():
+    """Energy scalars surface the model values when the model is present."""
+    value = SimpleNamespace(
+        model=SimpleNamespace(
+            energy_kcal_goal=Decimal("2000"),
+            energy_kcal=Decimal("1500"),
+        )
+    )
+
+    assert WeekPlanType.energy_kcal_goal(value) == 2000.0
+    assert WeekPlanType.energy_kcal(value) == 1500.0
 
 
 def test_week_plan_validation_rejects_mismatched_daily_inputs(mocker):
