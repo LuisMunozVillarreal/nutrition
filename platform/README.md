@@ -15,3 +15,10 @@ Kubernetes manifests structured using **Kustomize**.
 - **`overlays/`**
     - **`staging`**: Configuration for Preview environments (dynamic namespace, secrets cloning).
     - **`production`**: Configuration for the Production environment (stable domain, high availability).
+
+The Garmin synchronization CronJob is suspended by default in the base, staging,
+and production Kustomize renders. Do not add an activation patch until runtime
+configuration explicitly enables Garmin in both the backend and CronJob and
+supplies all credential, provider endpoint/origin, and callback URL/origin
+values. Committed manifests must retain neutral placeholders rather than real
+provider or deployment endpoints.

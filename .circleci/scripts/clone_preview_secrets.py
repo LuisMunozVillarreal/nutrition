@@ -8,13 +8,13 @@ import time
 import click
 from sanitise_branch import sanitise_branch_name
 
-SECRETS = [
+REQUIRED_SECRETS = (
     "nutrition-webapp-nextauth-secret",
     "nutrition-postgresql",
     "nutrition-django-secret-key",
     "nutrition-gemini-api-key",
     "nutrition-gcp-db-backup-credentials",
-]
+)
 SOURCE_NS = "nutrition-staging"
 
 
@@ -46,55 +46,72 @@ def wait_for_namespace(namespace: str, timeout_seconds: int = 300) -> None:
     sys.exit(1)
 
 
+def _clone_secret(secret: str, target_namespace: str) -> None:
+    """Clone one required Secret while failing closed on lookup problems.
+
+    Args:
+        secret: Source Secret object name.
+        target_namespace: Namespace receiving the cloned Secret.
+
+    """
+    click.echo(f"Copying {secret} from {SOURCE_NS} to {target_namespace}...")
+    lookup = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            secret,
+            "-n",
+            SOURCE_NS,
+            "--ignore-not-found=true",
+            "-o",
+            "json",
+        ],
+        capture_output=True,
+        check=False,
+    )  # nosec: B603, B607
+    if lookup.returncode != 0:
+        click.echo(f"Error looking up Secret {secret}.", err=True)
+        sys.exit(1)
+    if not lookup.stdout.strip():
+        click.echo(f"Required Secret {secret} is absent.", err=True)
+        sys.exit(1)
+
+    try:
+        secret_data = json.loads(lookup.stdout)
+    except json.JSONDecodeError:
+        click.echo(f"Invalid response while reading Secret {secret}.", err=True)
+        sys.exit(1)
+
+    metadata = secret_data.get("metadata", {})
+    for key in [
+        "namespace",
+        "resourceVersion",
+        "uid",
+        "creationTimestamp",
+        "ownerReferences",
+    ]:
+        metadata.pop(key, None)
+
+    apply_result = subprocess.run(
+        ["kubectl", "apply", "-n", target_namespace, "-f", "-"],
+        input=json.dumps(secret_data).encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )  # nosec: B603, B607
+    if apply_result.returncode != 0:
+        click.echo(f"Error applying Secret {secret}.", err=True)
+        sys.exit(1)
+
+
 def clone_secrets(target_namespace: str) -> None:
     """Clone the required secrets to the target namespace.
 
     Args:
         target_namespace (str): The namespace to clone secrets to.
     """
-    for secret in SECRETS:
-        click.echo(
-            f"Copying {secret} from {SOURCE_NS} to {target_namespace}..."
-        )
-        try:
-            res = subprocess.run(
-                [
-                    "kubectl",
-                    "get",
-                    "secret",
-                    secret,
-                    "-n",
-                    SOURCE_NS,
-                    "-o",
-                    "json",
-                ],
-                capture_output=True,
-                check=True,
-            )  # nosec: B603, B607
-            secret_data = json.loads(res.stdout)
-
-            metadata = secret_data.get("metadata", {})
-            for key in [
-                "namespace",
-                "resourceVersion",
-                "uid",
-                "creationTimestamp",
-                "ownerReferences",
-            ]:
-                metadata.pop(key, None)
-
-            subprocess.run(
-                ["kubectl", "apply", "-n", target_namespace, "-f", "-"],
-                input=json.dumps(secret_data).encode("utf-8"),
-                check=True,
-            )  # nosec: B603, B607
-
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-            click.echo(
-                f"Error cloning secret {secret}: {e}",
-                err=True,
-            )
-            sys.exit(1)
+    for secret in REQUIRED_SECRETS:
+        _clone_secret(secret, target_namespace)
 
 
 @click.command()

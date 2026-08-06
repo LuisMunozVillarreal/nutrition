@@ -88,9 +88,37 @@ spec:
                       value: "{preview_host}"
                     - name: CSRF_TRUSTED_ORIGINS
                       value: "https://{preview_host}"
+                    - name: GARMIN_ENABLED
+                      value: "false"
+                    - name: GARMIN_CALLBACK_URL
+                      value: "https://{preview_host}/settings/garmin-callback"
+                    - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                      value: "https://{preview_host}"
       target:
         kind: Deployment
         name: nutrition-backend
+    - patch: |
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: nutrition-garmin-sync
+        spec:
+          jobTemplate:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: garmin-sync
+                      env:
+                        - name: GARMIN_ENABLED
+                          value: "false"
+                        - name: GARMIN_CALLBACK_URL
+                          value: "https://{preview_host}/settings/garmin-callback"
+                        - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                          value: "https://{preview_host}"
+      target:
+        kind: CronJob
+        name: nutrition-garmin-sync
     - patch: |
         apiVersion: apps/v1
         kind: Deployment

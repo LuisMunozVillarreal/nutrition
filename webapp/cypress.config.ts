@@ -14,7 +14,17 @@ export default defineConfig({
                     plugins: [createEsbuildPlugin(config)],
                 })
             );
-            return config;
+            const baseUrl = config.baseUrl || "http://localhost:3000"
+            const graphqlEndpoint =
+                process.env.NEXT_PUBLIC_GRAPHQL_ENDPOINT ||
+                `${baseUrl}/graphql/`
+            return {
+                ...config,
+                env: {
+                    ...config.env,
+                    NEXT_PUBLIC_GRAPHQL_ENDPOINT: graphqlEndpoint,
+                },
+            };
         },
         baseUrl: "http://localhost:3000",
         video: true,

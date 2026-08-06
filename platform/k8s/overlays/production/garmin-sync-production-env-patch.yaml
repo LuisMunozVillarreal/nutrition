@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nutrition-garmin-sync
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: garmin-sync
+              env:
+                - name: ENVIRONMENT
+                  value: "production"

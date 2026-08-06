@@ -454,6 +454,47 @@ class TestUpdateExercise:
             hours=hours, minutes=minutes, seconds=seconds
         )
 
+    def test_update_exercise_missing_user_lock_raises_redacted(
+        self, mocker, monkeypatch
+    ):
+        """A vanished user row surfaces the redacted auth error."""
+        user, day = _create_user_with_day("update-lock-redacted@example.com")
+        exercise = Exercise.objects.create(
+            day=day,
+            time="10:00",
+            type="walk",
+            kcals=100,
+            duration=datetime.timedelta(minutes=15),
+            distance=Decimal("1.25"),
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        def _raise(*args, **kwargs):
+            raise User.DoesNotExist("User matching query does not exist.")
+
+        monkeypatch.setattr(
+            "apps.exercises.schema.lock_user_for_garmin_sync", _raise
+        )
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateExercise($id: ID!) {
+                    updateExercise(
+                        id: $id, time: "11:00", type: "run", kcals: 120,
+                        duration: "00:15:00", distance: 1.5
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(exercise.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors
+        message = str(result.errors[0])
+        assert "Authentication required" in message
+        assert "matching query does not exist" not in message
+
     @pytest.mark.parametrize("duration", MALFORMED_DURATIONS)
     def test_update_exercise_rejects_malformed_duration_without_changes(
         self, mocker, duration

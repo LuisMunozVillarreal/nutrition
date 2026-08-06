@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib import admin
+from django.db import transaction
 from django.db.models.query import QuerySet
 
 from apps.plans.models import Day, Intake, WeekPlan
@@ -369,11 +370,53 @@ def test_week_plan_instance_cascade_prelocks_all_intake_hierarchies(
 
     plan.delete()
 
-    assert locked_rows == [
+    deduped_locked_rows = []
+    seen: set[tuple[type, tuple[int, ...]]] = set()
+    for model, row_ids in locked_rows:
+        if not row_ids:
+            continue
+        normalized_ids = tuple(row_ids)
+        marker = (model, normalized_ids)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped_locked_rows.append((model, list(normalized_ids)))
+
+    assert deduped_locked_rows == [
         (WeekPlan, [plan_id]),
         (Day, sorted((day.pk, other_day.pk))),
         (Intake, sorted(row.pk for row in intakes)),
     ]
+
+
+@pytest.mark.parametrize("root_model", [Day, WeekPlan])
+def test_instance_cascade_discovers_targets_inside_atomic_block(
+    mocker, day, root_model
+):
+    """Direct cascade target discovery must run inside the delete transaction."""
+    _create_custom_intake(day, "100")
+    from apps.plans.models import intake as intake_module
+
+    original_targets = intake_module.intake_targets_for_cascade
+    observed_atomic: list[bool] = []
+
+    def assert_atomic(targets, using):
+        observed_atomic.append(
+            transaction.get_connection(using).in_atomic_block
+        )
+        return original_targets(targets, using)
+
+    mocker.patch.object(
+        intake_module,
+        "intake_targets_for_cascade",
+        side_effect=assert_atomic,
+    )
+
+    root = day if root_model is Day else day.plan
+    root.delete()
+
+    assert observed_atomic
+    assert all(observed_atomic)
 
 
 def test_move_locks_both_days_by_pk_and_recomputes_both(mocker, day):

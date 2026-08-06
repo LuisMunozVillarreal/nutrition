@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.db.models import QuerySet
 
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
@@ -19,7 +20,8 @@ from apps.plans.schema import (
 def _info(user):
     """Build the request context shape consumed by GraphQL helpers."""
     return SimpleNamespace(
-        context=SimpleNamespace(request=SimpleNamespace(user=user))
+        context=SimpleNamespace(request=SimpleNamespace(user=user)),
+        selected_fields=[],
     )
 
 
@@ -53,14 +55,24 @@ def test_plan_queries_return_none_when_owned_object_is_missing(
 ):
     """Owned-object lookups translate model absence into nullable results."""
     get_mock = mocker.patch.object(
-        model.objects, "get", side_effect=model.DoesNotExist
+        QuerySet, "get", side_effect=model.DoesNotExist
+    )
+    queryset = mocker.Mock()
+    queryset.get.side_effect = model.DoesNotExist
+    queryset.prefetch_related.return_value = queryset
+    filter_mock = mocker.patch.object(
+        QuerySet, "filter", return_value=queryset
     )
     user = _authenticated_user()
 
     result = getattr(PlanQuery(), resolver)(_info(user), "404")
 
     assert result is None
-    get_mock.assert_called_once_with(pk="404", **{owner_filter: user})
+    if resolver == "intake":
+        get_mock.assert_called_once_with(pk="404", **{owner_filter: user})
+    else:
+        filter_mock.assert_called_once()
+        queryset.get.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -85,7 +97,13 @@ def test_plan_queries_convert_found_owned_objects(
 ):
     """Owned-object query success paths delegate to their GraphQL wrappers."""
     obj = mocker.Mock()
-    get_mock = mocker.patch.object(model.objects, "get", return_value=obj)
+    get_mock = mocker.patch.object(QuerySet, "get", return_value=obj)
+    queryset = mocker.Mock()
+    queryset.get.return_value = obj
+    queryset.prefetch_related.return_value = queryset
+    filter_mock = mocker.patch.object(
+        QuerySet, "filter", return_value=queryset
+    )
     converted = mocker.Mock()
     converter = mocker.patch(
         f"{graphql_type}.from_model", return_value=converted
@@ -95,8 +113,12 @@ def test_plan_queries_convert_found_owned_objects(
     result = getattr(PlanQuery(), resolver)(_info(user), "1")
 
     assert result is converted
-    get_mock.assert_called_once_with(pk="1", **{owner_filter: user})
     converter.assert_called_once_with(obj)
+    if resolver == "intake":
+        get_mock.assert_called_once_with(pk="1", **{owner_filter: user})
+    else:
+        filter_mock.assert_called_once()
+        queryset.get.assert_called_once()
 
 
 def test_day_type_orders_and_converts_intakes(mocker):
@@ -118,7 +140,7 @@ def test_day_type_orders_and_converts_intakes(mocker):
     filter_mock = mocker.patch.object(
         Intake.objects, "filter", return_value=queryset
     )
-    day = SimpleNamespace(id=2)
+    day = SimpleNamespace(id=2, model=None)
 
     result = DayType.intakes(day)
 
@@ -240,7 +262,9 @@ def test_plan_mutations_translate_missing_owned_objects(
     mocker, resolver, model, kwargs, message
 ):
     """Mutation ownership lookups expose stable domain errors."""
-    mocker.patch.object(model.objects, "get", side_effect=model.DoesNotExist)
+    # Lock-hardened mutations fetch through an explicit `.using(...)` queryset,
+    # so the manager-level `get` is not the interception point.
+    mocker.patch.object(QuerySet, "get", side_effect=model.DoesNotExist)
 
     with pytest.raises(ValueError, match=message):
         getattr(PlanMutation(), resolver)(

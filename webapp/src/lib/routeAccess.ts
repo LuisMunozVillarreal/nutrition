@@ -27,6 +27,7 @@ export function safeCallbackPath(callbackUrl: string | null): string {
 }
 
 export function buildCallbackPath(pathname: string, encodedQuery: string): string {
+  if (/^\/settings\/garmin-callback\/?$/.test(pathname)) return pathname
   return encodedQuery ? `${pathname}?${encodedQuery}` : pathname
 }
 

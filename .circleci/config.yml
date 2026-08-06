@@ -388,15 +388,31 @@ jobs:
                 | kubectl exec -i -n "$NAMESPACE" deployment/nutrition-backend -- "$@"
             }
 
+            cleanup_backend() {
+              action="$1"
+              run_backend python3 -m scripts.manage_e2e_users "$action"
+              action_status=$?
+              if [ "$action_status" -ne 0 ]; then
+                run_backend python3 -m scripts.manage_e2e_users "$action"
+                action_status=$?
+              fi
+              return "$action_status"
+            }
+
             cleanup() {
               status=$?
               trap - EXIT
               set +e
-              run_backend python3 -m scripts.manage_e2e_users cleanup
-              cleanup_status=$?
-              if [ "$cleanup_status" -ne 0 ]; then
-                run_backend python3 -m scripts.manage_e2e_users cleanup
-                cleanup_status=$?
+              cleanup_status=0
+              cleanup_backend cleanup-garmin
+              fixture_cleanup_status=$?
+              if [ "$fixture_cleanup_status" -ne 0 ]; then
+                cleanup_status=$fixture_cleanup_status
+              fi
+              cleanup_backend cleanup
+              account_cleanup_status=$?
+              if [ "$account_cleanup_status" -ne 0 ] && [ "$cleanup_status" -eq 0 ]; then
+                cleanup_status=$account_cleanup_status
               fi
               unset E2E_LIFECYCLE_PAYLOAD \
                 E2E_RUN_TOKEN E2E_RUN_MARKER \
@@ -446,6 +462,7 @@ jobs:
             sudo service nginx restart
             echo "127.0.0.1 $TESTING_DOMAIN" | sudo tee -a /etc/hosts >/dev/null
 
+            run_backend python3 -m scripts.manage_e2e_users reset-garmin
             CYPRESS_BASE_URL="https://$TESTING_DOMAIN" \
               CYPRESS_E2E_REGULAR_EMAIL="$E2E_REGULAR_EMAIL" \
               CYPRESS_E2E_REGULAR_PASSWORD="$E2E_REGULAR_PASSWORD" \

@@ -66,6 +66,29 @@ test('unauthenticated and expired protected sessions gate deep links at sign-in'
   assert.deepEqual(decideRouteAccess('/plans/new', 'loading', false), {
     kind: 'loading',
   })
+
+  assert.deepEqual(
+    decideRouteAccess('/settings', 'unauthenticated', false),
+    {
+      kind: 'redirect',
+      destination: '/login?callbackUrl=%2Fsettings',
+    },
+  )
+  assert.deepEqual(
+    decideRouteAccess('/settings/garmin-callback', 'unauthenticated', false),
+    {
+      kind: 'redirect',
+      destination:
+        '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
+    },
+  )
+})
+
+test('authenticated sessions can access settings routes', async () => {
+  const { decideRouteAccess } = await routePolicy()
+
+  assert.deepEqual(decideRouteAccess('/settings', 'authenticated', false), { kind: 'allow' })
+  assert.deepEqual(decideRouteAccess('/settings/garmin-callback', 'authenticated', false), { kind: 'allow' })
 })
 
 test('backend reauthentication gates rolling sessions without creating a login loop', async () => {
@@ -84,6 +107,36 @@ test('backend reauthentication gates rolling sessions without creating a login l
     decideRouteAccess('/login', 'authenticated', true, '/login', true),
     { kind: 'allow' },
   )
+})
+
+test('expired Garmin callbacks redirect through login without OAuth parameters', async () => {
+  const { buildCallbackPath, decideRouteAccess } = await routePolicy()
+  for (const encodedQuery of [
+    'code=one-time-code&state=one-time-state',
+    'error=access_denied&error_description=private-detail&state=one-time-state',
+  ]) {
+    const callbackPath = buildCallbackPath(
+      '/settings/garmin-callback',
+      encodedQuery,
+    )
+
+    assert.equal(callbackPath, '/settings/garmin-callback')
+    const decision = decideRouteAccess(
+      '/settings/garmin-callback',
+      'authenticated',
+      false,
+      callbackPath,
+      true,
+    )
+    assert.deepEqual(decision, {
+      kind: 'redirect',
+      destination: '/login?callbackUrl=%2Fsettings%2Fgarmin-callback',
+    })
+    assert.doesNotMatch(
+      decision.destination,
+      /one-time-(?:code|state)|access_denied|private-detail/,
+    )
+  }
 })
 
 test('login and public landing routes remain available without a session', async () => {
@@ -148,6 +201,9 @@ test('AppShell applies route policy before rendering protected children', async 
   assert.match(source, /usePathname\(\)/)
   assert.match(source, /useSearchParams\(\)/)
   assert.match(source, /buildCallbackPath\(pathname, searchParams\.toString\(\)\)/)
+  assert.match(source, /captureGarminCallbackHandoff\(/)
+  assert.match(source, /window\.sessionStorage/)
+  assert.match(source, /window\.history/)
   assert.match(source, /BACKEND_REAUTHENTICATION_REQUIRED/)
   assert.match(source, /decideRouteAccess\(/)
   assert.match(source, /router\.replace\(access\.destination\)/)

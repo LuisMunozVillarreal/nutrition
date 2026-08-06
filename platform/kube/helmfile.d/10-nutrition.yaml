@@ -20,6 +20,70 @@ releases:
         secretKeyRef:
           key: gemini-api-key
           name: nutrition-gemini-api-key
+    - name: GARMIN_ENABLED
+      value: '{{ .Values.garmin.enabled }}'
+    - name: GARMIN_CLIENT_ID
+      valueFrom:
+        secretKeyRef:
+          key: client-id
+          name: nutrition-garmin-config
+          optional: true
+    - name: GARMIN_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          key: client-secret
+          name: nutrition-garmin-config
+          optional: true
+    - name: GARMIN_AUTHORIZATION_URL
+      value: '{{ .Values.garmin.authorizationUrl }}'
+    - name: GARMIN_TOKEN_URL
+      value: '{{ .Values.garmin.tokenUrl }}'
+    - name: GARMIN_ACTIVITIES_URL
+      value: '{{ .Values.garmin.activitiesUrl }}'
+    - name: GARMIN_CALLBACK_URL
+      value: '{{ .Values.garmin.callbackUrl }}'
+    - name: GARMIN_PROVIDER_ORIGINS
+      value: '{{ .Values.garmin.providerOrigins }}'
+    - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+      value: '{{ .Values.garmin.callbackAllowedOrigins }}'
+    - name: GARMIN_SCOPES
+      value: '{{ .Values.garmin.scopes }}'
+    - name: GARMIN_REQUEST_TIMEOUT_SECONDS
+      value: '{{ .Values.garmin.requestTimeoutSeconds }}'
+    - name: GARMIN_ACTIVITY_MAX_PAGES
+      value: '{{ .Values.garmin.activityMaxPages }}'
+    - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
+      value: '{{ .Values.garmin.activitySyncBatchSize }}'
+    - name: GARMIN_ACTIVITIES_LIMIT
+      value: '{{ .Values.garmin.activitiesLimit }}'
+    - name: GARMIN_ACTIVITY_MAX_TOTAL_ITEMS
+      value: '{{ .Values.garmin.activityMaxTotalItems }}'
+    - name: GARMIN_STATE_TTL_SECONDS
+      value: '{{ .Values.garmin.stateTtlSeconds }}'
+    - name: GARMIN_STATE_MAX_IN_FLIGHT
+      value: '{{ .Values.garmin.stateMaxInFlight }}'
+    - name: GARMIN_TOKEN_MAX_TTL_SECONDS
+      value: '{{ .Values.garmin.tokenMaxTtlSeconds }}'
+    - name: GARMIN_TOKEN_ENCRYPTION_KEYS
+      valueFrom:
+        secretKeyRef:
+          key: token-encryption-keys
+          name: nutrition-garmin-config
+          optional: true
+    - name: GARMIN_TOKEN_ENCRYPTION_KEY
+      valueFrom:
+        secretKeyRef:
+          key: token-encryption-key
+          name: nutrition-garmin-config
+          optional: true
+    - name: GARMIN_REVOKE_TOKEN_URL
+      value: '{{ .Values.garmin.revokeTokenUrl }}'
+    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
+      value: '{{ .Values.garmin.activityEndpointMaxResponseBytes }}'
+    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_TOTAL_BYTES
+      value: '{{ .Values.garmin.activityEndpointMaxTotalBytes }}'
+    - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
+      value: '{{ .Values.garmin.tokenEndpointMaxResponseBytes }}'
     - name: POSTGRESQL_PASSWORD
       valueFrom:
         secretKeyRef:
@@ -32,6 +96,18 @@ releases:
           name: nutrition-django-secret-key
     - name: DEBUG
       value: '{{ .Values.debug }}'
+    garminSync:
+      enabled: {{ .Values.garmin.sync.enabled }}
+      suspend: {{ .Values.garmin.sync.suspend }}
+      schedule: '{{ .Values.garmin.sync.schedule }}'
+      timeZone: '{{ .Values.garmin.sync.timeZone }}'
+      concurrencyPolicy: '{{ .Values.garmin.sync.concurrencyPolicy }}'
+      startingDeadlineSeconds: {{ .Values.garmin.sync.startingDeadlineSeconds }}
+      successfulJobsHistoryLimit: {{ .Values.garmin.sync.successfulJobsHistoryLimit }}
+      failedJobsHistoryLimit: {{ .Values.garmin.sync.failedJobsHistoryLimit }}
+      activeDeadlineSeconds: {{ .Values.garmin.sync.activeDeadlineSeconds }}
+      backoffLimit: {{ .Values.garmin.sync.backoffLimit }}
+      ttlSecondsAfterFinished: {{ .Values.garmin.sync.ttlSecondsAfterFinished }}
     ingress:
       annotations:
         kubernetes.io/ingress.class: traefik
