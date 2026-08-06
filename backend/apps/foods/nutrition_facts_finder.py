@@ -229,14 +229,15 @@ def _response_bytes(
     content_length = response.headers.get("Content-Length")
     if content_length is not None:
         try:
-            if int(content_length) > max_size:
-                raise NutritionFactsFetchError(
-                    f"Response exceeds max size: {content_length}"
-                )
+            parsed_length = int(content_length)
         except ValueError as exc:
             raise NutritionFactsFetchError(
                 "Invalid Content-Length header"
             ) from exc
+        if parsed_length > max_size:
+            raise NutritionFactsFetchError(
+                f"Response exceeds max size: {content_length}"
+            )
 
     collected: bytearray = bytearray()
     for chunk in response.iter_content(STREAM_CHUNK_SIZE):
