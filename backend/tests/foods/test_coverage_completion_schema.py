@@ -19,6 +19,7 @@ from apps.foods.schema import (
     FoodMutation,
     FoodProductType,
     FoodQuery,
+    RecipeIngredientType,
     RecipeMutation,
     RecipeQuery,
     RecipeType,
@@ -89,7 +90,11 @@ def test_food_product_query_success_and_missing_paths(mocker):
     """Cover food product query success and missing paths."""
     obj = mocker.Mock()
     mapped = mocker.Mock()
-    mocker.patch.object(FoodProduct.objects, "get", return_value=obj)
+    queryset = mocker.Mock()
+    queryset.get.return_value = obj
+    mocker.patch.object(
+        FoodProduct.objects, "prefetch_related", return_value=queryset
+    )
     converter = mocker.patch.object(
         FoodProductType, "from_model", return_value=mapped
     )
@@ -97,9 +102,7 @@ def test_food_product_query_success_and_missing_paths(mocker):
     assert FoodQuery().food_product(_info(_user()), "1") is mapped
     converter.assert_called_once_with(obj)
 
-    mocker.patch.object(
-        FoodProduct.objects, "get", side_effect=FoodProduct.DoesNotExist
-    )
+    queryset.get.side_effect = FoodProduct.DoesNotExist
     assert FoodQuery().food_product(_info(_user()), "404") is None
 
 
@@ -120,7 +123,27 @@ def test_food_product_type_servings_converts_ordered_models(mocker):
     converter = mocker.patch(
         "apps.foods.schema.ServingType.from_model", return_value=mapped
     )
-    value = SimpleNamespace(id=7)
+    value = SimpleNamespace(id=7, model=None)
+
+    assert FoodProductType.servings(value) == [mapped]
+    converter.assert_called_once_with(serving)
+
+
+def test_recipe_ingredient_type_food_label_empty_without_model():
+    """A model-less ingredient wrapper yields an empty label."""
+    assert RecipeIngredientType.food_label(SimpleNamespace(model=None)) == ""
+
+
+def test_food_product_type_servings_uses_prefetched_models(mocker):
+    """Cover servings resolver model-present path."""
+    serving = mocker.Mock()
+    model = mocker.Mock()
+    model.servings.all.return_value = [serving]
+    mapped = mocker.Mock()
+    converter = mocker.patch(
+        "apps.foods.schema.ServingType.from_model", return_value=mapped
+    )
+    value = SimpleNamespace(id=7, model=model)
 
     assert FoodProductType.servings(value) == [mapped]
     converter.assert_called_once_with(serving)
@@ -139,7 +162,23 @@ def test_recipe_type_ingredients_converts_ordered_models(mocker):
         "apps.foods.schema.RecipeIngredientType.from_model",
         return_value=mapped,
     )
-    value = SimpleNamespace(id=8)
+    value = SimpleNamespace(id=8, model=None)
+
+    assert RecipeType.ingredients(value) == [mapped]
+    converter.assert_called_once_with(ingredient)
+
+
+def test_recipe_type_ingredients_uses_prefetched_models(mocker):
+    """Cover ingredients resolver model-present path."""
+    ingredient = mocker.Mock()
+    model = mocker.Mock()
+    model.ingredients.all.return_value = [ingredient]
+    mapped = mocker.Mock()
+    converter = mocker.patch(
+        "apps.foods.schema.RecipeIngredientType.from_model",
+        return_value=mapped,
+    )
+    value = SimpleNamespace(id=8, model=model)
 
     assert RecipeType.ingredients(value) == [mapped]
     converter.assert_called_once_with(ingredient)

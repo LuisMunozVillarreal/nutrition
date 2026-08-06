@@ -1,5 +1,7 @@
 """Tests for nutrition URL scraper hardening."""
 
+# pylint: disable=protected-access
+
 import socket
 import time
 
@@ -14,10 +16,13 @@ from apps.foods.nutrition_facts_finder import (
     MAX_RESPONSE_BYTES,
     _build_scraper_session,
     _follow_redirects,
+    _request_timeout,
     _resolve_redirect_url,
     _response_bytes,
     _ScraperHTTPSAdapter,
+    _validate_host,
     _validate_url,
+    _validated_url,
     get_product_nutritional_info_from_url,
 )
 
@@ -649,3 +654,158 @@ def test_scrape_rejects_oversized_streamed_body():
 
     with pytest.raises(ValueError, match="Response exceeded"):
         _response_bytes(response, deadline=time.monotonic() + 5)
+
+
+def test_adapter_rejects_unvalidated_destination_host():
+    """A host not pinned in the session map is refused at send time."""
+    adapter = _build_scraper_session(
+        {"good.example.com": "203.0.113.11"}
+    ).get_adapter("https://good.example.com/")
+    request = requests.Request("GET", "https://evil.example.com/").prepare()
+
+    with pytest.raises(ValueError, match="was not validated"):
+        adapter.send(request)
+
+
+def test_parse_host_rejects_url_without_hostname():
+    """URLs that cannot yield a hostname are rejected in the transport."""
+    adapter = _build_scraper_session(
+        {"good.example.com": "203.0.113.11"}
+    ).get_adapter("https://good.example.com/")
+
+    with pytest.raises(ValueError, match="Invalid URL hostname"):
+        adapter._parse_host("https:///path")
+
+
+@pytest.mark.parametrize("url", [None, ""])
+def test_validated_url_rejects_empty_input(url):
+    """Empty transport URLs fail closed."""
+    with pytest.raises(
+        ValueError, match="Invalid URL provided to scraper transport"
+    ):
+        _validated_url(url)
+
+
+def test_validate_host_accepts_public_ip_literal():
+    """Public IP literals are returned without DNS resolution."""
+    assert _validate_host("93.184.216.34") == "93.184.216.34"
+
+
+def test_validate_host_reports_unresolvable_hostname(monkeypatch):
+    """DNS failures surface as fetch errors, not raw socket errors."""
+
+    def _unresolvable(*args, **kwargs):
+        raise socket.gaierror("name or service not known")
+
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _unresolvable,
+    )
+
+    with pytest.raises(ValueError, match="Unresolvable host"):
+        _validate_host("unresolvable.example.com")
+
+
+def test_validate_host_rejects_empty_resolution(monkeypatch):
+    """A host that resolves to no addresses is rejected."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        lambda *args, **kwargs: [],
+    )
+
+    with pytest.raises(ValueError, match="No addresses resolved"):
+        _validate_host("no-records.example.com")
+
+
+def test_validate_url_rejects_missing_hostname():
+    """URLs without a hostname fail closed."""
+    with pytest.raises(ValueError, match="URL must include a valid host"):
+        _validate_url("https://")
+
+
+def test_response_bytes_rejects_missing_content_type():
+    """Responses without a Content-Type are refused."""
+    with pytest.raises(ValueError, match="No response content-type"):
+        _response_bytes(_HeaderOnlyResponse({}))
+
+
+def test_response_bytes_rejects_oversized_content_length():
+    """A Content-Length above the budget is refused before streaming."""
+    response = _HeaderOnlyResponse(
+        {
+            "Content-Type": "text/html",
+            "Content-Length": str(MAX_RESPONSE_BYTES + 1),
+        }
+    )
+
+    with pytest.raises(ValueError, match="exceeds max size"):
+        _response_bytes(response)
+
+
+def test_response_bytes_accepts_valid_content_length():
+    """A Content-Length within budget passes the header check."""
+    response = _HeaderOnlyResponse(
+        {
+            "Content-Type": "text/html",
+            "Content-Length": "1024",
+        }
+    )
+
+    assert _response_bytes(response) == b""
+
+
+def test_response_bytes_skips_empty_chunks():
+    """Empty stream chunks are skipped without truncating the body."""
+    response = _ChunkedResponse([b"a", b"", b"b"], MonotonicClock())
+
+    assert _response_bytes(response) == b"ab"
+
+
+def test_request_timeout_exhausted():
+    """A fully consumed deadline refuses to schedule another request."""
+    with pytest.raises(ValueError, match="Fetch exceeded total time budget"):
+        _request_timeout(0.0)
+
+
+def test_follow_redirects_rejects_unexpected_status(
+    monkeypatch, requests_mock
+):
+    """Non-redirect error statuses surface as fetch errors."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+    requests_mock.get(
+        "https://good.example.com/page",
+        status_code=500,
+        headers={"Content-Type": "text/html"},
+    )
+
+    with pytest.raises(ValueError, match="Unexpected status code"):
+        get_product_nutritional_info_from_url("https://good.example.com/page")
+
+
+def test_follow_redirects_rejects_empty_location(monkeypatch, requests_mock):
+    """Redirects without a Location value fail closed."""
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder._ALLOWED_SCRAPER_HOSTS",
+        {"good.example.com"},
+    )
+    monkeypatch.setattr(
+        "apps.foods.nutrition_facts_finder.socket.getaddrinfo",
+        _public_addrinfo,
+    )
+    requests_mock.get(
+        "https://good.example.com/page",
+        status_code=302,
+        headers={"Content-Type": "text/html", "Location": ""},
+    )
+
+    with pytest.raises(
+        ValueError, match="Redirect Location header missing value"
+    ):
+        get_product_nutritional_info_from_url("https://good.example.com/page")

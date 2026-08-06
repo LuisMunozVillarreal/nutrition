@@ -193,6 +193,23 @@ class TestRecipeQuery:
         assert result.errors is None
         assert len(captured) == 1
 
+    def test_recipes_inline_fragment_selection_walk(self, mocker):
+        """Nameless inline fragments still walk their nested selections."""
+        user = _create_user("rq-inline-fragment@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        Recipe.objects.create(
+            name="Inline", size=100, size_unit="g", num_servings=1
+        )
+
+        result = schema.execute_sync(
+            "{ recipes { id ... on RecipeType { name } } }",
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["recipes"][0]["name"] == "Inline"
+
     def test_recipes_query(self, mocker):
         """Test listing recipes."""
         # Given an authenticated user and some recipes

@@ -224,6 +224,38 @@ class TestPlanGraphQLBudget:
         )
         assert day_tdee == float(day.tdee)
 
+    def test_week_plan_singular_with_days_prefetches(self, mocker):
+        """The single-plan path hydrates days with TDEE dependencies."""
+        user, plan = _create_user_and_plan("plan-singular-prefetch@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            '{ weekPlan(id: "%s") { id days { id tdee } } }' % plan.id,
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        week = result.data["weekPlan"]
+        assert week["id"] == str(plan.id)
+        assert len(week["days"]) == 7
+
+    def test_day_singular_with_tdee_and_intakes_hydrates(self, mocker):
+        """The single-day path hydrates only when nested fields are asked."""
+        user, plan = _create_user_and_plan("plan-singular-day@test.com")
+        day = Day.objects.filter(plan=plan).first()
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            '{ day(id: "%s") { id tdee intakes { id meal } } }' % day.id,
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["day"]["id"] == str(day.id)
+        assert result.data["day"]["intakes"] == []
+
     def test_week_plans_fragment_query_has_bounded_budget(self, mocker):
         """Named fragment day selections keep the hydration bounded."""
         fragment_query = (
