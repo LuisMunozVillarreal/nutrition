@@ -99,6 +99,28 @@ def test_ocado_missing_url(gemini_api, ocado_request):
     assert "URL is required" in str(form.errors)
 
 
+def test_ocado_form_surfaces_scrape_errors_as_validation(monkeypatch):
+    """Transport failures surface as form validation errors."""
+
+    def _boom(url):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(
+        "apps.foods.admin.product.get_product_nutritional_info_from_url",
+        _boom,
+    )
+    data = {
+        "scrape_info_from_url": True,
+        "url": URL,
+        **DEFAULT_FORM_DATA,
+    }
+
+    form = FoodProductForm(data=data)
+
+    assert not form.is_valid()
+    assert "boom" in str(form.errors)
+
+
 @pytest.mark.parametrize(
     "gemini_api",
     (
