@@ -524,13 +524,8 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        using = router.db_for_write(WeekPlan, instance=user)
+        using = router.db_for_write(WeekPlan)
         with transaction.atomic(using=using):
-            try:
-                _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
-            except ObjectDoesNotExist as e:
-                raise PermissionError("Authentication required") from e
-
             try:
                 measurement = Measurement.objects.using(using).get(
                     pk=measurement_id,
@@ -538,6 +533,11 @@ class PlanMutation:
                 )
             except Measurement.DoesNotExist as e:
                 raise ValueError("Measurement not found") from e
+
+            try:
+                _ = lock_user_for_garmin_sync(using=using, user_id=user.pk)
+            except ObjectDoesNotExist as e:
+                raise PermissionError("Authentication required") from e
 
             validated_protein, validated_fat, validated_deficit = (
                 _validated_week_plan_parameters(
@@ -584,7 +584,7 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        using = router.db_for_write(WeekPlan, instance=user)
+        using = router.db_for_write(WeekPlan)
         with transaction.atomic(using=using):
             try:
                 obj = WeekPlan.objects.using(using).get(pk=id, user=user)

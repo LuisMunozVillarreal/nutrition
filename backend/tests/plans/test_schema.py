@@ -374,6 +374,9 @@ class TestPlanGraphQLBudget:
             date_of_birth="2000-01-01",
             height=170.0,
         )
+        Measurement.objects.create(
+            user=user, body_fat_perc=Decimal("20.0"), weight=Decimal("80.0")
+        )
         mock_context = mocker.Mock()
         mock_context.request.user = user
 
@@ -403,7 +406,7 @@ class TestPlanGraphQLBudget:
                 "proteinGKg": 2.0,
                 "fatPerc": 20.0,
                 "deficit": 300,
-                "measurementId": 1,
+                "measurementId": Measurement.objects.get(user=user).id,
             },
             context_value=mock_context,
         )

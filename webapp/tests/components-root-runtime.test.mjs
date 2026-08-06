@@ -445,7 +445,7 @@ test('Sidebar hides without a session and renders active links, drawer, and logo
   view.rerender(React.createElement(Sidebar))
   assert.match(screen.getByTestId('nav-products').className, /active/)
   assert.doesNotMatch(screen.getByTestId('nav-dashboard').className, /active/)
-  assert.equal(screen.getAllByRole('link').length, 14)
+  assert.equal(screen.getAllByRole('link').length, 15)
   assert.ok(screen.getByLabelText('Open navigation menu'))
   assert.equal(screen.getAllByLabelText('Close navigation menu').length, 2)
   assert.ok(screen.getByLabelText('Go to dashboard'))
