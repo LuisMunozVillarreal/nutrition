@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import test from 'node:test'
+import { test } from 'vitest'
 
 const readSource = (path) => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -21,7 +21,7 @@ test('authenticated mobile pages expose an accessible home bar and closable navi
   assert.match(sidebarSource, /aria-controls="primary-navigation"/)
   assert.match(sidebarSource, /event\.key === 'Escape'/)
   assert.match(sidebarSource, /event\.key === 'Tab'/)
-  assert.match(sidebarSource, /drawerRef\.current\?\.querySelectorAll/)
+  assert.match(sidebarSource, /drawerRef\.current!\.querySelectorAll/)
   assert.match(sidebarSource, /menuButtonRef\.current\?\.focus\(\)/)
   assert.match(sidebarSource, /window\.matchMedia\('\(max-width: 768px\)'\)/)
   assert.match(sidebarSource, /if \(!menuOpen \|\| !authenticated\) return/)

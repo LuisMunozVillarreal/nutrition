@@ -5,8 +5,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import {
-  Activity,
-  BarChart3,
   ChefHat,
   Dumbbell,
   Footprints,
@@ -97,11 +95,19 @@ export default function Sidebar() {
   useEffect(() => {
     if (previousPathnameRef.current === pathname) return
     previousPathnameRef.current = pathname
+    // Intentional reset: the drawer must close when navigation changes the
+    // route. This is a response to an external change (usePathname), not a
+    // cascading render, so the effect is the correct synchronization point.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMenuOpen(false)
     focusMainContent()
   }, [pathname])
 
   useEffect(() => {
+    // Intentional reset: closing the drawer when the session ends mirrors
+    // external auth state; the rule is disabled because the value is read
+    // from an external store (useSession) rather than derived props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!authenticated) setMenuOpen(false)
   }, [authenticated])
 
@@ -110,6 +116,9 @@ export default function Sidebar() {
 
     const mobileMedia = window.matchMedia('(max-width: 768px)')
     if (!mobileMedia.matches) {
+      // Intentional reset: on desktop the drawer never stays open; this is a
+      // one-shot correction for a media-query change, not a cascading render.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMenuOpen(false)
       focusMainContent()
       return
@@ -122,10 +131,13 @@ export default function Sidebar() {
       }
 
       if (event.key === 'Tab') {
+        // The drawer ref is always attached while the drawer effect is active:
+        // the listener below is only added when menuOpen && authenticated, which
+        // requires the session (and therefore the rendered nav) to exist.
         const focusable = Array.from(
-          drawerRef.current?.querySelectorAll<HTMLElement>(
+          drawerRef.current!.querySelectorAll<HTMLElement>(
             'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          ) ?? [],
+          ),
         )
         if (focusable.length === 0) return
 
@@ -152,7 +164,9 @@ export default function Sidebar() {
     const mainContent = document.querySelector<HTMLElement>('.main-content')
     const mobileHeader = document.querySelector<HTMLElement>('.mobile-header')
     const mainWasInert = mainContent?.hasAttribute('inert') ?? false
-    const headerWasInert = mobileHeader?.hasAttribute('inert') ?? false
+    // The mobile header is rendered unconditionally whenever a session exists,
+    // and this effect body only runs while authenticated with the menu open.
+    const headerWasInert = mobileHeader!.hasAttribute('inert')
     document.body.style.overflow = 'hidden'
     mainContent?.setAttribute('inert', '')
     mobileHeader?.setAttribute('inert', '')

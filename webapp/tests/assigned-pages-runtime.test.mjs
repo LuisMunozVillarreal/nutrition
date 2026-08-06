@@ -15,6 +15,7 @@ const { act, cleanup, fireEvent, render, screen, waitFor } = rtlModule.default ?
 const requests = []
 let responses = []
 let params = { id: '42' }
+let searchParams = new URLSearchParams()
 const graphqlRequest = async (operation, variables) => {
   requests.push({ operation, variables })
   if (!responses.length) throw new Error('No mocked GraphQL response')
@@ -25,7 +26,7 @@ const graphqlRequest = async (operation, variables) => {
 const gql = (parts, ...values) => parts.reduce((text, part, index) => text + part + (values[index] ?? ''), '')
 
 vi.doMock('@/lib/graphql', () => ({ graphqlRequest, gql }))
-vi.doMock('next/navigation', () => ({ useParams: () => params }))
+vi.doMock('next/navigation', () => ({ useParams: () => params, useSearchParams: () => searchParams }))
 vi.doMock('@/components/DataTable', () => ({
   default: ({ columns, data, loading, rowHref, addHref, addLabel, onDelete, emptyMessage }) => React.createElement(
     'section',
@@ -103,6 +104,7 @@ afterEach(() => {
   requests.length = 0
   responses = []
   params = { id: '42' }
+  searchParams = new URLSearchParams()
   vi.restoreAllMocks()
 })
 
@@ -549,6 +551,17 @@ test('new intake submits parsed custom macro fields', async () => {
   })
   pending.resolve({ createIntake: { id: 'i10' } })
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'false'))
+
+  // A dayId supplied via the query string pre-fills the form and is submitted as an int.
+  cleanup()
+  requests.length = 0
+  searchParams = new URLSearchParams([['dayId', '7']])
+  responses = [{ createIntake: { id: 'i11' } }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Day ID').value, '7'))
+  fireEvent.submit(document.querySelector('form'))
+  await waitFor(() => assert.equal(requests.length, 1))
+  assert.equal(requests[0].variables.dayId, 7)
 })
 
 test('edit intake covers food-backed and custom branches and missing payload branch', async () => {
@@ -685,17 +698,53 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
 })
 
-test('new measurement submits and edit page covers success, missing, and fetch failures', async () => {
+test('new measurement prefills body fat and submits parsed values', async () => {
+  // Prefill lookup returns no previous value; the create mutation carries parsed inputs.
   const pending = deferred()
-  responses = [() => pending.promise]
+  responses = [{ latestMeasurement: null }, () => pending.promise]
   render(React.createElement(NewMeasurementPage))
+  await waitFor(() => assert.equal(requests.length, 1))
+  assert.match(requests[0].operation, /GetPreviousBodyFat/)
   fireEvent.change(screen.getByLabelText('Body Fat (%)'), { target: { value: '18.2' } })
   fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '81.5' } })
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'true'))
-  assert.deepEqual(requests[0].variables, { bodyFatPerc: 18.2, weight: 81.5 })
+  assert.deepEqual(requests[1].variables, { bodyFatPerc: 18.2, weight: 81.5 })
   pending.resolve({ createMeasurement: { id: 'm2' } })
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'false'))
+
+  // A previous value prefills the untouched body fat field and is submitted.
+  cleanup()
+  requests.length = 0
+  responses = [{ latestMeasurement: { bodyFatPerc: 18.4 } }, { createMeasurement: { id: 'm3' } }]
+  render(React.createElement(NewMeasurementPage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Body Fat (%)').value, '18.4'))
+  fireEvent.submit(document.querySelector('form'))
+  await waitFor(() => assert.equal(requests.length, 2))
+  assert.equal(requests[1].variables.bodyFatPerc, 18.4)
+  assert.ok(Number.isNaN(requests[1].variables.weight))
+
+  // Touching the field before the lookup resolves keeps the user's value.
+  cleanup()
+  requests.length = 0
+  const pendingPrefill = deferred()
+  responses = [() => pendingPrefill.promise]
+  render(React.createElement(NewMeasurementPage))
+  fireEvent.change(screen.getByLabelText('Body Fat (%)'), { target: { value: '19.2' } })
+  pendingPrefill.resolve({ latestMeasurement: { bodyFatPerc: 18.4 } })
+  await waitFor(() => assert.equal(screen.getByLabelText('Body Fat (%)').value, '19.2'))
+
+  // A failed prefill lookup is reported without touching the form.
+  cleanup()
+  requests.length = 0
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  responses = [new Error('prefill failed')]
+  render(React.createElement(NewMeasurementPage))
+  await waitFor(() => assert.equal(consoleError.mock.calls.length, 1))
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to load the previous body fat percentage', new Error('prefill failed')])
+})
+
+test('edit measurement covers success, missing, and fetch failures', async () => {
   cleanup()
   requests.length = 0
   responses = [{
