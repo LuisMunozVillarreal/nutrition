@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.db.models import QuerySet
 
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, Intake, WeekPlan
@@ -240,7 +241,9 @@ def test_plan_mutations_translate_missing_owned_objects(
     mocker, resolver, model, kwargs, message
 ):
     """Mutation ownership lookups expose stable domain errors."""
-    mocker.patch.object(model.objects, "get", side_effect=model.DoesNotExist)
+    # Lock-hardened mutations fetch through an explicit `.using(...)` queryset,
+    # so the manager-level `get` is not the interception point.
+    mocker.patch.object(QuerySet, "get", side_effect=model.DoesNotExist)
 
     with pytest.raises(ValueError, match=message):
         getattr(PlanMutation(), resolver)(

@@ -67,7 +67,6 @@ export default function GarminConnect({
   }, [])
 
   const handleConnect = async () => {
-    if (!status?.enabled) return
     clearMessages()
     setRequestInFlight(true)
 
@@ -76,9 +75,7 @@ export default function GarminConnect({
         beginGarminAuthorization: GarminAuthStart
       }>(BEGIN_GARMIN_AUTHORIZATION_MUTATION)
 
-      if (typeof window !== 'undefined') {
-        window.location.assign(response.beginGarminAuthorization.authorizationUrl)
-      }
+      window.location.assign(response.beginGarminAuthorization.authorizationUrl)
     } catch (error) {
       setActionError(resolveError(error))
     } finally {
@@ -88,8 +85,6 @@ export default function GarminConnect({
 
   const handleDisconnect = async () => {
     clearMessages()
-
-    if (!status?.connected && !status?.hasRefreshToken) return
 
     const confirmed = window.confirm('Disconnect Garmin integration?')
     if (!confirmed) {

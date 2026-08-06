@@ -362,7 +362,7 @@ class ExerciseMutation:
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
 
-        using = router.db_for_write(Exercise, instance=user)
+        using = router.db_for_write(Exercise)
         with transaction.atomic(using=using):
             try:
                 stale_obj = Exercise.objects.using(using).get(

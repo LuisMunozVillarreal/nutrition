@@ -36,8 +36,7 @@ function getSingleValue(
   key: string,
 ): string | null {
   const values = params.getAll(key)
-  if (values.length !== 1) return null
-  return values[0] ?? null
+  return values.length === 1 ? values[0] : null
 }
 
 function valueOrNull(value: string | null): string | null {

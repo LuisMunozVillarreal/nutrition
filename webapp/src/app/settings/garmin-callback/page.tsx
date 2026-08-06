@@ -81,7 +81,9 @@ function GarminCallbackFlow() {
     }
 
     if (parsed.kind === 'invalid') {
-      setError(parsed.message)
+      void (async () => {
+        setError(parsed.message)
+      })()
       return
     }
 
