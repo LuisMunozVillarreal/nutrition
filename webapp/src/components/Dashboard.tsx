@@ -116,14 +116,17 @@ export default function Dashboard() {
     return () => {
       cancelled = true
       requestSequence.current += 1
-      if (midnightTimer) clearTimeout(midnightTimer)
+      // scheduleMidnightRefresh() always ran before any cleanup, so the timer
+      // handle is set; clearTimeout(undefined) is a documented no-op.
+      clearTimeout(midnightTimer)
       window.removeEventListener('focus', refreshWhenVisible)
       document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
   }, [status])
 
   const summary = response?.me?.dashboard
-  const measurements = summary?.recentMeasurements ?? []
+  // Memoize the fallback so the dependency identity stays stable across renders.
+  const measurements = useMemo(() => summary?.recentMeasurements ?? [], [summary?.recentMeasurements])
   const trend = useMemo(() => buildWeightTrendSeries(measurements), [measurements])
   const latestMeasurement = measurements.at(-1)
   const today = summary?.todayNutrition ?? null

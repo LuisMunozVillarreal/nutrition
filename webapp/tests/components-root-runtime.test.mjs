@@ -19,6 +19,30 @@ Object.assign(globalThis, {
   },
 })
 
+// The mobile Sidebar uses requestAnimationFrame for focus management and queries
+// matchMedia only while the drawer is open; jsdom provides neither.
+globalThis.requestAnimationFrame = (callback) => setTimeout(() => callback(Date.now()), 0)
+globalThis.cancelAnimationFrame = (handle) => clearTimeout(handle)
+// jsdom defaults document.hidden to true; the dashboard refresh guard checks it.
+Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+let matchMediaMatches = false
+const mediaQueryLists = []
+dom.window.matchMedia = (query) => {
+  const mediaQueryList = {
+    matches: matchMediaMatches,
+    media: query,
+    listeners: [],
+    addEventListener: (type, listener) => {
+      if (type === 'change') mediaQueryList.listeners.push(listener)
+    },
+    removeEventListener: (type, listener) => {
+      if (type === 'change') mediaQueryList.listeners = mediaQueryList.listeners.filter((l) => l !== listener)
+    },
+  }
+  mediaQueryLists.push(mediaQueryList)
+  return mediaQueryList
+}
+
 const rtl = await import('@testing-library/react')
 const { act, cleanup, fireEvent, render, screen, waitFor } = rtl.default ?? rtl
 
@@ -115,6 +139,8 @@ afterEach(() => {
   state.session = null
   state.graphql = null
   state.status = 'unauthenticated'
+  matchMediaMatches = false
+  mediaQueryLists.length = 0
   for (const fn of [state.push, state.replace, state.refresh, state.signIn, state.signOut, state.request, state.alert]) fn.mockClear()
   state.request.mockClear()
 })
@@ -411,7 +437,7 @@ test('EntityForm shows hydration state and skips delete controls when onDelete i
   assert.deepEqual(state.push.mock.calls[0], ['/items'])
 })
 
-test('Sidebar hides without a session and renders active links and logout for a session', () => {
+test('Sidebar hides without a session and renders active links, drawer, and logout for a session', () => {
   const view = render(React.createElement(Sidebar))
   assert.equal(view.container.textContent, '')
   state.session = { user: { name: 'A' } }
@@ -419,9 +445,143 @@ test('Sidebar hides without a session and renders active links and logout for a 
   view.rerender(React.createElement(Sidebar))
   assert.match(screen.getByTestId('nav-products').className, /active/)
   assert.doesNotMatch(screen.getByTestId('nav-dashboard').className, /active/)
-  assert.equal(screen.getAllByRole('link').length, 12)
+  assert.equal(screen.getAllByRole('link').length, 14)
+  assert.ok(screen.getByLabelText('Open navigation menu'))
+  assert.equal(screen.getAllByLabelText('Close navigation menu').length, 2)
+  assert.ok(screen.getByLabelText('Go to dashboard'))
   fireEvent.click(screen.getByTestId('nav-logout'))
   assert.equal(state.signOut.mock.calls.length, 1)
+})
+
+test('Sidebar mobile drawer traps focus, closes on Escape, toggles inert, and restores on breakpoint change', async () => {
+  document.body.innerHTML = '<main class="main-content"></main><header class="mobile-header"></header>'
+  matchMediaMatches = true
+  state.session = { user: { name: 'A' } }
+  const view = render(React.createElement(Sidebar))
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  assert.equal(document.querySelector('.main-content').hasAttribute('inert'), true)
+  assert.equal(document.querySelector('.mobile-header').hasAttribute('inert'), true)
+  assert.equal(document.body.style.overflow, 'hidden')
+
+  // Escape closes the drawer and restores focus to the menu button.
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+  await waitFor(() => assert.equal(document.activeElement, screen.getByLabelText('Open navigation menu')))
+  assert.equal(document.querySelector('.main-content').hasAttribute('inert'), false)
+  assert.equal(document.body.style.overflow, '')
+
+  // Reopening the drawer traps Tab between the first and last focusable elements.
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  const focusables = Array.from(screen.getByTestId('sidebar').querySelectorAll('a[href], button:not([disabled])'))
+  assert.ok(focusables.length > 0)
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  last.focus()
+  fireEvent.keyDown(document, { key: 'Tab' })
+  assert.equal(document.activeElement, first)
+  first.focus()
+  fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+  assert.equal(document.activeElement, last)
+
+  // An empty drawer leaves the Tab handler inert.
+  const querySpy = vi.spyOn(HTMLElement.prototype, 'querySelectorAll')
+  querySpy.mockReturnValueOnce([])
+  fireEvent.keyDown(document, { key: 'Tab' })
+  assert.equal(document.activeElement, last)
+  querySpy.mockRestore()
+
+  // A desktop breakpoint change closes the drawer.
+  const list = mediaQueryLists[mediaQueryLists.length - 1]
+  await act(async () => { list.listeners.forEach((listener) => listener({ matches: false })) })
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+
+  // Losing the session removes the sidebar entirely.
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  state.session = null
+  view.rerender(React.createElement(Sidebar))
+  await waitFor(() => assert.equal(view.container.textContent, ''))
+})
+
+test('Sidebar closes the drawer and focuses main content when the pathname changes', async () => {
+  // tabindex makes the injected main content focusable, mirroring AppShell's markup.
+  document.body.innerHTML = '<main class="main-content" tabindex="-1"></main>'
+  matchMediaMatches = true
+  state.session = { user: { name: 'A' } }
+  const view = render(React.createElement(Sidebar))
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  state.pathname = '/plans'
+  view.rerender(React.createElement(Sidebar))
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+  await waitFor(() => assert.equal(document.activeElement, document.querySelector('.main-content')))
+})
+
+
+test('Sidebar ignores unrelated keys, avoids Tab wrapping at the middle, and tolerates desktop breakpoint changes', async () => {
+  document.body.innerHTML = '<main class="main-content"></main><header class="mobile-header"></header>'
+  matchMediaMatches = true
+  state.session = { user: { name: 'A' } }
+  render(React.createElement(Sidebar))
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+
+  // A key that is neither Escape nor Tab leaves the drawer untouched.
+  fireEvent.keyDown(document, { key: 'Enter' })
+  assert.match(screen.getByTestId('sidebar').className, /open/)
+
+  // Tab from a middle element does not wrap focus.
+  const focusables = Array.from(screen.getByTestId('sidebar').querySelectorAll('a[href], button:not([disabled])'))
+  focusables[Math.floor(focusables.length / 2)].focus()
+  fireEvent.keyDown(document, { key: 'Tab' })
+  assert.equal(document.activeElement, focusables[Math.floor(focusables.length / 2)])
+
+  // A breakpoint change back to mobile is a no-op while the drawer is open.
+  const list = mediaQueryLists[mediaQueryLists.length - 1]
+  await act(async () => { list.listeners.forEach((listener) => listener({ matches: true })) })
+  assert.match(screen.getByTestId('sidebar').className, /open/)
+
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+})
+
+test('Sidebar preserves pre-existing inert state and tolerates a missing main element', async () => {
+  document.body.innerHTML = '<main class="main-content" inert></main>'
+  matchMediaMatches = true
+  state.session = { user: { name: 'A' } }
+  render(React.createElement(Sidebar))
+  document.querySelector('.mobile-header').setAttribute('inert', '')
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+  // Cleanup restores overflow but does not strip attributes that were already inert.
+  assert.equal(document.querySelector('.main-content').hasAttribute('inert'), true)
+  assert.equal(document.querySelector('.mobile-header').hasAttribute('inert'), true)
+  assert.equal(document.body.style.overflow, '')
+
+  // Opening the drawer without any main content falls back safely.
+  cleanup()
+  document.body.innerHTML = ''
+  render(React.createElement(Sidebar))
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  await waitFor(() => assert.match(screen.getByTestId('sidebar').className, /open/))
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/))
+})
+
+test('Sidebar keeps the drawer closed on desktop viewports', async () => {
+  // tabindex makes the injected main content focusable, mirroring AppShell's markup.
+  document.body.innerHTML = '<main class="main-content" tabindex="-1"></main>'
+  matchMediaMatches = false
+  state.session = { user: { name: 'A' } }
+  render(React.createElement(Sidebar))
+  fireEvent.click(screen.getByLabelText('Open navigation menu'))
+  // The drawer effect detects the desktop viewport and closes the drawer again.
+  assert.doesNotMatch(screen.getByTestId('sidebar').className, /open/)
+  await waitFor(() => assert.equal(document.activeElement, document.querySelector('.main-content')))
 })
 
 test('AppShell covers loading, redirect, public child, and authenticated shell decisions', async () => {
@@ -458,29 +618,121 @@ test('AppShell redirects regular users from staff routes and handles backend rea
   await waitFor(() => assert.equal(state.replace.mock.calls.length, 2))
 })
 
-test('Dashboard displays fallback identity without a token', () => {
+const dashboardPayload = (overrides = {}) => ({
+  me: {
+    firstName: 'Fetched',
+    dashboard: {
+      latestWeight: 0,
+      latestBodyFat: 12,
+      goalBodyFat: 10,
+      recentMeasurements: [],
+      todayNutrition: null,
+      ...overrides,
+    },
+  },
+})
+
+test('Dashboard skips fetching while unauthenticated and shows fallback empty states without a token', async () => {
+  state.status = 'unauthenticated'
+  const view = render(React.createElement(Dashboard))
+  assert.equal(state.request.mock.calls.length, 0)
+
   state.status = 'authenticated'
   state.session = { user: {} }
-  render(React.createElement(Dashboard))
+  state.request.mockImplementation(async () => ({ me: { firstName: null, dashboard: null } }))
+  view.rerender(React.createElement(Dashboard))
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
   assert.equal(screen.getByTestId('dashboard-greeting').textContent, 'Time to dominate, Athlete!')
-  assert.match(document.body.textContent, /Current Weight--kg.*Current--%.*Goal--%/s)
-  assert.equal(state.request.mock.calls.length, 0)
+  assert.match(document.body.textContent, /No weight logged yet/)
+  assert.match(document.body.textContent, /CurrentNot set/)
+  assert.match(document.body.textContent, /GoalNot set/)
+  assert.match(document.body.textContent, /No plan day found for today/)
+
+  // A dashboard payload with no body composition values shows the empty state.
+  cleanup()
+  state.request.mockImplementation(async () => dashboardPayload({ latestBodyFat: null, goalBodyFat: null }))
+  render(React.createElement(Dashboard))
+  await waitFor(() => assert.match(document.body.textContent, /No body composition data yet/))
 })
 
-test('Dashboard fetches measurements and fetched name with authenticated authorization', async () => {
+test('Dashboard fetches the dashboard query with timezone offset and bearer authorization', async () => {
   state.status = 'authenticated'
   state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
-  state.request.mockImplementation(async () => ({ me: { firstName: 'Fetched', dashboard: { latestWeight: 0, latestBodyFat: 12, goalBodyFat: 10 } } }))
+  let resolve
+  state.request.mockImplementation(() => new Promise((done) => { resolve = done }))
   render(React.createElement(Dashboard))
-  await waitFor(() => assert.equal(screen.getByTestId('dashboard-greeting').textContent, 'Time to dominate, Fetched!'))
-  assert.match(document.body.textContent, /Current Weight0kg.*Current12%.*Goal10%/s)
-  assert.equal(state.request.mock.calls.length, 1)
-  const graphqlRequest = state.request.mock.calls[0]
-  assert.equal(new URL(graphqlRequest[0]).pathname, '/api/graphql')
-  assert.equal(new Headers(graphqlRequest[3]).get('Authorization'), 'Bearer test-token')
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
+  assert.ok(screen.getAllByLabelText('Loading dashboard value').length >= 3)
+
+  const [query, variables] = state.request.mock.calls[0]
+  assert.match(query, /dashboard\s*\(/)
+  assert.equal(typeof variables.timezoneOffsetMinutes, 'number')
+  assert.equal(state.graphql.headers.Authorization, 'Bearer test-token')
+
+  await act(async () => resolve(dashboardPayload({
+    latestWeight: 88.2,
+    recentMeasurements: [
+      { id: 'r1', createdAt: '2026-01-01T00:00:00Z', weight: 81, bodyFatPerc: 20 },
+      { id: 'r2', createdAt: '2026-01-02T00:00:00Z', weight: 80.5, bodyFatPerc: 19.8 },
+    ],
+  })))
+  assert.equal(screen.getByTestId('dashboard-greeting').textContent, 'Time to dominate, Fetched!')
+  // The latest measurement overrides the summary's latest values.
+  assert.match(document.body.textContent, /Current Weight80\.5kg/)
+  assert.match(document.body.textContent, /Current19\.8%/)
+  assert.match(document.body.textContent, /Goal10%/)
+  const trend = screen.getByRole('img', { name: /Weight trend from 81 kilograms to 80\.5 kilograms/ })
+  assert.ok(trend)
 })
 
-test('Dashboard signs out when the backend has no current user and logs request errors', async () => {
+test('Dashboard renders today nutrition with a progress bar and day-linked meal action', async () => {
+  state.status = 'authenticated'
+  state.session = { accessToken: 't', user: { name: 'N' } }
+  const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+  state.request.mockImplementation(async () => dashboardPayload({
+    latestWeight: 88.4,
+    latestBodyFat: 22,
+    goalBodyFat: 18,
+    recentMeasurements: [{ id: 'r1', createdAt: '2026-01-01T00:00:00Z', weight: 88.4, bodyFatPerc: 22 }],
+    todayNutrition: { id: 'day-7', day: localToday, energyKcal: 1560, energyKcalGoal: 2000, intakeCount: 4 },
+  }))
+  render(React.createElement(Dashboard))
+  await waitFor(() => assert.ok(screen.getByRole('progressbar')))
+  assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuenow'), '1560')
+  assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '2000')
+  assert.match(document.body.textContent, /4 entries logged today/)
+  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/intakes/new?dayId=day-7')
+  assert.ok(mealLink)
+  // A single measurement leaves the trend below the two-point threshold.
+  assert.match(document.body.textContent, /Log at least two measurements to see your trend/)
+})
+
+test('Dashboard renders a zero-goal progress bar without dividing by zero', async () => {
+  state.status = 'authenticated'
+  state.session = { accessToken: 't', user: { name: 'N' } }
+  const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+  state.request.mockImplementation(async () => dashboardPayload({
+    todayNutrition: { id: 'day-zero', day: localToday, energyKcal: 1560, energyKcalGoal: 0, intakeCount: 2 },
+  }))
+  render(React.createElement(Dashboard))
+  await waitFor(() => assert.ok(screen.getByRole('progressbar')))
+  assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '1')
+  assert.equal(screen.getByRole('progressbar').style.width, '0%')
+})
+
+test('Dashboard shows the empty trend hint and a non-current day fallback', async () => {
+  state.status = 'authenticated'
+  state.session = { accessToken: 't', user: { name: 'N' } }
+  state.request.mockImplementation(async () => dashboardPayload({
+    recentMeasurements: [{ id: 'r1', createdAt: '2026-01-01T00:00:00Z', weight: 88.4, bodyFatPerc: 22 }],
+    todayNutrition: { id: 'day-old', day: '2020-01-01', energyKcal: 100, energyKcalGoal: 2000, intakeCount: 1 },
+  }))
+  render(React.createElement(Dashboard))
+  await waitFor(() => assert.match(document.body.textContent, /No plan day found for today/))
+  assert.match(document.body.textContent, /Log at least two measurements to see your trend/)
+})
+
+test('Dashboard signs out when the backend has no current user and surfaces request errors', async () => {
   state.status = 'authenticated'
   state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
   state.request.mockImplementation(async () => ({ me: null }))
@@ -495,6 +747,7 @@ test('Dashboard signs out when the backend has no current user and logs request 
   render(React.createElement(Dashboard))
   await waitFor(() => assert.equal(errors.length, 1))
   assert.equal(errors[0][0], 'Failed to fetch dashboard data')
+  assert.match(document.body.textContent, /Dashboard data could not be loaded/)
   console.error = originalError
   view.unmount()
 })
@@ -507,8 +760,96 @@ test('Dashboard ignores a resolved request after unmount', async () => {
   const view = render(React.createElement(Dashboard))
   await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
   view.unmount()
-  await act(async () => resolve({ me: { firstName: 'Late', dashboard: { latestWeight: 1, latestBodyFat: 2, goalBodyFat: 3 } } }))
+  await act(async () => resolve(dashboardPayload({ latestWeight: 1, latestBodyFat: 2, goalBodyFat: 3 })))
   assert.equal(document.body.textContent, '')
+})
+
+test('Dashboard ignores a failed request after unmount', async () => {
+  let reject
+  state.status = 'authenticated'
+  state.session = { accessToken: 'test-token', user: { name: 'Session Name' } }
+  const originalError = console.error
+  const errors = []
+  console.error = (...args) => errors.push(args)
+  try {
+    state.request.mockImplementation(() => new Promise((_done, fail) => { reject = fail }))
+    const view = render(React.createElement(Dashboard))
+    await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
+    view.unmount()
+    await act(async () => reject(new Error('late network failure')))
+    // The error is logged but the cancelled flag keeps the error state from rendering.
+    assert.equal(errors.length, 1)
+    assert.doesNotMatch(document.body.textContent, /Dashboard data could not be loaded/)
+  } finally {
+    console.error = originalError
+  }
+})
+
+test('Dashboard refreshes on window focus and document visibility changes', async () => {
+  state.status = 'authenticated'
+  state.session = { accessToken: 't', user: { name: 'N' } }
+  state.request.mockImplementation(async () => dashboardPayload())
+  render(React.createElement(Dashboard))
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 1))
+  fireEvent(window, new Event('focus'))
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 2))
+  // While the document is hidden the visibility handler does not refresh.
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+  fireEvent(document, new Event('visibilitychange'))
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(state.request.mock.calls.length, 2)
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+  fireEvent(document, new Event('visibilitychange'))
+  await waitFor(() => assert.equal(state.request.mock.calls.length, 3))
+})
+
+test('Dashboard schedules the midnight refresh and reloads data', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const { millisecondsUntilNextLocalDay } = await import('../src/components/dashboardHelpers.ts')
+    state.status = 'authenticated'
+    state.session = { accessToken: 't', user: { name: 'N' } }
+    state.request.mockImplementation(async () => dashboardPayload())
+    const view = render(React.createElement(Dashboard))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    assert.equal(state.request.mock.calls.length, 1)
+    // The midnight timer fires once and reschedules for the following day.
+    await act(async () => { await vi.advanceTimersByTimeAsync(millisecondsUntilNextLocalDay() + 1000) })
+    assert.equal(state.request.mock.calls.length, 2)
+    // Unmounting clears the pending timer, so no further midnight reloads happen.
+    view.unmount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(millisecondsUntilNextLocalDay() + 1000) })
+    assert.equal(state.request.mock.calls.length, 2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('Dashboard does not reschedule the midnight refresh once cancelled', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const { millisecondsUntilNextLocalDay } = await import('../src/components/dashboardHelpers.ts')
+    state.status = 'authenticated'
+    state.session = { accessToken: 't', user: { name: 'N' } }
+    const pending = []
+    state.request.mockImplementation(() => {
+      if (state.request.mock.calls.length === 1) return Promise.resolve(dashboardPayload())
+      return new Promise((resolve) => { pending.push(resolve) })
+    })
+    const view = render(React.createElement(Dashboard))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    assert.equal(state.request.mock.calls.length, 1)
+    // The midnight reload fires but stays pending while the component unmounts.
+    await act(async () => { await vi.advanceTimersByTimeAsync(millisecondsUntilNextLocalDay() + 1000) })
+    assert.equal(state.request.mock.calls.length, 2)
+    view.unmount()
+    await act(async () => { pending.forEach((resolve) => resolve(dashboardPayload())) })
+    // The cancelled flag suppresses the reschedule: no third request ever fires.
+    await act(async () => { await vi.advanceTimersByTimeAsync(millisecondsUntilNextLocalDay() + 1000) })
+    assert.equal(state.request.mock.calls.length, 2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('HomeClient and root page choose loading, signed-out, and dashboard views', () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import {
   buildTrendCoordinates,
@@ -47,6 +47,29 @@ test('trend coordinate mapping is bounded and stable for flat series', () => {
   assert.equal(plot.points[0].y, plot.points[2].y)
   assert.equal(plot.path.startsWith('M 20 '), true)
   assert.equal(typeof plot.viewBox, 'string')
+})
+
+test('trend series filters non-finite weights and handles a single point', () => {
+  const measurements = [
+    { id: 'bad', createdAt: '2026-02-01T00:00:00Z', weight: Number.NaN, bodyFatPerc: 21 },
+    { id: 'inf', createdAt: '2026-02-01T01:00:00Z', weight: Number.POSITIVE_INFINITY, bodyFatPerc: 21 },
+    { id: 'ok', createdAt: '2026-02-02T00:00:00Z', weight: 70.5, bodyFatPerc: 20.5 },
+  ]
+
+  const filtered = buildWeightTrendSeries(measurements)
+  assert.deepEqual(filtered.map((entry) => entry.weight), [70.5])
+
+  const single = buildWeightTrendSeries([measurements[2]])
+  const plot = buildTrendCoordinates(single, { width: 320, height: 120, padding: 20 })
+  assert.equal(plot.points.length, 1)
+  assert.equal(plot.points[0].x, 160)
+  assert.equal(plot.points[0].y, 60)
+  assert.equal(plot.path, 'M 160 60')
+})
+
+test('date helpers tolerate values that are not parseable dates', () => {
+  assert.equal(normalizeDateForComparison('not-a-date'), 'not-a-date')
+  assert.equal(normalizeDateForComparison('2026-02-03'), '2026-02-03')
 })
 
 test('measurement dates use the local calendar date across midnight offsets', () => {
