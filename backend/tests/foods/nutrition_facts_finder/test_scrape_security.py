@@ -668,7 +668,7 @@ def test_adapter_rejects_unvalidated_destination_host():
 
 
 def test_parse_host_rejects_url_without_hostname():
-    """URLs that cannot yield a hostname are rejected in the transport."""
+    """Reject URLs that cannot yield a hostname in the transport."""
     adapter = _build_scraper_session(
         {"good.example.com": "203.0.113.11"}
     ).get_adapter("https://good.example.com/")
@@ -718,7 +718,7 @@ def test_validate_host_rejects_empty_resolution(monkeypatch):
 
 
 def test_validate_url_rejects_missing_hostname():
-    """URLs without a hostname fail closed."""
+    """Reject URLs without a hostname."""
     with pytest.raises(ValueError, match="URL must include a valid host"):
         _validate_url("https://")
 
