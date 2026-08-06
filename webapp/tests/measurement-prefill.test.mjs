@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import test from 'node:test'
+import { test } from 'vitest'
 
 test('previous body fat prefills only an untouched measurement form', async () => {
   const {
@@ -89,6 +89,24 @@ test('previous body fat prefills only an untouched measurement form', async () =
     },
   })
   assert.equal(capturedError?.message, 'lookup failed')
+  assert.deepEqual(form, { bodyFatPerc: '', weight: '' })
+
+  // A lookup that fails after cancellation must not surface the error.
+  let cancelledErrorCalls = 0
+  await loadAndPrefillPreviousBodyFat({
+    lookup: async () => {
+      throw new Error('late lookup failure')
+    },
+    updateForm: (update) => {
+      form = update(form)
+    },
+    isTouched: () => false,
+    isCancelled: () => true,
+    onError: () => {
+      cancelledErrorCalls += 1
+    },
+  })
+  assert.equal(cancelledErrorCalls, 0)
   assert.deepEqual(form, { bodyFatPerc: '', weight: '' })
 })
 
