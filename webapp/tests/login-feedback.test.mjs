@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, afterEach, beforeEach, mock, test } from 'node:test'
+import { afterAll, afterEach, beforeEach, test, vi } from 'vitest'
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -38,53 +38,44 @@ let sessionStatus = 'unauthenticated'
 let signInImplementation
 let React
 
-const nextAuthUrl = new URL(
-  '../node_modules/next-auth/react/index.js',
-  import.meta.url,
-).href
-const nextNavUrl = new URL(
-  '../node_modules/next/navigation.js',
-  import.meta.url,
-).href
-
-mock.module(nextAuthUrl, {
-  namedExports: {
-    signIn: (...args) => {
-      authenticationCalls.push(args)
-      return signInImplementation(...args)
-    },
-    useSession: () => ({ data: sessionData, status: sessionStatus }),
+vi.doMock('next-auth/react', () => ({
+  signIn: (...args) => {
+    authenticationCalls.push(args)
+    return signInImplementation(...args)
   },
-})
+  useSession: () => ({ data: sessionData, status: sessionStatus }),
+  signOut: () => {},
+  getSession: async () => sessionData,
+  SessionProvider: ({ children }) =>
+    React.createElement('section', { 'data-testid': 'session-provider' }, children),
+}))
 
-mock.module(nextNavUrl, {
-  namedExports: {
-    useRouter: () => {
-      const [navigationAttempt, setNavigationAttempt] = React.useState(0)
-      if (navigationAttempt > 0 && navigationSuspender) {
-        throw navigationSuspender.promise
-      }
+vi.doMock('next/navigation', () => ({
+  useRouter: () => {
+    const [navigationAttempt, setNavigationAttempt] = React.useState(0)
+    if (navigationAttempt > 0 && navigationSuspender) {
+      throw navigationSuspender.promise
+    }
 
-      return {
-        push: (path) => {
-          pushedPaths.push(path)
-          if (navigationSuspender) {
-            setNavigationAttempt((attempt) => attempt + 1)
-          }
-        },
-        refresh: () => {
-          refreshCount += 1
-        },
-        replace: (path) => {
-          replacedPaths.push(path)
-        },
-      }
-    },
-    usePathname: () => '/login',
-    useSearchParams: () =>
-      new URLSearchParams(callbackUrl ? { callbackUrl } : undefined),
+    return {
+      push: (path) => {
+        pushedPaths.push(path)
+        if (navigationSuspender) {
+          setNavigationAttempt((attempt) => attempt + 1)
+        }
+      },
+      refresh: () => {
+        refreshCount += 1
+      },
+      replace: (path) => {
+        replacedPaths.push(path)
+      },
+    }
   },
-})
+  usePathname: () => '/login',
+  useSearchParams: () =>
+    new URLSearchParams(callbackUrl ? { callbackUrl } : undefined),
+}))
 
 React = await import('react')
 const { act, cleanup, fireEvent, render, waitFor } = await import(
@@ -142,8 +133,11 @@ beforeEach(() => {
   signInImplementation = async () => ({ ok: false })
 })
 
-afterEach(() => cleanup())
-after(() => dom.window.close())
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+afterAll(() => dom.window.close())
 
 test('a deferred credentials request blocks duplicate submissions and shows progress', async () => {
   const request = deferred()
@@ -186,8 +180,8 @@ test('the progress spinner stops for reduced motion while live text remains avai
   await waitFor(() => assertControlsEnabled(controls))
 })
 
-test('an unresolved credentials request offers safe page recovery while keeping duplicate submissions blocked', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+test('an unresolved credentials request offers safe page recovery while keeping duplicate submissions blocked', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
   callbackUrl = '/products?sort=name'
   signInImplementation = () => new Promise(() => {})
   const controls = renderLogin()
@@ -198,7 +192,7 @@ test('an unresolved credentials request offers safe page recovery while keeping 
     null,
   )
 
-  await act(async () => t.mock.timers.tick(10_000))
+  await act(async () => vi.advanceTimersByTime(10_000))
 
   const recoveryLink = controls.view.getByRole('link', {
     name: /reload login page/i,
@@ -315,8 +309,8 @@ test('the authenticated session shell preserves the login callback instead of ra
   )
 })
 
-test('a never-settling post-authentication navigation retains callback recovery and duplicate blocking', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+test('a never-settling post-authentication navigation retains callback recovery and duplicate blocking', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
   callbackUrl = '/products?sort=name'
   navigationSuspender = deferred()
   signInImplementation = async () => ({ ok: true })
@@ -328,7 +322,7 @@ test('a never-settling post-authentication navigation retains callback recovery 
   })
   assert.deepEqual(pushedPaths, ['/products?sort=name'])
 
-  await act(async () => t.mock.timers.tick(10_000))
+  await act(async () => vi.advanceTimersByTime(10_000))
 
   const recoveryLink = controls.view.getByRole('link', {
     name: /reload login page/i,
