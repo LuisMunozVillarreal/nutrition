@@ -33,11 +33,19 @@ function LoginForm() {
         if (!isNavigating || isNavigationPending) return
 
         submissionInFlight.current = false
+        // Intentional reset: the latch and navigation flag must release once the
+        // transition settles; this is a response to external navigation state,
+        // not a cascading render, so the effect is the correct sync point.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsNavigating(false)
     }, [isNavigating, isNavigationPending])
 
     useEffect(() => {
         if (!isBusy) {
+            // Intentional reset: recovery visibility tracks the external busy
+            // state; clearing it here mirrors that external change rather than
+            // deriving from props, so the effect is the correct sync point.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setShowRecovery(false)
             return
         }

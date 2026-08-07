@@ -899,12 +899,15 @@ test('Login submits credentials and navigates to a safe callback on success', as
   assert.deepEqual(state.push.mock.calls[0], ['/products?page=2'])
 })
 
-test('Login falls back to home and alerts on rejected credentials', async () => {
+test('Login shows inline retry guidance and never navigates on rejected credentials', async () => {
   state.search = new URLSearchParams('callbackUrl=https%3A%2F%2Fevil.example.com')
   state.signIn.mockImplementation(async () => ({ ok: false }))
   const view = render(React.createElement(LoginPage))
   fireEvent.submit(view.container.querySelector('form'))
-  await waitFor(() => assert.equal(state.alert.mock.calls.length, 1))
+  await waitFor(() =>
+    assert.match(view.container.textContent, /check your connection or credentials/i),
+  )
+  assert.equal(state.alert.mock.calls.length, 0)
   assert.equal(state.push.mock.calls.length, 0)
   assert.match(view.container.textContent, /Sign In/)
 })
