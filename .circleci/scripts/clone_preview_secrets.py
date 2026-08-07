@@ -66,6 +66,14 @@ def clone_secrets(target_namespace: str) -> None:
         target_namespace (str): The namespace to clone secrets to.
     """
     for secret_name, fields in SECRET_SCHEMA.items():
+        exists = subprocess.run(
+            ["kubectl", "get", "secret", secret_name, "-n", target_namespace],
+            capture_output=True,
+            check=False,
+        )  # nosec: B603, B607
+        if exists.returncode == 0:
+            click.echo(f"Secret {secret_name} already exists. Skipping.")
+            continue
         click.echo(f"Creating least-privilege preview secret {secret_name}...")
         try:
             secret_data = {
@@ -79,9 +87,7 @@ def clone_secrets(target_namespace: str) -> None:
                     },
                 },
                 "type": "Opaque",
-                "stringData": {
-                    key: generator() for key, generator in fields.items()
-                },
+                "stringData": {key: generator() for key, generator in fields.items()},
             }
 
             subprocess.run(
