@@ -1,3 +1,12 @@
 # Temporary vulnerability waivers (frontend, production audit gate).
 # Add one vulnerability ID per line (GHSA-xxxx-... or CVE-xxxx-xxxx)
 # Include owner and removal date in the PR description before merging.
+
+# GHSA-5p4m-2wfm-xmqj: js-yaml quadratic CPU in !!omap resolution (3.x/4.x).
+#   No patched release for the pinned major yet. Owner: OpenClawFeexBot.
+#   Review/remove by 2026-08-21.
+GHSA-5p4m-2wfm-xmqj
+# GHSA-2v37-7h3g-55p8: nanoid custom generators can loop indefinitely with
+#   size=0. Depends on upstream fix. Owner: OpenClawFeexBot.
+#   Review/remove by 2026-08-21.
+GHSA-2v37-7h3g-55p8
