@@ -1,10 +1,13 @@
 """Tests for the clone_preview_secrets script."""
 
 import json
+from subprocess import CompletedProcess
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
 from clone_preview_secrets import main
+from sanitise_branch import sanitise_branch_name
 
 
 @pytest.fixture
@@ -13,77 +16,156 @@ def mock_run(mocker):
     return mocker.patch("clone_preview_secrets.subprocess.run")
 
 
+def _fake_kubectl(*args, **kwargs):
+    """Return NotFound for secret existence checks so secrets get created."""
+    cmd = args[0]
+    if cmd[:3] == ["kubectl", "get", "secret"]:
+        return CompletedProcess(args=cmd, returncode=1, stdout=b"", stderr=b"")
+    return CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
+
+
 def test_main_skip_main_branch(mock_run):
     """Test that secret cloning is skipped on the main branch."""
-    # Given we have a CLI runner
     runner = CliRunner()
 
-    # When we run the script for the 'main' branch
     result = runner.invoke(main, ["main"])
 
-    # Then it should exit with code 0 and not run any subprocesses
     assert result.exit_code == 0
     assert "Branch is main. Skipping secret cloning." in result.output
     mock_run.assert_not_called()
 
 
 def test_main_success(mock_run, mocker):
-    """Test successful cloning of secrets."""
-    # Given we have a CLI runner and our subprocess mocks succeed
+    """Test successful preview credential creation."""
     runner = CliRunner()
-    mocker.patch("time.sleep")  # Avoid sleeping in tests
+    mocker.patch("time.sleep")
 
-    # Mock responses for kubectl get namespace, secrets, and apply
-    mock_get_ns = mocker.MagicMock()
-    mock_get_ns.returncode = 0
+    mock_run.side_effect = _fake_kubectl
 
-    mock_get_secret = mocker.MagicMock()
-    mock_get_secret.returncode = 0
-    mock_get_secret.stdout = json.dumps(
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": "my-secret",
-                "namespace": "nutrition-staging",
-                "uid": "1234",
-                "resourceVersion": "5678",
-                "creationTimestamp": "2026-07-05T00:00:00Z",
-            },
-            "data": {"key": "value"},
-        }
-    ).encode("utf-8")
-
-    mock_apply = mocker.MagicMock()
-    mock_apply.returncode = 0
-
-    mock_run.side_effect = [mock_get_ns] + [mock_get_secret, mock_apply] * 5
-
-    # When we run the script for a preview branch
     result = runner.invoke(main, ["feature/test-branch"])
 
-    # Then the script should succeed and wait for target namespace
     assert result.exit_code == 0
-    msg_ns = (
-        "Waiting for namespace "
-        + "nutrition-staging--feature-test-branch to exist..."
+    expected_ns = (
+        f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
     )
-    assert msg_ns in result.output
-    msg_exists = (
-        "Namespace nutrition-staging--" + "feature-test-branch exists."
-    )
-    assert msg_exists in result.output
-    assert "Copying nutrition-webapp-nextauth-secret" in result.output
-
-    # And it should call kubectl get namespace once,
-    # plus get+apply for 5 secrets
-    # Total calls: 1 + (5 * 2) = 11 calls
+    assert f"Waiting for namespace {expected_ns} to exist..." in result.output
+    assert (
+        "Creating least-privilege preview secret nutrition-webapp-nextauth-secret..."
+    ) in result.output
+    assert (
+        "Creating least-privilege preview secret nutrition-postgresql..."
+    ) in result.output
+    assert (
+        "Creating least-privilege preview secret nutrition-gemini-api-key..."
+    ) in result.output
     assert mock_run.call_count == 11
 
-    # And it should remove unwanted metadata fields
-    last_apply_call = mock_run.call_args_list[-1]
-    applied_json = json.loads(last_apply_call[1]["input"].decode("utf-8"))
-    assert "namespace" not in applied_json["metadata"]
-    assert "uid" not in applied_json["metadata"]
-    assert "resourceVersion" not in applied_json["metadata"]
-    assert "creationTimestamp" not in applied_json["metadata"]
+    # Secrets are created directly in the target namespace and never read from
+    # staging.
+    assert not any(
+        call.args[0][:2] == ["kubectl", "get"]
+        and call.args[0][3] == "-n"
+        and call.args[0][4] == "nutrition-staging"
+        for call in mock_run.call_args_list
+    )
+
+
+def test_main_apply_payload(mock_run, mocker):
+    """Test that each generated secret contains expected preview keys."""
+    runner = CliRunner()
+    mocker.patch("time.sleep")
+
+    mock_run.side_effect = _fake_kubectl
+
+    runner.invoke(main, ["feature/test"])
+
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
+    apply_calls = [
+        call
+        for call in mock_run.call_args_list
+        if call.args[0][0:3] == ["kubectl", "apply", "-n"]
+        and call.args[0][3] == expected_ns
+    ]
+    assert len(apply_calls) == 5
+
+    for call in apply_calls:
+        payload = json.loads(call.kwargs["input"].decode("utf-8"))
+        assert payload["kind"] == "Secret"
+        assert payload["type"] == "Opaque"
+        assert (
+            payload["metadata"]["labels"]["app.kubernetes.io/managed-by"]
+            == "nutrition-preview"
+        )
+
+
+def test_main_does_not_read_staging_credentials(mock_run, mocker):
+    """Test that preview secret creation does not read source staging secrets."""
+    runner = CliRunner()
+    mocker.patch("time.sleep")
+
+    mock_run.side_effect = _fake_kubectl
+
+    result = runner.invoke(main, ["feature/test"])
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
+
+    assert result.exit_code == 0
+    assert all(
+        call.args[0] == ["kubectl", "get", "namespace", expected_ns]
+        or (
+            call.args[0][:3] == ["kubectl", "get", "secret"]
+            and call.args[0][-2:] == ["-n", expected_ns]
+        )
+        for call in mock_run.call_args_list
+        if call.args[0][:2] == ["kubectl", "get"]
+    )
+
+    non_staging_read_attempts = [
+        call.args[0]
+        for call in mock_run.call_args_list
+        if call.args[0][:2] == ["kubectl", "get"]
+        and "-n" in call.args[0]
+        and call.args[0][-2:] != ["-n", expected_ns]
+    ]
+    assert not non_staging_read_attempts
+
+
+def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
+    """Test that each required preview secret uses generated values."""
+    runner = CliRunner()
+    mocker.patch("time.sleep")
+    generated_tokens = [
+        "token-1",
+        "token-2",
+        "token-3",
+        "token-4",
+    ]
+    mocker.patch(
+        "clone_preview_secrets.secrets.token_urlsafe",
+        side_effect=lambda _n: generated_tokens.pop(0),
+    )
+
+    mock_run.side_effect = _fake_kubectl
+
+    result = runner.invoke(main, ["feature/test"])
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
+
+    assert result.exit_code == 0
+    apply_calls = [
+        call
+        for call in mock_run.call_args_list
+        if call.args[0][0:3] == ["kubectl", "apply", "-n"]
+        and call.args[0][3] == expected_ns
+    ]
+    assert len(apply_calls) == 5
+
+    seen_values: list[str] = []
+    for call in apply_calls:
+        payload: dict[str, Any] = json.loads(
+            call.kwargs["input"].decode("utf-8")
+        )
+        secrets_payload = payload["stringData"]
+        assert secrets_payload
+        seen_values.extend(secrets_payload.values())
+    assert sorted(seen_values) == sorted(
+        ["token-1", "token-2", "token-3", "token-4", "{}"]
+    )
