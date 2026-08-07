@@ -16,6 +16,14 @@ def mock_run(mocker):
     return mocker.patch("clone_preview_secrets.subprocess.run")
 
 
+def _fake_kubectl(*args, **kwargs):
+    """Return NotFound for secret existence checks so secrets get created."""
+    cmd = args[0]
+    if cmd[:3] == ["kubectl", "get", "secret"]:
+        return CompletedProcess(args=cmd, returncode=1, stdout=b"", stderr=b"")
+    return CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
+
+
 def test_main_skip_main_branch(mock_run):
     """Test that secret cloning is skipped on the main branch."""
     runner = CliRunner()
@@ -35,17 +43,13 @@ def test_main_success(mock_run, mocker):
     namespace_check = CompletedProcess(
         args=["kubectl"], returncode=0, stdout=b"", stderr=b""
     )
-    apply_ok = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    mock_run.side_effect = [namespace_check] + [apply_ok] * 5
+    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
+    mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test-branch"])
 
     assert result.exit_code == 0
-    expected_ns = (
-        f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
-    )
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
     assert f"Waiting for namespace {expected_ns} to exist..." in result.output
     assert (
         "Creating least-privilege preview secret nutrition-webapp-nextauth-secret..."
@@ -56,7 +60,7 @@ def test_main_success(mock_run, mocker):
     assert (
         "Creating least-privilege preview secret nutrition-gemini-api-key..."
     ) in result.output
-    assert mock_run.call_count == 6
+    assert mock_run.call_count == 11
 
     # Secrets are created directly in the target namespace and never read from
     # staging.
@@ -76,10 +80,8 @@ def test_main_apply_payload(mock_run, mocker):
     namespace_check = CompletedProcess(
         args=["kubectl"], returncode=0, stdout=b"", stderr=b""
     )
-    apply_ok = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    mock_run.side_effect = [namespace_check] + [apply_ok] * 5
+    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
+    mock_run.side_effect = _fake_kubectl
 
     runner.invoke(main, ["feature/test"])
 
@@ -110,10 +112,8 @@ def test_main_does_not_read_staging_credentials(mock_run, mocker):
     namespace_check = CompletedProcess(
         args=["kubectl"], returncode=0, stdout=b"", stderr=b""
     )
-    apply_ok = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    mock_run.side_effect = [namespace_check] + [apply_ok] * 5
+    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
+    mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test"])
     expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
@@ -121,6 +121,10 @@ def test_main_does_not_read_staging_credentials(mock_run, mocker):
     assert result.exit_code == 0
     assert all(
         call.args[0] == ["kubectl", "get", "namespace", expected_ns]
+        or (
+            call.args[0][:3] == ["kubectl", "get", "secret"]
+            and call.args[0][-2:] == ["-n", expected_ns]
+        )
         for call in mock_run.call_args_list
         if call.args[0][:2] == ["kubectl", "get"]
     )
@@ -128,7 +132,9 @@ def test_main_does_not_read_staging_credentials(mock_run, mocker):
     non_staging_read_attempts = [
         call.args[0]
         for call in mock_run.call_args_list
-        if call.args[0][:2] == ["kubectl", "get"] and "-n" in call.args[0]
+        if call.args[0][:2] == ["kubectl", "get"]
+        and "-n" in call.args[0]
+        and call.args[0][-2:] != ["-n", expected_ns]
     ]
     assert not non_staging_read_attempts
 
@@ -151,10 +157,8 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
     namespace_check = CompletedProcess(
         args=["kubectl"], returncode=0, stdout=b"", stderr=b""
     )
-    apply_ok = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    mock_run.side_effect = [namespace_check] + [apply_ok] * 5
+    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
+    mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test"])
     expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test')}"
@@ -170,9 +174,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
 
     seen_values: list[str] = []
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(
-            call.kwargs["input"].decode("utf-8")
-        )
+        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
         secrets_payload = payload["stringData"]
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
