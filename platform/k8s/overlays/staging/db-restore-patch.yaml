@@ -50,6 +50,13 @@ spec:
                 exit 0
               fi
 
+              # A placeholder or malformed credentials file must not block startup.
+              if ! /srv/www/backend/.venv/bin/python -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('client_email') and d.get('private_key') else 1)" /mnt/secret/nutrition-gcp-db-backup-credentials.json; then
+                echo "Backup credentials file is invalid. Skipping restore and running migrations."
+                /srv/www/backend/.venv/bin/python manage.py migrate --noinput
+                exit 0
+              fi
+
               echo "Waiting for database to be ready...";
               until pg_isready -h "$POSTGRESQL_HOST" -U "nutrition"; do
                 echo "Database not ready, waiting 2 seconds...";
