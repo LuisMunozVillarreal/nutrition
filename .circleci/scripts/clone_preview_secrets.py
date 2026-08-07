@@ -87,7 +87,9 @@ def clone_secrets(target_namespace: str) -> None:
                     },
                 },
                 "type": "Opaque",
-                "stringData": {key: generator() for key, generator in fields.items()},
+                "stringData": {
+                    key: generator() for key, generator in fields.items()
+                },
             }
 
             subprocess.run(
