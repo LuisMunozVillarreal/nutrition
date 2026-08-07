@@ -40,16 +40,14 @@ def test_main_success(mock_run, mocker):
     runner = CliRunner()
     mocker.patch("time.sleep")
 
-    namespace_check = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
     mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test-branch"])
 
     assert result.exit_code == 0
-    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
+    expected_ns = (
+        f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
+    )
     assert f"Waiting for namespace {expected_ns} to exist..." in result.output
     assert (
         "Creating least-privilege preview secret nutrition-webapp-nextauth-secret..."
@@ -77,10 +75,6 @@ def test_main_apply_payload(mock_run, mocker):
     runner = CliRunner()
     mocker.patch("time.sleep")
 
-    namespace_check = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
     mock_run.side_effect = _fake_kubectl
 
     runner.invoke(main, ["feature/test"])
@@ -109,10 +103,6 @@ def test_main_does_not_read_staging_credentials(mock_run, mocker):
     runner = CliRunner()
     mocker.patch("time.sleep")
 
-    namespace_check = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
     mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test"])
@@ -154,10 +144,6 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         side_effect=lambda _n: generated_tokens.pop(0),
     )
 
-    namespace_check = CompletedProcess(
-        args=["kubectl"], returncode=0, stdout=b"", stderr=b""
-    )
-    apply_ok = CompletedProcess(args=["kubectl"], returncode=0, stdout=b"", stderr=b"")
     mock_run.side_effect = _fake_kubectl
 
     result = runner.invoke(main, ["feature/test"])
@@ -174,7 +160,9 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
 
     seen_values: list[str] = []
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
+        payload: dict[str, Any] = json.loads(
+            call.kwargs["input"].decode("utf-8")
+        )
         secrets_payload = payload["stringData"]
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
