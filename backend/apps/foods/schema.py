@@ -25,6 +25,10 @@ from apps.foods.models.units import (
     UNIT_SERVING,
     units_are_compatible,
 )
+from apps.foods.open_food_facts import (
+    OpenFoodFactsProduct,
+    fetch_open_food_facts_product,
+)
 from apps.foods.signals.handlers.cupboard import (
     get_linked_consumed_perc,
     recalculate_consumed_perc,
@@ -306,6 +310,81 @@ def _requested_field_names(info: Info) -> set[str]:
 
 
 @strawberry.type
+class OpenFoodFactsProductType:
+    """GraphQL Open Food Facts product draft type."""
+
+    barcode: str
+    brand: str | None
+    name: str
+    url: str
+    size: float
+    size_unit: str
+    num_servings: float
+    nutritional_info_size: float
+    nutritional_info_unit: str
+    energy_kcal: float | None
+    protein_g: float | None
+    fat_g: float | None
+    carbs_g: float | None
+    saturated_fat_g: float | None
+    sugars_g: float | None
+    fibre_g: float | None
+    salt_g: float | None
+
+    @staticmethod
+    def from_product(
+        product: OpenFoodFactsProduct,
+    ) -> "OpenFoodFactsProductType":
+        """Create the GraphQL draft type from a mapped OFF product.
+
+        Args:
+            product (OpenFoodFactsProduct): mapped Open Food Facts product.
+
+        Returns:
+            OpenFoodFactsProductType: GraphQL product draft.
+        """
+        return OpenFoodFactsProductType(
+            barcode=product.barcode,
+            brand=product.brand,
+            name=product.name,
+            url=product.url,
+            size=float(product.size),
+            size_unit=product.size_unit,
+            num_servings=float(product.num_servings),
+            nutritional_info_size=float(product.nutritional_info_size),
+            nutritional_info_unit=product.nutritional_info_unit,
+            energy_kcal=_optional_float(product.energy_kcal),
+            protein_g=_optional_float(product.protein_g),
+            fat_g=_optional_float(product.fat_g),
+            carbs_g=_optional_float(product.carbs_g),
+            saturated_fat_g=_optional_float(product.saturated_fat_g),
+            sugars_g=_optional_float(product.sugars_g),
+            fibre_g=_optional_float(product.fibre_g),
+            salt_g=_optional_float(product.salt_g),
+        )
+
+
+@strawberry.type
+class FoodProductBarcodeLookupType:
+    """Food product barcode lookup result type."""
+
+    product: FoodProductType | None
+    open_food_facts: OpenFoodFactsProductType | None
+
+
+def _optional_float(value: Decimal | None) -> float | None:
+    """Return a decimal as a float, or None when it is absent.
+
+    Args:
+        value (Decimal | None): decimal value to convert.
+
+    Returns:
+        float | None: the converted value, or None.
+    """
+    return float(value) if value is not None else None
+
+
+@strawberry.type
 class FoodQuery:
     """Food queries."""
 
@@ -365,6 +444,62 @@ class FoodQuery:
             )
         except FoodProduct.DoesNotExist:
             return None
+
+    @strawberry.field
+    def food_product_by_barcode(
+        self, info: Info, barcode: str
+    ) -> FoodProductBarcodeLookupType:
+        """Look up a food product by barcode, falling back to OFF.
+
+        Local products take precedence. Unknown barcodes are looked up on
+        Open Food Facts and returned as a non-persisted draft so the user
+        can review it before creating a product.
+
+        Args:
+            info (Info): GraphQL execution info.
+            barcode (str): scanned product barcode.
+
+        Returns:
+            FoodProductBarcodeLookupType: local product, OFF draft, or
+            neither when the barcode is unknown.
+        """
+        user = get_request_user(info.context)
+        if user is None or not user.is_authenticated:
+            return FoodProductBarcodeLookupType(
+                product=None, open_food_facts=None
+            )
+
+        if not barcode.strip():
+            return FoodProductBarcodeLookupType(
+                product=None, open_food_facts=None
+            )
+
+        queryset = FoodProduct.objects.filter(barcode=barcode)
+        if "servings" in _requested_field_names(info):
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "servings",
+                    queryset=Serving.objects.select_related("food").order_by(
+                        "id"
+                    ),
+                )
+            )
+        product = queryset.first()
+        if product is not None:
+            return FoodProductBarcodeLookupType(
+                product=FoodProductType.from_model(product),
+                open_food_facts=None,
+            )
+
+        off_product = fetch_open_food_facts_product(barcode)
+        if off_product is None:
+            return FoodProductBarcodeLookupType(
+                product=None, open_food_facts=None
+            )
+        return FoodProductBarcodeLookupType(
+            product=None,
+            open_food_facts=OpenFoodFactsProductType.from_product(off_product),
+        )
 
 
 def _validated_product_num_servings(num_servings: float) -> Decimal:
