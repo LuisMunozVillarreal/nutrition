@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
@@ -47,7 +48,18 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <h1 className="page-title mb-6" data-testid="products-title">Food Products</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="page-title" data-testid="products-title">
+          Food Products
+        </h1>
+        <Link
+          href="/scan"
+          data-testid="scan-link"
+          className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
+        >
+          Scan Barcode
+        </Link>
+      </div>
       <DataTable
         columns={columns}
         data={data}

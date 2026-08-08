@@ -13,6 +13,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let session = null
 let routeId = 'item-1'
 let foodId = null
+let searchParams = new URLSearchParams()
 let graphqlImpl = async () => ({})
 let graphqlCalls = []
 let entityProps
@@ -25,7 +26,13 @@ let mountedContainer
 vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
 vi.doMock('next/navigation', () => ({
   useParams: () => ({ id: routeId }),
-  useSearchParams: () => ({ get: (name) => name === 'foodId' ? foodId : null }),
+  useSearchParams: () => ({
+    get: (name) => (name === 'foodId' ? foodId : searchParams.get(name)),
+  }),
+}))
+vi.doMock('next/link', () => ({
+  default: ({ href, children, ...props }) =>
+    React.createElement('a', { href, ...props }, children),
 }))
 vi.doMock('@/lib/graphql', () => ({
   gql: (parts, ...values) => String.raw({ raw: parts }, ...values),
@@ -136,6 +143,7 @@ afterEach(async () => {
   session = null
   routeId = 'item-1'
   foodId = null
+  searchParams = new URLSearchParams()
   graphqlImpl = async () => ({})
   graphqlCalls = []
   entityProps = undefined
@@ -157,6 +165,10 @@ test('products list loads and formats rows, with navigation only for staff', asy
   await settle(() => assert.equal(latestTable().loading, false))
   assert.match(container.textContent, /—Oats500 g/)
   assert.match(container.textContent, /FarmMilk1 l/)
+  assert.equal(
+    container.querySelector('[data-testid="scan-link"]').getAttribute('href'),
+    '/scan',
+  )
   assert.equal(latestTable().rowHref, undefined)
   assert.equal(latestTable().addHref, undefined)
 
@@ -279,6 +291,46 @@ test('new product synchronizes incompatible units and submits nullable and numer
   assert.equal(blankVariables.brand, null)
   assert.equal(blankVariables.barcode, null)
   for (const name of ['saturatedFatG', 'sugarsG', 'fibreG', 'saltG']) assert.equal(blankVariables[name], null)
+})
+
+test('new product prefills the form from scan query parameters', async () => {
+  searchParams = new URLSearchParams([
+    ['barcode', '3017620422003'],
+    ['brand', 'Ferrero'],
+    ['name', 'Nutella'],
+    ['size', '350'],
+    ['sizeUnit', 'g'],
+    ['numServings', '1'],
+    ['nutritionalInfoSize', '100'],
+    ['nutritionalInfoUnit', 'g'],
+    ['energyKcal', '539'],
+    ['proteinG', '6.3'],
+    ['fatG', '30.9'],
+    ['carbsG', '57.5'],
+    ['saturatedFatG', '10.6'],
+    ['sugarsG', '56.3'],
+    ['saltG', '0.11'],
+  ])
+  const { default: Page } = await import('../src/app/products/new/page.tsx')
+  await mount(Page)
+  assert.equal(entityProps.title, 'New Food Product')
+  assert.equal(fieldProps.get('barcode').value, '3017620422003')
+  assert.equal(fieldProps.get('name').value, 'Nutella')
+  assert.equal(fieldProps.get('brand').value, 'Ferrero')
+  assert.equal(fieldProps.get('size').value, '350')
+  assert.equal(fieldProps.get('sizeUnit').value, 'g')
+  assert.equal(fieldProps.get('nutritionalInfoSize').value, '100')
+  assert.equal(fieldProps.get('energyKcal').value, '539')
+  assert.equal(fieldProps.get('saltG').value, '0.11')
+  assert.equal(fieldProps.get('fibreG').value, '')
+  assert.equal(fieldProps.get('notes').value, '')
+  await save()
+  assert.deepEqual(graphqlCalls.at(-1)[1], {
+    name: 'Nutella', brand: 'Ferrero', barcode: '3017620422003', notes: '',
+    nutritionalInfoSize: 100, nutritionalInfoUnit: 'g', size: 350, sizeUnit: 'g', numServings: 1,
+    energyKcal: 539, proteinG: 6.3, fatG: 30.9, carbsG: 57.5,
+    saturatedFatG: 10.6, sugarsG: 56.3, fibreG: null, saltG: 0.11,
+  })
 })
 
 test('new recipe updates all fields and submits both populated and empty optional values', async () => {

@@ -305,6 +305,13 @@ STORAGES = {
 GEMINI_API_KEY = ENV("GEMINI_API_KEY")
 
 
+# Open Food Facts
+OPEN_FOOD_FACTS_USER_AGENT = ENV(
+    "OPEN_FOOD_FACTS_USER_AGENT",
+    default="nutrition-tracker/1.0",
+)
+
+
 # Logging
 LOGGING = {
     "version": 1,
