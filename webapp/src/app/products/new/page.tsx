@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
 import { FormField, SelectField, TextareaField } from '@/components/FormField'
@@ -24,14 +25,53 @@ const CREATE_MUTATION = gql`
   }
 `
 
-export default function NewProductPage() {
-  const [form, setForm] = useState({
-    name: '', brand: '', barcode: '', notes: '',
-    nutritionalInfoSize: '100', nutritionalInfoUnit: 'g',
-    size: '100', sizeUnit: 'g', numServings: '1.0',
-    energyKcal: '0', proteinG: '0', fatG: '0', carbsG: '0',
-    saturatedFatG: '', sugarsG: '', fibreG: '', saltG: ''
-  })
+interface ProductFormState {
+  name: string
+  brand: string
+  barcode: string
+  notes: string
+  nutritionalInfoSize: string
+  nutritionalInfoUnit: string
+  size: string
+  sizeUnit: string
+  numServings: string
+  energyKcal: string
+  proteinG: string
+  fatG: string
+  carbsG: string
+  saturatedFatG: string
+  sugarsG: string
+  fibreG: string
+  saltG: string
+}
+
+const DEFAULT_FORM: ProductFormState = {
+  name: '', brand: '', barcode: '', notes: '',
+  nutritionalInfoSize: '100', nutritionalInfoUnit: 'g',
+  size: '100', sizeUnit: 'g', numServings: '1.0',
+  energyKcal: '0', proteinG: '0', fatG: '0', carbsG: '0',
+  saturatedFatG: '', sugarsG: '', fibreG: '', saltG: ''
+}
+
+// Fields the scan page can prefill through the query string.
+const PREFILL_FIELDS: Array<keyof ProductFormState> = [
+  'barcode', 'brand', 'name', 'size', 'sizeUnit', 'numServings',
+  'nutritionalInfoSize', 'nutritionalInfoUnit', 'energyKcal', 'proteinG',
+  'fatG', 'carbsG', 'saturatedFatG', 'sugarsG', 'fibreG', 'saltG'
+]
+
+function initialForm(searchParams: URLSearchParams): ProductFormState {
+  const form = { ...DEFAULT_FORM }
+  for (const field of PREFILL_FIELDS) {
+    const value = searchParams.get(field)
+    if (value !== null) form[field] = value
+  }
+  return form
+}
+
+function NewProductForm() {
+  const searchParams = useSearchParams()
+  const [form, setForm] = useState(() => initialForm(searchParams))
   const [saving, setSaving] = useState(false)
 
   const handleChange = (name: string, value: string) => {
@@ -125,5 +165,13 @@ export default function NewProductPage() {
         },
       ]}
     />
+  )
+}
+
+export default function NewProductPage() {
+  return (
+    <Suspense fallback={<div className="p-12 text-center text-slate-500">Loading form...</div>}>
+      <NewProductForm />
+    </Suspense>
   )
 }
