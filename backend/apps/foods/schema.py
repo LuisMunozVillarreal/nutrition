@@ -27,6 +27,7 @@ from apps.foods.models.units import (
 )
 from apps.foods.open_food_facts import (
     OpenFoodFactsProduct,
+    equivalent_gtins,
     fetch_open_food_facts_product,
     normalize_gtin,
 )
@@ -318,8 +319,8 @@ class OpenFoodFactsProductType:
     brand: str | None
     name: str
     url: str
-    size: float
-    size_unit: str
+    size: float | None
+    size_unit: str | None
     num_servings: float
     nutritional_info_size: float
     nutritional_info_unit: str
@@ -349,7 +350,7 @@ class OpenFoodFactsProductType:
             brand=product.brand,
             name=product.name,
             url=product.url,
-            size=float(product.size),
+            size=_optional_float(product.size),
             size_unit=product.size_unit,
             num_servings=float(product.num_servings),
             nutritional_info_size=float(product.nutritional_info_size),
@@ -476,7 +477,9 @@ class FoodQuery:
                 product=None, open_food_facts=None
             )
 
-        queryset = FoodProduct.objects.filter(barcode=normalized_barcode)
+        queryset = FoodProduct.objects.filter(
+            barcode__in=equivalent_gtins(normalized_barcode)
+        )
         if "servings" in _requested_field_names(info):
             queryset = queryset.prefetch_related(
                 Prefetch(
@@ -522,6 +525,13 @@ def _validated_product_nutritional_info_size(
         "nutritionalInfoSize",
         FoodProduct._meta.get_field("nutritional_info_size"),
     )
+
+
+def _canonical_product_barcode(barcode: str | None) -> str | None:
+    """Canonicalize a valid GTIN while preserving other optional barcodes."""
+    if not barcode:
+        return barcode
+    return normalize_gtin(barcode) or barcode
 
 
 @strawberry.type
@@ -613,7 +623,7 @@ class FoodMutation:
             name=name,
             brand=brand,
             url=url or "",
-            barcode=barcode,
+            barcode=_canonical_product_barcode(barcode),
             notes=notes,
             nutritional_info_size=validated_nutritional_info_size,
             nutritional_info_unit=validated_nutritional_info_unit,
@@ -726,7 +736,7 @@ class FoodMutation:
         obj.brand = brand
         if url is not None:
             obj.url = url
-        obj.barcode = barcode
+        obj.barcode = _canonical_product_barcode(barcode)
         obj.notes = notes
         obj.nutritional_info_size = validated_nutritional_info_size
         obj.nutritional_info_unit = validated_nutritional_info_unit
