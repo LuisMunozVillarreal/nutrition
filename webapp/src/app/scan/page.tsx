@@ -205,14 +205,14 @@ export default function ScanPage() {
   const draft = lookup?.result.openFoodFacts
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-4xl">
       <h1 className="page-title mb-6">Scan Barcode</h1>
 
       {!manual && cameraState !== 'unavailable' && (
         <div className="space-y-4">
           <video
             ref={videoRef}
-            className="aspect-video w-full rounded-lg bg-slate-900"
+            className="aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video"
             muted
             playsInline
           />
