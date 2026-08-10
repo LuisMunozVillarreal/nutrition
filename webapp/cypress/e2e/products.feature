@@ -10,5 +10,8 @@ Feature: Food Products CRUD
     When I navigate to the new product page
     And I fill in the product name with "Oats"
     And I fill in the product energy with "370"
+    And I fill in the product protein with "13"
+    And I fill in the product fat with "7"
+    And I fill in the product carbs with "68"
     And I click the save button
     Then I should be redirected to the products list
