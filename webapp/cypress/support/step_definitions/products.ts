@@ -21,10 +21,29 @@ When("I fill in the product name with {string}", (value: string) => {
     cy.wait(100);
 });
 
-When("I fill in the product energy with {string}", (value: string) => {
-    cy.get('[data-testid="field-energyKcal"]').should('be.visible').clear({force: true});
-    cy.get('[data-testid="field-energyKcal"]').type(value, {force: true});
+function fillProductNutrient(field: string, value: string): void {
+    cy.get(`[data-testid="field-${field}"]`)
+        .should("be.visible")
+        .clear({ force: true })
+        .type(value, { force: true })
+        .blur();
     cy.wait(100);
+}
+
+When("I fill in the product energy with {string}", (value: string) => {
+    fillProductNutrient("energyKcal", value);
+});
+
+When("I fill in the product protein with {string}", (value: string) => {
+    fillProductNutrient("proteinG", value);
+});
+
+When("I fill in the product fat with {string}", (value: string) => {
+    fillProductNutrient("fatG", value);
+});
+
+When("I fill in the product carbs with {string}", (value: string) => {
+    fillProductNutrient("carbsG", value);
 });
 
 Then("I should be redirected to the products list", () => {
