@@ -59,14 +59,18 @@ export function stopCameraStream(stream: MediaStream | null): void {
 export async function readBarcodeFromVideo(
   video: HTMLVideoElement,
   detector: BarcodeDetectorLike,
+  signal?: AbortSignal,
 ): Promise<string | null> {
-  try {
-    const codes = await detector.detect(video)
+  while (!signal?.aborted) {
+    let codes: DetectedBarcode[]
+    try {
+      codes = await detector.detect(video)
+    } catch {
+      return null
+    }
     for (const code of codes) {
       if (code.rawValue) return code.rawValue
     }
-    return null
-  } catch {
-    return null
   }
+  return null
 }
