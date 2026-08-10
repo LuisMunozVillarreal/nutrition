@@ -72,17 +72,23 @@ def test_parse_quantity_rejects_unparseable_labels(quantity):
 
 
 @pytest.mark.parametrize(
-    "barcode",
+    ("barcode", "expected"),
     [
-        "96385074",
-        "036000291452",
-        "3017620422003",
-        "10012345000017",
+        ("96385074", "96385074"),
+        ("01234565", "01234565"),
+        ("036000291452", "036000291452"),
+        ("0036000291452", "036000291452"),
+        ("00036000291452", "036000291452"),
+        ("3017620422003", "3017620422003"),
+        ("03017620422003", "3017620422003"),
+        ("10012345000017", "10012345000017"),
     ],
 )
-def test_normalize_gtin_accepts_valid_product_barcode_lengths(barcode):
-    """GTIN-8, UPC-A, EAN-13, and GTIN-14 examples pass validation."""
-    assert open_food_facts.normalize_gtin(f"  {barcode}\n") == barcode
+def test_normalize_gtin_canonicalizes_valid_product_barcode_lengths(
+    barcode, expected
+):
+    """Valid GTINs use their shortest supported equivalent representation."""
+    assert open_food_facts.normalize_gtin(f"  {barcode}\n") == expected
 
 
 @pytest.mark.parametrize(
@@ -277,18 +283,12 @@ def test_fetch_ignores_invalid_normalized_package_quantity(
     assert (product.size, product.size_unit) == (Decimal("350"), "g")
 
 
-@pytest.mark.parametrize(
-    ("quantity", "expected_size"),
-    [(1.234, Decimal("1.2")), (0.01, Decimal("0.1"))],
-)
-def test_fetch_rounds_unconvertible_package_precision_without_zeroing(
-    requests_mock, quantity, expected_size
-):
-    """Inexact imperial quantities remain positive and creation-compatible."""
+def test_fetch_rounds_unconvertible_package_precision(requests_mock):
+    """Inexact imperial quantities round to compatible positive precision."""
     requests_mock.get(
         _off_url(),
         json=_payload(
-            product_quantity=quantity,
+            product_quantity=1.234,
             product_quantity_unit="oz",
         ),
     )
@@ -296,20 +296,52 @@ def test_fetch_rounds_unconvertible_package_precision_without_zeroing(
     product = fetch_open_food_facts_product(BARCODE)
 
     assert product is not None
-    assert (product.size, product.size_unit) == (expected_size, "oz")
+    assert (product.size, product.size_unit) == (Decimal("1.2"), "oz")
+
+
+@pytest.mark.parametrize(
+    ("quantity", "product_quantity", "product_quantity_unit"),
+    [
+        ("unparseable", 0, "g"),
+        ("unparseable", -1, "g"),
+        ("unparseable", "NaN", "g"),
+        ("unparseable", "Infinity", "g"),
+        ("unparseable", "-Infinity", "g"),
+        ("unparseable", 1_000_000_000, "g"),
+        ("unparseable", "1e1000", "oz"),
+        ("unparseable", 0.01, "oz"),
+        ("1000000000 g", None, None),
+        ("0 g", None, None),
+    ],
+)
+def test_fetch_keeps_invalid_or_unrepresentable_package_size_null(
+    requests_mock, quantity, product_quantity, product_quantity_unit
+):
+    """Unusable package numbers cannot escape the Food size field contract."""
+    requests_mock.get(
+        _off_url(),
+        json=_payload(
+            quantity=quantity,
+            product_quantity=product_quantity,
+            product_quantity_unit=product_quantity_unit,
+        ),
+    )
+
+    product = fetch_open_food_facts_product(BARCODE)
+
+    assert product is not None
+    assert (product.size, product.size_unit) == (None, None)
 
 
 @pytest.mark.parametrize("quantity", ["4 x 100 g", None, ""])
-def test_fetch_defaults_size_when_quantity_is_unparseable(
-    requests_mock, quantity
-):
-    """Unparseable quantities default to a 100 g package and basis."""
+def test_fetch_keeps_unknown_package_size_null(requests_mock, quantity):
+    """Missing and multipack labels stay unknown instead of fabricating 100 g."""
     requests_mock.get(_off_url(), json=_payload(quantity=quantity))
 
     product = fetch_open_food_facts_product(BARCODE)
 
     assert product is not None
-    assert (product.size, product.size_unit) == (Decimal("100"), "g")
+    assert (product.size, product.size_unit) == (None, None)
     assert (
         product.nutritional_info_size,
         product.nutritional_info_unit,
