@@ -7,13 +7,25 @@ import requests
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 
-from apps.foods.models import FoodProduct, Serving
+from apps.foods.models import (
+    FoodProduct,
+    OpenFoodFactsCacheEntry,
+    OpenFoodFactsRateLimit,
+    Serving,
+)
 from config.schema import schema
 
 User = get_user_model()
 
 BARCODE = "3017620422003"
 OFF_PRODUCT_PAGE = "https://world.openfoodfacts.org/product/3017620422003"
+
+
+@pytest.fixture(autouse=True)
+def _clear_off_persistence(db):
+    """Start each test with an empty OFF cache and quota window."""
+    OpenFoodFactsCacheEntry.objects.all().delete()
+    OpenFoodFactsRateLimit.objects.all().delete()
 
 
 def _create_user(email: str, *, is_staff: bool = False):
@@ -44,7 +56,7 @@ def _off_url(barcode: str) -> str:
     Returns:
         str: OFF API product URL.
     """
-    return f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+    return f"https://world.openfoodfacts.org/api/v3/product/{barcode}"
 
 
 def _off_payload() -> dict:
@@ -54,7 +66,7 @@ def _off_payload() -> dict:
         dict: OFF API payload.
     """
     return {
-        "status": 1,
+        "status": "success",
         "product": {
             "product_name": "Nutella",
             "brands": "Ferrero",
@@ -415,7 +427,7 @@ class TestFoodProductBarcodeLookup:
         """A blank barcode returns an empty lookup without querying OFF."""
         user = _create_user("barcode-blank@test.com")
         off = requests_mock.get(
-            _off_url(BARCODE), json={"status": 1, "product": {}}
+            _off_url(BARCODE), json={"status": "success", "product": {}}
         )
 
         result = schema.execute_sync(
@@ -513,7 +525,7 @@ class TestFoodProductBarcodeLookup:
     def test_lookup_requires_authentication(self, mocker, requests_mock):
         """Anonymous users get an empty lookup without querying OFF."""
         off = requests_mock.get(
-            _off_url(BARCODE), json={"status": 1, "product": {}}
+            _off_url(BARCODE), json={"status": "success", "product": {}}
         )
         mock_context = mocker.Mock()
         mock_context.request.user = AnonymousUser()
@@ -535,7 +547,7 @@ class TestFoodProductBarcodeLookup:
     ):
         """A context without a request user gets an empty lookup."""
         off = requests_mock.get(
-            _off_url(BARCODE), json={"status": 1, "product": {}}
+            _off_url(BARCODE), json={"status": "success", "product": {}}
         )
         mock_context = mocker.Mock()
         mock_context.request.user = None
