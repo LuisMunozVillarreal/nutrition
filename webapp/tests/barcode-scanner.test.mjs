@@ -131,23 +131,38 @@ test('stopCameraStream tolerates a null stream', () => {
   scanner.stopCameraStream(null)
 })
 
-test('readBarcodeFromVideo returns the first non-empty code', async () => {
+test('readBarcodeFromVideo keeps scanning until a later frame contains a code', async () => {
+  let calls = 0
   const detector = {
-    detect: async () => [
-      { rawValue: '' },
-      { rawValue: '3017620422003' },
-      { rawValue: '999' },
-    ],
+    detect: async () => {
+      calls += 1
+      if (calls === 1) return []
+      return [
+        { rawValue: '' },
+        { rawValue: '3017620422003' },
+        { rawValue: '999' },
+      ]
+    },
   }
   assert.equal(
     await scanner.readBarcodeFromVideo({}, detector),
     '3017620422003',
   )
+  assert.equal(calls, 2)
 })
 
-test('readBarcodeFromVideo returns null without codes', async () => {
-  const detector = { detect: async () => [] }
-  assert.equal(await scanner.readBarcodeFromVideo({}, detector), null)
+test('readBarcodeFromVideo returns null when scanning is cancelled', async () => {
+  const controller = new AbortController()
+  const detector = {
+    detect: async () => {
+      controller.abort()
+      return []
+    },
+  }
+  assert.equal(
+    await scanner.readBarcodeFromVideo({}, detector, controller.signal),
+    null,
+  )
 })
 
 test('readBarcodeFromVideo returns null when detection throws', async () => {

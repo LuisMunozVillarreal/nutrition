@@ -122,6 +122,7 @@ export default function ScanPage() {
   useEffect(() => {
     let cancelled = false
     let activeStream: MediaStream | null = null
+    const scanController = new AbortController()
     // The video element is mounted whenever this effect runs: the initial
     // state renders it, and restart() re-renders it before bumping scanKey.
     const video = videoRef.current!
@@ -147,7 +148,11 @@ export default function ScanPage() {
         return
       }
       setCameraState('active')
-      const value = await readBarcodeFromVideo(video, detector)
+      const value = await readBarcodeFromVideo(
+        video,
+        detector,
+        scanController.signal,
+      )
       if (cancelled) return
       stopCameraStream(stream)
       activeStream = null
@@ -163,6 +168,7 @@ export default function ScanPage() {
 
     return () => {
       cancelled = true
+      scanController.abort()
       if (activeStream) stopCameraStream(activeStream)
     }
   }, [scanKey, searchBarcode])
