@@ -28,6 +28,7 @@ from apps.foods.models.units import (
 from apps.foods.open_food_facts import (
     OpenFoodFactsProduct,
     fetch_open_food_facts_product,
+    normalize_gtin,
 )
 from apps.foods.signals.handlers.cupboard import (
     get_linked_consumed_perc,
@@ -469,12 +470,13 @@ class FoodQuery:
                 product=None, open_food_facts=None
             )
 
-        if not barcode.strip():
+        normalized_barcode = normalize_gtin(barcode)
+        if normalized_barcode is None:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
             )
 
-        queryset = FoodProduct.objects.filter(barcode=barcode)
+        queryset = FoodProduct.objects.filter(barcode=normalized_barcode)
         if "servings" in _requested_field_names(info):
             queryset = queryset.prefetch_related(
                 Prefetch(
@@ -491,7 +493,7 @@ class FoodQuery:
                 open_food_facts=None,
             )
 
-        off_product = fetch_open_food_facts_product(barcode)
+        off_product = fetch_open_food_facts_product(normalized_barcode)
         if off_product is None:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
