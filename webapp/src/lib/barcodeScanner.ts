@@ -1,5 +1,6 @@
 export interface DetectedBarcode {
   rawValue: string
+  format?: string
 }
 
 export interface BarcodeDetectorLike {
@@ -11,6 +12,28 @@ interface DetectorConstructor {
 }
 
 const PRODUCT_BARCODE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e']
+
+interface OptionalVideoFrameCallbacks {
+  requestVideoFrameCallback?: (callback: () => void) => number
+  cancelVideoFrameCallback?: (handle: number) => void
+}
+
+export function expandUpcE(rawValue: string): string | null {
+  if (!/^[01]\d{7}$/.test(rawValue)) return null
+  const [numberSystem, first, second, third, fourth, fifth, sixth, check] =
+    rawValue
+  let payload: string
+  if ('012'.includes(sixth)) {
+    payload = `${numberSystem}${first}${second}${sixth}0000${third}${fourth}${fifth}`
+  } else if (sixth === '3') {
+    payload = `${numberSystem}${first}${second}${third}00000${fourth}${fifth}`
+  } else if (sixth === '4') {
+    payload = `${numberSystem}${first}${second}${third}${fourth}00000${fifth}`
+  } else {
+    payload = `${numberSystem}${first}${second}${third}${fourth}${fifth}0000${sixth}`
+  }
+  return `${payload}${check}`
+}
 
 export function isBarcodeDetectorSupported(): boolean {
   if (typeof window === 'undefined') return false
@@ -61,18 +84,33 @@ export function stopCameraStream(stream: MediaStream | null): void {
   }
 }
 
-function waitForNextFrame(signal?: AbortSignal): Promise<void> {
+function waitForNextFrame(
+  video: HTMLVideoElement,
+  signal?: AbortSignal,
+): Promise<void> {
+  const frameVideo = video as unknown as OptionalVideoFrameCallbacks
   return new Promise((resolve) => {
+    let handle: number
+    let cancelFrame: (frameHandle: number) => void
     const finish = () => {
       signal?.removeEventListener('abort', abort)
       resolve()
     }
-    const frame = requestAnimationFrame(finish)
     const abort = () => {
-      cancelAnimationFrame(frame)
+      cancelFrame(handle)
       finish()
     }
     signal?.addEventListener('abort', abort, { once: true })
+    if (
+      frameVideo.requestVideoFrameCallback &&
+      frameVideo.cancelVideoFrameCallback
+    ) {
+      cancelFrame = frameVideo.cancelVideoFrameCallback.bind(video)
+      handle = frameVideo.requestVideoFrameCallback.bind(video)(finish)
+    } else {
+      cancelFrame = cancelAnimationFrame
+      handle = requestAnimationFrame(finish)
+    }
   })
 }
 
@@ -88,10 +126,14 @@ export async function readBarcodeFromVideo(
     } catch {
       return null
     }
+    if (signal?.aborted) return null
     for (const code of codes) {
-      if (code.rawValue) return code.rawValue
+      if (!code.rawValue) continue
+      if (code.format !== 'upc_e') return code.rawValue
+      const expanded = expandUpcE(code.rawValue)
+      if (expanded) return expanded
     }
-    await waitForNextFrame(signal)
+    await waitForNextFrame(video, signal)
   }
   return null
 }

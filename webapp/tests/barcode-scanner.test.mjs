@@ -162,6 +162,16 @@ test('stopCameraStream tolerates a null stream', () => {
   scanner.stopCameraStream(null)
 })
 
+test('expandUpcE expands every UPC-E compression form', () => {
+  assert.equal(scanner.expandUpcE('04252614'), '042100005264')
+  assert.equal(scanner.expandUpcE('01234505'), '012000003455')
+  assert.equal(scanner.expandUpcE('01234535'), '012300000455')
+  assert.equal(scanner.expandUpcE('01234545'), '012340000055')
+  assert.equal(scanner.expandUpcE('01234565'), '012345000065')
+  assert.equal(scanner.expandUpcE('21234565'), null)
+  assert.equal(scanner.expandUpcE('0123456x'), null)
+})
+
 test('readBarcodeFromVideo keeps scanning until a later frame contains a code', async () => {
   vi.stubGlobal('requestAnimationFrame', (callback) =>
     setTimeout(() => callback(0), 0),
@@ -209,6 +219,100 @@ test('readBarcodeFromVideo returns null when scanning is externally cancelled', 
   controller.abort()
   assert.equal(await scan, null)
   assert.equal(calls, 1)
+})
+
+test('readBarcodeFromVideo prefers a newly presented video frame', async () => {
+  let nextVideoFrame
+  const requestVideoFrameCallback = vi.fn((callback) => {
+    nextVideoFrame = callback
+    return 17
+  })
+  const cancelVideoFrameCallback = vi.fn()
+  let calls = 0
+  const detector = {
+    detect: async () => {
+      calls += 1
+      return calls === 1 ? [] : [{ rawValue: '3017620422003' }]
+    },
+  }
+  const scan = scanner.readBarcodeFromVideo(
+    { requestVideoFrameCallback, cancelVideoFrameCallback },
+    detector,
+  )
+  await vi.waitFor(() => {
+    assert.equal(requestVideoFrameCallback.mock.calls.length, 1)
+  })
+  nextVideoFrame()
+  assert.equal(await scan, '3017620422003')
+  assert.equal(calls, 2)
+  assert.equal(cancelVideoFrameCallback.mock.calls.length, 0)
+})
+
+test('readBarcodeFromVideo cancels a pending video-frame callback', async () => {
+  const requestVideoFrameCallback = vi.fn(() => 23)
+  const cancelVideoFrameCallback = vi.fn()
+  const controller = new AbortController()
+  const detector = { detect: async () => [] }
+  const scan = scanner.readBarcodeFromVideo(
+    { requestVideoFrameCallback, cancelVideoFrameCallback },
+    detector,
+    controller.signal,
+  )
+  await vi.waitFor(() => {
+    assert.equal(requestVideoFrameCallback.mock.calls.length, 1)
+  })
+  controller.abort()
+  assert.equal(await scan, null)
+  assert.deepEqual(cancelVideoFrameCallback.mock.calls, [[23]])
+})
+
+test('readBarcodeFromVideo resolves when aborted during detection', async () => {
+  let finishDetection
+  const detection = new Promise((resolve) => {
+    finishDetection = resolve
+  })
+  const requestAnimationFrame = vi.fn()
+  vi.stubGlobal('requestAnimationFrame', requestAnimationFrame)
+  const controller = new AbortController()
+  const scan = scanner.readBarcodeFromVideo(
+    {},
+    { detect: () => detection },
+    controller.signal,
+  )
+  controller.abort()
+  finishDetection([])
+  assert.equal(await scan, null)
+  assert.equal(requestAnimationFrame.mock.calls.length, 0)
+})
+
+test('readBarcodeFromVideo expands a detected UPC-E barcode', async () => {
+  const detector = {
+    detect: async () => [{ rawValue: '04252614', format: 'upc_e' }],
+  }
+  assert.equal(
+    await scanner.readBarcodeFromVideo({}, detector),
+    '042100005264',
+  )
+})
+
+test('readBarcodeFromVideo ignores malformed UPC-E detections', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback) =>
+    setTimeout(() => callback(0), 0),
+  )
+  vi.stubGlobal('cancelAnimationFrame', (handle) => clearTimeout(handle))
+  let calls = 0
+  const detector = {
+    detect: async () => {
+      calls += 1
+      return calls === 1
+        ? [{ rawValue: 'invalid', format: 'upc_e' }]
+        : [{ rawValue: '3017620422003', format: 'ean_13' }]
+    },
+  }
+  assert.equal(
+    await scanner.readBarcodeFromVideo({}, detector),
+    '3017620422003',
+  )
 })
 
 test('readBarcodeFromVideo returns null when detection throws', async () => {

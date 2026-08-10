@@ -45,8 +45,8 @@ export interface OpenFoodFactsDraft {
   brand: string | null
   name: string
   url: string
-  size: number
-  sizeUnit: string
+  size: number | null
+  sizeUnit: string | null
   numServings: number
   nutritionalInfoSize: number
   nutritionalInfoUnit: string
@@ -141,6 +141,7 @@ export default function ScanPage() {
         return
       }
       const detector = await createBarcodeDetector()
+      if (cancelled || scanController.signal.aborted) return
       if (!detector) {
         setCameraState('unavailable')
         return
@@ -197,6 +198,7 @@ export default function ScanPage() {
           params.set(field, String(value))
         }
       }
+      params.set('fromBarcodeScan', '1')
       router.push(`/products/new?${params.toString()}`)
     },
     [router],
@@ -214,6 +216,8 @@ export default function ScanPage() {
   const draftIsComplete =
     draft !== null &&
     draft !== undefined &&
+    draft.size !== null &&
+    draft.sizeUnit !== null &&
     REQUIRED_NUTRIENTS.every((field) => draft[field] !== null)
 
   return (
@@ -318,8 +322,8 @@ export default function ScanPage() {
               <p className="mt-1">{draft.name}</p>
               {!draftIsComplete && (
                 <p role="status" className="mt-2 text-amber-700">
-                  Nutrition data is incomplete. Review and fill in the missing
-                  main nutrients before saving.
+                  Product data is incomplete. Review the package size and fill
+                  in any missing main nutrients before saving.
                 </p>
               )}
               {isStaff ? (

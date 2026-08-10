@@ -69,6 +69,12 @@ const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
 
 function initialForm(searchParams: URLSearchParams): ProductFormState {
   const form = { ...DEFAULT_FORM }
+  if (
+    searchParams.get('fromBarcodeScan') === '1' &&
+    searchParams.get('size') === null
+  ) {
+    form.size = ''
+  }
   for (const field of PREFILL_FIELDS) {
     const value = searchParams.get(field)
     if (value !== null) form[field] = value
@@ -91,6 +97,10 @@ function NewProductForm() {
   }
 
   const handleSave = async () => {
+    const size = Number(form.size)
+    if (!form.size.trim() || !Number.isFinite(size) || size <= 0) {
+      throw new Error('Enter a valid package size before saving')
+    }
     if (REQUIRED_MAIN_NUTRIENTS.some((field) => !form[field].trim())) {
       throw new Error('Enter all required main nutrients before saving')
     }
@@ -103,7 +113,7 @@ function NewProductForm() {
         notes: form.notes,
         nutritionalInfoSize: parseFloat(form.nutritionalInfoSize),
         nutritionalInfoUnit: form.nutritionalInfoUnit,
-        size: parseFloat(form.size),
+        size,
         sizeUnit: form.sizeUnit,
         numServings: parseFloat(form.numServings),
         energyKcal: parseFloat(form.energyKcal),

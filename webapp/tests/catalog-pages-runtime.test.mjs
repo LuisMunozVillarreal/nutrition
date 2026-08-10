@@ -301,6 +301,7 @@ test('new product synchronizes incompatible units and submits nullable and numer
 
 test('new product prefills the form from scan query parameters', async () => {
   searchParams = new URLSearchParams([
+    ['fromBarcodeScan', '1'],
     ['barcode', '3017620422003'],
     ['brand', 'Ferrero'],
     ['name', 'Nutella'],
@@ -337,6 +338,22 @@ test('new product prefills the form from scan query parameters', async () => {
     energyKcal: 539, proteinG: 6.3, fatG: 30.9, carbsG: 57.5,
     saturatedFatG: 10.6, sugarsG: 56.3, fibreG: null, saltG: 0.11,
   })
+})
+
+test('new product requires a valid package size for incomplete scan data', async () => {
+  searchParams = new URLSearchParams([
+    ['fromBarcodeScan', '1'],
+    ['barcode', '3017620422003'],
+  ])
+  const { default: Page } = await import('../src/app/products/new/page.tsx')
+  await mount(Page)
+  assert.equal(fieldProps.get('size').value, '')
+  await assert.rejects(save(), /Enter a valid package size before saving/)
+  await change('size', 'Infinity')
+  await assert.rejects(save(), /Enter a valid package size before saving/)
+  await change('size', '0')
+  await assert.rejects(save(), /Enter a valid package size before saving/)
+  assert.equal(graphqlCalls.length, 0)
 })
 
 test('new recipe updates all fields and submits both populated and empty optional values', async () => {
