@@ -1,5 +1,7 @@
 """Tests for food product barcode lookup GraphQL schema."""
 
+from decimal import Decimal
+
 import pytest
 import requests
 from django.contrib.auth import get_user_model
@@ -14,11 +16,12 @@ BARCODE = "3017620422003"
 OFF_PRODUCT_PAGE = "https://world.openfoodfacts.org/product/3017620422003"
 
 
-def _create_user(email: str):
+def _create_user(email: str, *, is_staff: bool = False):
     """Create a user.
 
     Args:
         email: user email.
+        is_staff: whether the user may create shared food products.
 
     Returns:
         User: created user.
@@ -28,6 +31,7 @@ def _create_user(email: str):
         password="password123",
         date_of_birth="2000-01-01",
         height=170.0,
+        is_staff=is_staff,
     )
 
 
@@ -82,6 +86,21 @@ def _lookup_query(selection: str) -> str:
     return (
         f'{{ foodProductByBarcode(barcode: "{BARCODE}") '
         f"{{ {selection} }} }}"
+    )
+
+
+def _variable_lookup_query(selection: str) -> str:
+    """Return a barcode lookup query accepting a string variable.
+
+    Args:
+        selection: GraphQL selection set for the lookup field.
+
+    Returns:
+        str: GraphQL query.
+    """
+    return (
+        "query Lookup($barcode: String!) { "
+        f"foodProductByBarcode(barcode: $barcode) {{ {selection} }} }}"
     )
 
 
@@ -201,6 +220,117 @@ class TestFoodProductBarcodeLookup:
         assert draft["fibreG"] is None
         assert draft["saltG"] == 0.11
 
+    def test_beverage_draft_is_compatible_with_food_product_creation(
+        self, mocker, requests_mock
+    ):
+        """A normalized liquid package can be created with whole-pack totals."""
+        user = _create_user("barcode-beverage@test.com", is_staff=True)
+        payload = _off_payload()
+        payload["product"].update(
+            {
+                "product_name": "Sparkling drink",
+                "quantity": "33 cl",
+                "product_quantity": 330,
+                "product_quantity_unit": "ml",
+                "nutriments": {
+                    "energy-kcal_100g": 42,
+                    "proteins_100g": 0,
+                    "fat_100g": 0,
+                    "carbohydrates_100g": 10.6,
+                },
+            }
+        )
+        requests_mock.get(_off_url(BARCODE), json=payload)
+
+        lookup_result = schema.execute_sync(
+            _lookup_query(
+                "openFoodFacts { barcode name size sizeUnit numServings "
+                "nutritionalInfoSize nutritionalInfoUnit energyKcal "
+                "proteinG fatG carbsG }"
+            ),
+            context_value=self._context(mocker, user),
+        )
+
+        assert lookup_result.errors is None
+        draft = lookup_result.data["foodProductByBarcode"]["openFoodFacts"]
+        assert (draft["size"], draft["sizeUnit"]) == (330.0, "ml")
+        assert (
+            draft["nutritionalInfoSize"],
+            draft["nutritionalInfoUnit"],
+        ) == (100.0, "ml")
+
+        create_result = schema.execute_sync(
+            """
+            mutation CreateFromDraft(
+                $barcode: String!, $name: String!, $size: Float!,
+                $sizeUnit: String!, $numServings: Float!,
+                $basisSize: Float!, $basisUnit: String!,
+                $energy: Float!, $protein: Float!, $fat: Float!,
+                $carbs: Float!
+            ) {
+                createFoodProduct(
+                    barcode: $barcode, name: $name, size: $size,
+                    sizeUnit: $sizeUnit, numServings: $numServings,
+                    nutritionalInfoSize: $basisSize,
+                    nutritionalInfoUnit: $basisUnit,
+                    energyKcal: $energy, proteinG: $protein,
+                    fatG: $fat, carbsG: $carbs
+                ) { id }
+            }
+            """,
+            variable_values={
+                "barcode": draft["barcode"],
+                "name": draft["name"],
+                "size": draft["size"],
+                "sizeUnit": draft["sizeUnit"],
+                "numServings": draft["numServings"],
+                "basisSize": draft["nutritionalInfoSize"],
+                "basisUnit": draft["nutritionalInfoUnit"],
+                "energy": draft["energyKcal"],
+                "protein": draft["proteinG"],
+                "fat": draft["fatG"],
+                "carbs": draft["carbsG"],
+            },
+            context_value=self._context(mocker, user),
+        )
+
+        assert create_result.errors is None
+        created = FoodProduct.objects.get(
+            pk=create_result.data["createFoodProduct"]["id"]
+        )
+        assert (created.size, created.size_unit) == (Decimal("330.0"), "ml")
+        assert (
+            created.nutritional_info_size,
+            created.nutritional_info_unit,
+        ) == (Decimal("100.0"), "ml")
+        whole_container_energy = (
+            created.energy_kcal * created.size / created.nutritional_info_size
+        )
+        assert whole_container_energy == Decimal("138.600")
+
+    def test_lookup_keeps_missing_primary_nutrients_null(
+        self, mocker, requests_mock
+    ):
+        """Missing required nutrients stay explicit for review instead of zero."""
+        user = _create_user("barcode-missing-nutrients@test.com")
+        payload = _off_payload()
+        payload["product"]["nutriments"] = {}
+        requests_mock.get(_off_url(BARCODE), json=payload)
+
+        result = schema.execute_sync(
+            _lookup_query("openFoodFacts { energyKcal proteinG fatG carbsG }"),
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        draft = result.data["foodProductByBarcode"]["openFoodFacts"]
+        assert draft == {
+            "energyKcal": None,
+            "proteinG": None,
+            "fatG": None,
+            "carbsG": None,
+        }
+
     def test_lookup_unknown_barcode_returns_empty(self, mocker, requests_mock):
         """A barcode unknown to both sources returns an empty lookup."""
         user = _create_user("barcode-miss@test.com")
@@ -236,6 +366,50 @@ class TestFoodProductBarcodeLookup:
             "openFoodFacts": None,
         }
         assert off.call_count == 0
+
+    def test_lookup_rejects_invalid_gtin_before_local_or_off(
+        self, mocker, requests_mock
+    ):
+        """A QR URL cannot match a local barcode or reach OFF."""
+        user = _create_user("barcode-invalid@test.com")
+        qr_url = "https://example.com/qr/3017620422003"
+        FoodProduct.objects.create(name="Invalid local", barcode=qr_url)
+
+        result = schema.execute_sync(
+            _variable_lookup_query(
+                "product { id name } openFoodFacts { name }"
+            ),
+            variable_values={"barcode": qr_url},
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        assert result.data["foodProductByBarcode"] == {
+            "product": None,
+            "openFoodFacts": None,
+        }
+        assert not requests_mock.called
+
+    def test_lookup_normalizes_whitespace_before_local_lookup(
+        self, mocker, requests_mock
+    ):
+        """A valid GTIN with surrounding whitespace retains local precedence."""
+        user = _create_user("barcode-normalized@test.com")
+        FoodProduct.objects.create(name="Local normalized", barcode=BARCODE)
+
+        result = schema.execute_sync(
+            _variable_lookup_query(
+                "product { id name } openFoodFacts { name }"
+            ),
+            variable_values={"barcode": f" \t{BARCODE}\n"},
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        lookup = result.data["foodProductByBarcode"]
+        assert lookup["product"]["name"] == "Local normalized"
+        assert lookup["openFoodFacts"] is None
+        assert not requests_mock.called
 
     def test_lookup_requires_authentication(self, mocker, requests_mock):
         """Anonymous users get an empty lookup without querying OFF."""
