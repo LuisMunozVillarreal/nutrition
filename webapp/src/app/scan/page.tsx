@@ -9,6 +9,7 @@ import {
 } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import {
   createBarcodeDetector,
@@ -66,7 +67,7 @@ interface BarcodeLookupResult {
   }
 }
 
-type CameraState = 'starting' | 'active' | 'unavailable'
+type CameraState = 'starting' | 'active' | 'stopped' | 'unavailable'
 
 const DRAFT_QUERY_FIELDS: Array<keyof OpenFoodFactsDraft> = [
   'barcode',
@@ -87,8 +88,14 @@ const DRAFT_QUERY_FIELDS: Array<keyof OpenFoodFactsDraft> = [
   'saltG',
 ]
 
+const REQUIRED_NUTRIENTS: Array<
+  'energyKcal' | 'proteinG' | 'fatG' | 'carbsG'
+> = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
+
 export default function ScanPage() {
   const router = useRouter()
+  const { data: session } = useSession()
+  const isStaff = session?.user?.isStaff === true
   const videoRef = useRef<HTMLVideoElement>(null)
   const [cameraState, setCameraState] = useState<CameraState>('starting')
   const [manual, setManual] = useState(false)
@@ -120,6 +127,7 @@ export default function ScanPage() {
   }, [])
 
   useEffect(() => {
+    if (manual) return
     let cancelled = false
     let activeStream: MediaStream | null = null
     const scanController = new AbortController()
@@ -160,7 +168,7 @@ export default function ScanPage() {
         setCameraState('unavailable')
         return
       }
-      setCameraState('unavailable')
+      setCameraState('stopped')
       searchBarcode(value)
     }
 
@@ -171,7 +179,7 @@ export default function ScanPage() {
       scanController.abort()
       if (activeStream) stopCameraStream(activeStream)
     }
-  }, [scanKey, searchBarcode])
+  }, [manual, scanKey, searchBarcode])
 
   const handleManualSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -203,6 +211,10 @@ export default function ScanPage() {
   }
 
   const draft = lookup?.result.openFoodFacts
+  const draftIsComplete =
+    draft !== null &&
+    draft !== undefined &&
+    REQUIRED_NUTRIENTS.every((field) => draft[field] !== null)
 
   return (
     <div className="max-w-4xl">
@@ -261,6 +273,10 @@ export default function ScanPage() {
         </form>
       )}
 
+      {!manual && cameraState === 'stopped' && searching && (
+        <p className="text-slate-600">Barcode detected. Looking up product...</p>
+      )}
+
       {!manual && cameraState === 'unavailable' && (
         <p className="text-slate-600">
           Camera barcode scanning is not available here.{' '}
@@ -300,13 +316,27 @@ export default function ScanPage() {
                 Found on Open Food Facts
               </h2>
               <p className="mt-1">{draft.name}</p>
-              <button
-                type="button"
-                onClick={() => createFromDraft(draft)}
-                className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-              >
-                Create product from this data
-              </button>
+              {!draftIsComplete && (
+                <p role="status" className="mt-2 text-amber-700">
+                  Nutrition data is incomplete. Review and fill in the missing
+                  main nutrients before saving.
+                </p>
+              )}
+              {isStaff ? (
+                <button
+                  type="button"
+                  onClick={() => createFromDraft(draft)}
+                  className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+                >
+                  {draftIsComplete
+                    ? 'Create product from this data'
+                    : 'Review and complete product data'}
+                </button>
+              ) : (
+                <p className="mt-2 text-slate-600">
+                  A staff user must review and create this product.
+                </p>
+              )}
             </div>
           )}
           {!lookup.result.product && !lookup.result.openFoodFacts && (

@@ -49,7 +49,7 @@ const DEFAULT_FORM: ProductFormState = {
   name: '', brand: '', barcode: '', notes: '',
   nutritionalInfoSize: '100', nutritionalInfoUnit: 'g',
   size: '100', sizeUnit: 'g', numServings: '1.0',
-  energyKcal: '0', proteinG: '0', fatG: '0', carbsG: '0',
+  energyKcal: '', proteinG: '', fatG: '', carbsG: '',
   saturatedFatG: '', sugarsG: '', fibreG: '', saltG: ''
 }
 
@@ -58,6 +58,13 @@ const PREFILL_FIELDS: Array<keyof ProductFormState> = [
   'barcode', 'brand', 'name', 'size', 'sizeUnit', 'numServings',
   'nutritionalInfoSize', 'nutritionalInfoUnit', 'energyKcal', 'proteinG',
   'fatG', 'carbsG', 'saturatedFatG', 'sugarsG', 'fibreG', 'saltG'
+]
+
+const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
+  'energyKcal',
+  'proteinG',
+  'fatG',
+  'carbsG',
 ]
 
 function initialForm(searchParams: URLSearchParams): ProductFormState {
@@ -84,6 +91,9 @@ function NewProductForm() {
   }
 
   const handleSave = async () => {
+    if (REQUIRED_MAIN_NUTRIENTS.some((field) => !form[field].trim())) {
+      throw new Error('Enter all required main nutrients before saving')
+    }
     setSaving(true)
     try {
       await graphqlRequest(CREATE_MUTATION, {

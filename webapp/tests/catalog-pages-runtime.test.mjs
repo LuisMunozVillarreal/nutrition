@@ -258,6 +258,12 @@ test('new product synchronizes incompatible units and submits nullable and numer
   await mount(Page)
   assert.equal(entityProps.title, 'New Food Product')
   assert.equal(fieldProps.get('nutritionalInfoUnit').value, 'g')
+  assert.equal(fieldProps.get('energyKcal').value, '')
+  await assert.rejects(
+    save(),
+    /Enter all required main nutrients before saving/,
+  )
+  assert.equal(graphqlCalls.length, 0)
 
   await change('name', 'Granola')
   await change('sizeUnit', 'ml')
