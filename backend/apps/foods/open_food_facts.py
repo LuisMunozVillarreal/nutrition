@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation
 from typing import Any
 from urllib.parse import quote
@@ -9,13 +10,24 @@ from urllib.parse import quote
 import requests
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 
-from apps.foods.models import FoodProduct
+from apps.foods.models import (
+    FoodProduct,
+    OpenFoodFactsCacheEntry,
+    OpenFoodFactsRateLimit,
+)
 
-OFF_API_BASE_URL = "https://world.openfoodfacts.org/api/v2"
+OFF_API_BASE_URL = "https://world.openfoodfacts.org/api/v3"
 OFF_PRODUCT_PAGE_URL = "https://world.openfoodfacts.org/product/{barcode}"
 OFF_REQUEST_TIMEOUT_SECONDS = 10
+OFF_POSITIVE_CACHE_SECONDS = 24 * 60 * 60
+OFF_NEGATIVE_CACHE_SECONDS = 5 * 60
+OFF_RATE_LIMIT_WINDOW_SECONDS = 60
+# OFF currently permits 15 product reads/minute/IP. Keep one slot in reserve.
+OFF_RATE_LIMIT_MAX_REQUESTS = 14
+OFF_RATE_LIMIT_KEY = "product_reads"
 OFF_PRODUCT_FIELDS = ",".join(
     (
         "brands",
@@ -189,11 +201,17 @@ def fetch_open_food_facts_product(
     normalized_barcode = normalize_gtin(barcode)
     if normalized_barcode is None:
         return None
+
+    cache_hit, cached_product = _cached_product(normalized_barcode)
+    if cache_hit:
+        return _map_product(cached_product, normalized_barcode)
+
+    _acquire_request_slot()
     encoded_barcode = quote(normalized_barcode, safe="")
 
     try:
         response = requests.get(
-            f"{OFF_API_BASE_URL}/product/{encoded_barcode}.json",
+            f"{OFF_API_BASE_URL}/product/{encoded_barcode}",
             headers={"User-Agent": settings.OPEN_FOOD_FACTS_USER_AGENT},
             params={"fields": OFF_PRODUCT_FIELDS},
             timeout=OFF_REQUEST_TIMEOUT_SECONDS,
@@ -201,6 +219,9 @@ def fetch_open_food_facts_product(
         response.raise_for_status()
     except requests.exceptions.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
+            _cache_product(
+                normalized_barcode, None, OFF_NEGATIVE_CACHE_SECONDS
+            )
             return None
         raise ValueError("Open Food Facts lookup failed") from exc
     except requests.exceptions.RequestException as exc:
@@ -214,11 +235,42 @@ def fetch_open_food_facts_product(
     if not isinstance(payload, dict):
         raise ValueError("Open Food Facts lookup failed")
 
-    if payload.get("status") != 1:
+    if payload.get("status") != "success":
+        _cache_product(normalized_barcode, None, OFF_NEGATIVE_CACHE_SECONDS)
         return None
 
     product = payload.get("product")
     if not isinstance(product, dict):
+        _cache_product(normalized_barcode, None, OFF_NEGATIVE_CACHE_SECONDS)
+        return None
+
+    mapped_product = _map_product(product, normalized_barcode)
+    _cache_product(
+        normalized_barcode,
+        product if mapped_product is not None else None,
+        (
+            OFF_POSITIVE_CACHE_SECONDS
+            if mapped_product is not None
+            else OFF_NEGATIVE_CACHE_SECONDS
+        ),
+    )
+    return mapped_product
+
+
+def _map_product(
+    product: dict[str, Any] | None, barcode: str
+) -> OpenFoodFactsProduct | None:
+    """Map one cached or fresh OFF product payload into a nutrition draft.
+
+    Args:
+        product: OFF product mapping, or None for a cached negative result.
+        barcode: Canonical product barcode.
+
+    Returns:
+        OpenFoodFactsProduct | None: the mapped draft, or None when the
+        product is missing or has no usable name.
+    """
+    if product is None:
         return None
 
     name = product.get("product_name")
@@ -231,10 +283,10 @@ def fetch_open_food_facts_product(
 
     nutritional_info_unit = "ml" if size_unit in VOLUME_UNITS else "g"
     return OpenFoodFactsProduct(
-        barcode=normalized_barcode,
+        barcode=barcode,
         brand=_brand(product.get("brands")),
         name=name.strip(),
-        url=_product_url(product, normalized_barcode),
+        url=_product_url(product, barcode),
         size=size,
         size_unit=size_unit,
         num_servings=Decimal("1"),
@@ -249,6 +301,75 @@ def fetch_open_food_facts_product(
         fibre_g=_nutriment_value(nutriment_values, "fibre_g"),
         salt_g=_nutriment_value(nutriment_values, "salt_g"),
     )
+
+
+def _cached_product(barcode: str) -> tuple[bool, dict[str, Any] | None]:
+    """Return whether a live cache entry exists and its provider product.
+
+    Args:
+        barcode: Canonical product barcode.
+
+    Returns:
+        tuple[bool, dict[str, Any] | None]: cache hit flag and product.
+    """
+    entry = OpenFoodFactsCacheEntry.objects.filter(
+        barcode=barcode, expires_at__gt=timezone.now()
+    ).first()
+    if entry is None:
+        return False, None
+    product = entry.product
+    return True, product if isinstance(product, dict) else None
+
+
+def _cache_product(
+    barcode: str, product: dict[str, Any] | None, timeout_seconds: int
+) -> None:
+    """Persist a positive or negative provider result with a bounded TTL.
+
+    Args:
+        barcode: Canonical product barcode.
+        product: Provider product mapping, or None for a negative lookup.
+        timeout_seconds: Cache lifetime in seconds.
+    """
+    OpenFoodFactsCacheEntry.objects.update_or_create(
+        barcode=barcode,
+        defaults={
+            "product": product,
+            "expires_at": timezone.now() + timedelta(seconds=timeout_seconds),
+        },
+    )
+
+
+def _acquire_request_slot() -> None:
+    """Reserve one shared OFF read below the documented provider quota.
+
+    Raises:
+        ValueError: When the quota window is already exhausted.
+    """
+    now = timezone.now().timestamp()
+    cutoff = now - OFF_RATE_LIMIT_WINDOW_SECONDS
+    with transaction.atomic():
+        (
+            limiter,
+            _created,
+        ) = OpenFoodFactsRateLimit.objects.select_for_update().get_or_create(
+            key=OFF_RATE_LIMIT_KEY
+        )
+        raw_timestamps = limiter.request_timestamps
+        timestamps = [
+            float(value)
+            for value in raw_timestamps
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and float(value) > cutoff
+        ]
+        if len(timestamps) >= OFF_RATE_LIMIT_MAX_REQUESTS:
+            raise ValueError(
+                "Open Food Facts lookup is temporarily unavailable"
+            )
+        timestamps.append(now)
+        limiter.request_timestamps = timestamps
+        limiter.save(update_fields=("request_timestamps",))
 
 
 def _decimal_or_none(
@@ -350,7 +471,7 @@ def _package_size(
     if isinstance(quantity, str):
         parsed = parse_quantity(quantity)
         if parsed is not None:
-            compatible = _creation_compatible_package_size(*parsed)
+            compatible = creation_compatible_package_size(*parsed)
             if compatible is not None:
                 return compatible
     return None, None
@@ -377,7 +498,7 @@ def _normalized_package_size(
     amount = _positive_decimal(product.get("product_quantity"))
     if amount is None:
         return None
-    return _creation_compatible_package_size(amount, canonical_unit)
+    return creation_compatible_package_size(amount, canonical_unit)
 
 
 def _positive_decimal(value: Any) -> Decimal | None:
@@ -400,7 +521,7 @@ def _positive_decimal(value: Any) -> Decimal | None:
     return amount
 
 
-def _creation_compatible_package_size(
+def creation_compatible_package_size(
     amount: Decimal, unit: str
 ) -> tuple[Decimal, str] | None:
     """Represent a package quantity with at most one decimal place.
