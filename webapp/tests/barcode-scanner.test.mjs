@@ -20,6 +20,7 @@ afterEach(() => {
     configurable: true,
     value: originalNavigator,
   })
+  vi.unstubAllGlobals()
 })
 
 test('barcode detector support reflects the window capability', () => {
@@ -47,9 +48,17 @@ test('createBarcodeDetector returns an instance when supported', async () => {
     configurable: true,
     value: dom.window,
   })
-  dom.window.BarcodeDetector = class FakeDetector {}
+  let options
+  dom.window.BarcodeDetector = class FakeDetector {
+    constructor(detectorOptions) {
+      options = detectorOptions
+    }
+  }
   const detector = await scanner.createBarcodeDetector()
   assert.ok(detector instanceof dom.window.BarcodeDetector)
+  assert.deepEqual(options, {
+    formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'],
+  })
   delete dom.window.BarcodeDetector
 })
 
@@ -100,6 +109,28 @@ test('startCameraStream returns null when the camera is denied', async () => {
   assert.equal(await scanner.startCameraStream(video), null)
 })
 
+test('startCameraStream stops an acquired stream when video playback fails', async () => {
+  const stop = vi.fn()
+  const stream = { getTracks: () => [{ stop }] }
+  const video = {
+    srcObject: null,
+    play: vi.fn(async () => {
+      throw new Error('playback failed')
+    }),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        getUserMedia: async () => stream,
+      },
+    },
+  })
+  assert.equal(await scanner.startCameraStream(video), null)
+  assert.equal(stop.mock.calls.length, 1)
+  assert.equal(video.srcObject, null)
+})
+
 test('startCameraStream attaches the stream and plays the video', async () => {
   const stream = { getTracks: () => [] }
   const video = { srcObject: null, play: vi.fn(async () => {}) }
@@ -132,6 +163,10 @@ test('stopCameraStream tolerates a null stream', () => {
 })
 
 test('readBarcodeFromVideo keeps scanning until a later frame contains a code', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback) =>
+    setTimeout(() => callback(0), 0),
+  )
+  vi.stubGlobal('cancelAnimationFrame', (handle) => clearTimeout(handle))
   let calls = 0
   const detector = {
     detect: async () => {
@@ -151,18 +186,29 @@ test('readBarcodeFromVideo keeps scanning until a later frame contains a code', 
   assert.equal(calls, 2)
 })
 
-test('readBarcodeFromVideo returns null when scanning is cancelled', async () => {
+test('readBarcodeFromVideo returns null when scanning is externally cancelled', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback) =>
+    setTimeout(() => callback(0), 50),
+  )
+  vi.stubGlobal('cancelAnimationFrame', (handle) => clearTimeout(handle))
   const controller = new AbortController()
+  let calls = 0
+  let firstDetection
+  const firstDetectionStarted = new Promise((resolve) => {
+    firstDetection = resolve
+  })
   const detector = {
     detect: async () => {
-      controller.abort()
+      calls += 1
+      firstDetection()
       return []
     },
   }
-  assert.equal(
-    await scanner.readBarcodeFromVideo({}, detector, controller.signal),
-    null,
-  )
+  const scan = scanner.readBarcodeFromVideo({}, detector, controller.signal)
+  await firstDetectionStarted
+  controller.abort()
+  assert.equal(await scan, null)
+  assert.equal(calls, 1)
 })
 
 test('readBarcodeFromVideo returns null when detection throws', async () => {

@@ -39,15 +39,18 @@ const rtl = await import('@testing-library/react')
 const { act, fireEvent, render } = rtl.default ?? rtl
 
 let push = vi.fn()
+let session = { user: { isStaff: true } }
 let graphqlImpl = async () => ({})
 let graphqlCalls = []
 let supported = false
 let detector = null
 let cameraResult = null
 let scanResult = null
+let scanSignals = []
 let stopCalls = []
 
 vi.doMock('next/navigation', () => ({ useRouter: () => ({ push }) }))
+vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
 vi.doMock('next/link', () => ({
   default: ({ href, children, ...props }) =>
     React.createElement('a', { href, ...props }, children),
@@ -66,7 +69,10 @@ vi.doMock('@/lib/barcodeScanner', () => ({
   stopCameraStream: (stream) => {
     if (stream) stopCalls.push(stream)
   },
-  readBarcodeFromVideo: async () => scanResult,
+  readBarcodeFromVideo: async (_video, _detector, signal) => {
+    scanSignals.push(signal)
+    return scanResult
+  },
 }))
 
 let mountedView
@@ -103,12 +109,14 @@ afterEach(async () => {
   if (mountedView) await act(async () => { mountedView.unmount() })
   mountedView = undefined
   push.mockClear()
+  session = { user: { isStaff: true } }
   graphqlCalls = []
   graphqlImpl = async () => ({})
   supported = false
   detector = null
   cameraResult = null
   scanResult = null
+  scanSignals = []
   stopCalls = []
   vi.restoreAllMocks()
 })
@@ -129,9 +137,41 @@ test('scan page looks up a detected barcode and links to a local product', async
     assert.match(container.textContent, /Already in your catalog/),
   )
   assert.match(container.textContent, /Oats/)
+  assert.doesNotMatch(
+    container.textContent,
+    /Camera barcode scanning is not available here/,
+  )
   assert.ok(container.querySelector('a[href="/products/p1"]'))
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '3017620422003' })
   assert.deepEqual(stopCalls, [cameraResult])
+})
+
+test('scan page shows a lookup state after detecting a barcode', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  let resolveGraphql
+  graphqlImpl = async () =>
+    new Promise((resolve) => {
+      resolveGraphql = resolve
+    })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Barcode detected. Looking up product/),
+  )
+  assert.doesNotMatch(
+    container.textContent,
+    /Camera barcode scanning is not available here/,
+  )
+  await act(async () => {
+    resolveGraphql({
+      foodProductByBarcode: { product: null, openFoodFacts: null },
+    })
+  })
+  await settle(() =>
+    assert.match(container.textContent, /No product found for barcode/),
+  )
 })
 
 test('scan page prefills the new product page from an OFF draft', async () => {
@@ -178,6 +218,72 @@ test('scan page prefills the new product page from an OFF draft', async () => {
       '&nutritionalInfoUnit=g&energyKcal=539&proteinG=6.3&fatG=30.9' +
       '&carbsG=57.5&saltG=0.11',
   )
+})
+
+test('scan page warns when OFF nutrition is incomplete before review', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003',
+        brand: 'Unknown',
+        name: 'Incomplete food',
+        url: 'https://world.openfoodfacts.org/product/3017620422003',
+        size: 100,
+        sizeUnit: 'g',
+        numServings: 1,
+        nutritionalInfoSize: 100,
+        nutritionalInfoUnit: 'g',
+        energyKcal: null,
+        proteinG: 2,
+        fatG: 3,
+        carbsG: 4,
+        saturatedFatG: null,
+        sugarsG: null,
+        fibreG: null,
+        saltG: null,
+      },
+    },
+  })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Nutrition data is incomplete/),
+  )
+  await act(async () => {
+    buttonByText(container, 'Review and complete product data').click()
+  })
+  const destination = push.mock.calls.at(-1)[0]
+  assert.match(destination, /proteinG=2/)
+  assert.doesNotMatch(destination, /energyKcal=/)
+})
+
+test('scan page does not offer staff-only product creation to regular users', async () => {
+  session = { user: { isStaff: false } }
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Found food', url: '',
+        size: 100, sizeUnit: 'g', numServings: 1,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 1, proteinG: 2, fatG: 3, carbsG: 4,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /A staff user must review and create/),
+  )
+  assert.equal(buttonByText(container, 'Create product from this data'), undefined)
 })
 
 test('scan page reports unknown barcodes', async () => {
@@ -289,9 +395,35 @@ test('scan page switches to manual entry from the camera view', async () => {
     buttonByText(container, 'Type barcode instead').click()
   })
   assert.ok(container.querySelector('#barcode-input'))
+  const stream = { getTracks: () => [] }
   await act(async () => {
-    resolveCamera({ getTracks: () => [] })
+    resolveCamera(stream)
   })
+  assert.deepEqual(stopCalls, [stream])
+})
+
+test('scan page stops an active scan when switching to manual entry', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  let resolveScan
+  scanResult = new Promise((resolve) => {
+    resolveScan = resolve
+  })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Point the camera at a product barcode/),
+  )
+  await act(async () => {
+    buttonByText(container, 'Type barcode instead').click()
+  })
+  assert.ok(container.querySelector('#barcode-input'))
+  assert.equal(scanSignals.at(-1).aborted, true)
+  assert.deepEqual(stopCalls, [cameraResult])
+  await act(async () => {
+    resolveScan('3017620422003')
+  })
+  assert.equal(graphqlCalls.length, 0)
 })
 
 test('scan page looks up manually entered barcodes', async () => {
