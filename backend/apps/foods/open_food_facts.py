@@ -2,12 +2,16 @@
 
 import re
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DecimalException, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
 import requests
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.db import models
+
+from apps.foods.models import FoodProduct
 
 OFF_API_BASE_URL = "https://world.openfoodfacts.org/api/v2"
 OFF_PRODUCT_PAGE_URL = "https://world.openfoodfacts.org/product/{barcode}"
@@ -63,6 +67,10 @@ NUTRIMENT_KEYS = {
     "fibre_g": "fiber",
     "salt_g": "salt",
 }
+NUTRIMENT_MODEL_FIELDS = {
+    "sugars_g": "sugar_carbs_g",
+    "fibre_g": "fibre_carbs_g",
+}
 
 
 @dataclass(frozen=True)
@@ -74,8 +82,8 @@ class OpenFoodFactsProduct:
     brand: str | None
     name: str
     url: str
-    size: Decimal
-    size_unit: str
+    size: Decimal | None
+    size_unit: str | None
     num_servings: Decimal
     nutritional_info_size: Decimal
     nutritional_info_unit: str
@@ -110,8 +118,9 @@ def normalize_gtin(barcode: str) -> str | None:
     """Normalize and validate a product GTIN barcode.
 
     Only GTIN-8, UPC-A/GTIN-12, EAN-13, and GTIN-14 values with a valid GS1
-    check digit are accepted. Surrounding whitespace is removed; no internal
-    characters are rewritten.
+    check digit are accepted. Surrounding whitespace is removed. Equivalent
+    zero-prefixed 13- and 14-digit forms are reduced no further than GTIN-12;
+    GTIN-8 values are preserved.
 
     Args:
         barcode: Raw scanned barcode value.
@@ -133,7 +142,28 @@ def normalize_gtin(barcode: str) -> str | None:
     check_digit = (10 - weighted_sum % 10) % 10
     if check_digit != int(normalized[-1]):
         return None
+    while len(normalized) > 12 and normalized.startswith("0"):
+        normalized = normalized[1:]
     return normalized
+
+
+def equivalent_gtins(barcode: str) -> tuple[str, ...]:
+    """Return supported stored representations equivalent to a valid GTIN.
+
+    Args:
+        barcode: Raw or canonical GTIN value.
+
+    Returns:
+        tuple[str, ...]: Canonical form followed by zero-prefixed legacy forms.
+    """
+    canonical = normalize_gtin(barcode)
+    if canonical is None:
+        return ()
+    if len(canonical) == 8:
+        return (canonical,)
+    return tuple(
+        canonical.zfill(length) for length in range(len(canonical), 15)
+    )
 
 
 def fetch_open_food_facts_product(
@@ -221,7 +251,9 @@ def fetch_open_food_facts_product(
     )
 
 
-def _decimal_or_none(value: Any) -> Decimal | None:
+def _decimal_or_none(
+    value: Any, model_field: models.DecimalField
+) -> Decimal | None:
     """Return a rounded decimal value, or None when it is unavailable.
 
     Open Food Facts occasionally publishes non-numeric markers such as "~"
@@ -229,17 +261,21 @@ def _decimal_or_none(value: Any) -> Decimal | None:
 
     Args:
         value: Raw nutriment value from the Open Food Facts response.
+        model_field: Destination nutrient field contract.
 
     Returns:
         Decimal | None: value rounded to two decimals, or None.
     """
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     try:
-        return Decimal(str(value)).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-    except InvalidOperation:
+        decimal_value = Decimal(str(value))
+        if not decimal_value.is_finite() or decimal_value < 0:
+            return None
+        quantum = Decimal(1).scaleb(-model_field.decimal_places)
+        rounded_value = decimal_value.quantize(quantum, rounding=ROUND_HALF_UP)
+        return model_field.clean(rounded_value, None)
+    except (DecimalException, ValidationError, ValueError):
         return None
 
 
@@ -256,7 +292,11 @@ def _nutriment_value(
         Decimal | None: the rounded per-100g value, or None.
     """
     key = f"{NUTRIMENT_KEYS[attribute]}_100g"
-    return _decimal_or_none(nutriments.get(key))
+    model_field_name = NUTRIMENT_MODEL_FIELDS.get(attribute, attribute)
+    model_field = FoodProduct._meta.get_field(model_field_name)
+    if not isinstance(model_field, models.DecimalField):
+        return None
+    return _decimal_or_none(nutriments.get(key), model_field)
 
 
 def _brand(brands: Any) -> str | None:
@@ -290,14 +330,17 @@ def _product_url(product: dict[str, Any], barcode: str) -> str:
     return OFF_PRODUCT_PAGE_URL.format(barcode=barcode)
 
 
-def _package_size(product: dict[str, Any]) -> tuple[Decimal, str]:
+def _package_size(
+    product: dict[str, Any],
+) -> tuple[Decimal | None, str | None]:
     """Return a package size compatible with the Food model.
 
     Args:
         product: OFF product mapping.
 
     Returns:
-        tuple[Decimal, str]: creation-compatible amount and canonical unit.
+        tuple[Decimal | None, str | None]: creation-compatible package fields,
+        or two None values when the quantity is unknown.
     """
     normalized = _normalized_package_size(product)
     if normalized is not None:
@@ -307,8 +350,10 @@ def _package_size(product: dict[str, Any]) -> tuple[Decimal, str]:
     if isinstance(quantity, str):
         parsed = parse_quantity(quantity)
         if parsed is not None:
-            return _creation_compatible_package_size(*parsed)
-    return Decimal("100"), "g"
+            compatible = _creation_compatible_package_size(*parsed)
+            if compatible is not None:
+                return compatible
+    return None, None
 
 
 def _normalized_package_size(
@@ -357,7 +402,7 @@ def _positive_decimal(value: Any) -> Decimal | None:
 
 def _creation_compatible_package_size(
     amount: Decimal, unit: str
-) -> tuple[Decimal, str]:
+) -> tuple[Decimal, str] | None:
     """Represent a package quantity with at most one decimal place.
 
     Exact canonical-unit conversions are preferred. If no exact conversion
@@ -369,20 +414,45 @@ def _creation_compatible_package_size(
         unit: Canonical package unit.
 
     Returns:
-        tuple[Decimal, str]: one-decimal-compatible amount and unit.
+        tuple[Decimal, str] | None: one-decimal-compatible amount and unit,
+        or None when no valid representation fits the Food size field.
     """
-    if _has_food_size_precision(amount):
-        return amount, unit
+    validated_amount = _food_size_or_none(amount)
+    if validated_amount is not None:
+        return validated_amount, unit
 
     for factor, converted_unit in PACKAGE_UNIT_CONVERSIONS.get(unit, ()):
-        converted_amount = amount * factor
-        if _has_food_size_precision(converted_amount):
-            return converted_amount, converted_unit
+        try:
+            converted_amount = amount * factor
+        except DecimalException:
+            continue
+        validated_amount = _food_size_or_none(converted_amount)
+        if validated_amount is not None:
+            return validated_amount, converted_unit
 
-    rounded_amount = amount.quantize(FOOD_SIZE_QUANTUM, rounding=ROUND_HALF_UP)
-    return max(rounded_amount, FOOD_SIZE_QUANTUM), unit
+    try:
+        rounded_amount = amount.quantize(
+            FOOD_SIZE_QUANTUM, rounding=ROUND_HALF_UP
+        )
+    except DecimalException:
+        return None
+    validated_amount = _food_size_or_none(rounded_amount)
+    if validated_amount is None:
+        return None
+    return validated_amount, unit
 
 
-def _has_food_size_precision(amount: Decimal) -> bool:
-    """Return whether an amount is exactly representable to one decimal."""
-    return amount == amount.quantize(FOOD_SIZE_QUANTUM)
+def _food_size_or_none(amount: Decimal) -> Decimal | None:
+    """Validate a package amount against the Food size field contract."""
+    if not amount.is_finite() or amount <= 0:
+        return None
+    try:
+        quantized = amount.quantize(FOOD_SIZE_QUANTUM)
+        if amount != quantized:
+            return None
+        field = FoodProduct._meta.get_field("size")
+        if not isinstance(field, models.DecimalField):
+            return None
+        return field.clean(quantized, None)
+    except (DecimalException, ValidationError):
+        return None

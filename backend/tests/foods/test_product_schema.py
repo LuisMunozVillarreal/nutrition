@@ -171,6 +171,93 @@ class TestFoodProductSchema:
         assert result.data["createFoodProduct"]["brand"] == "Quaker"
 
     @pytest.mark.parametrize("operation", ["create", "update"])
+    def test_food_product_write_canonicalizes_equivalent_gtin(
+        self, mocker, operation
+    ):
+        """Product writes persist valid GTINs in their minimal supported form."""
+        user = _create_user(f"gtin-{operation}@test.com", is_staff=True)
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(name="Original")
+        if operation == "create":
+            mutation = """
+                mutation CanonicalBarcode($barcode: String) {
+                    createFoodProduct(name: "Canonical", barcode: $barcode) {
+                        id barcode
+                    }
+                }
+            """
+            variables = {"barcode": "00036000291452"}
+            result_key = "createFoodProduct"
+        else:
+            mutation = """
+                mutation CanonicalBarcode($id: ID!, $barcode: String) {
+                    updateFoodProduct(
+                        id: $id, name: "Canonical", barcode: $barcode
+                    ) { id barcode }
+                }
+            """
+            variables = {
+                "id": str(product.id),
+                "barcode": "00036000291452",
+            }
+            result_key = "updateFoodProduct"
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        product_id = result.data[result_key]["id"]
+        assert result.data[result_key]["barcode"] == "036000291452"
+        assert FoodProduct.objects.get(pk=product_id).barcode == "036000291452"
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
+    @pytest.mark.parametrize(("barcode", "expected"), [(None, None), ("", "")])
+    def test_food_product_write_preserves_empty_barcode_semantics(
+        self, mocker, operation, barcode, expected
+    ):
+        """GTIN canonicalization leaves explicit null and blank values unchanged."""
+        user = _create_user(
+            f"empty-barcode-{operation}-{repr(barcode)}@test.com",
+            is_staff=True,
+        )
+        context = mocker.Mock()
+        context.request.user = user
+        product = FoodProduct.objects.create(
+            name="Original", barcode="3017620422003"
+        )
+        if operation == "create":
+            mutation = """
+                mutation EmptyBarcode($barcode: String) {
+                    createFoodProduct(name: "Empty barcode", barcode: $barcode) {
+                        id barcode
+                    }
+                }
+            """
+            variables = {"barcode": barcode}
+            result_key = "createFoodProduct"
+        else:
+            mutation = """
+                mutation EmptyBarcode($id: ID!, $barcode: String) {
+                    updateFoodProduct(
+                        id: $id, name: "Empty barcode", barcode: $barcode
+                    ) { id barcode }
+                }
+            """
+            variables = {"id": str(product.id), "barcode": barcode}
+            result_key = "updateFoodProduct"
+
+        result = schema.execute_sync(
+            mutation, variable_values=variables, context_value=context
+        )
+
+        assert result.errors is None
+        product_id = result.data[result_key]["id"]
+        assert result.data[result_key]["barcode"] == expected
+        assert FoodProduct.objects.get(pk=product_id).barcode == expected
+
+    @pytest.mark.parametrize("operation", ["create", "update"])
     def test_food_product_accepts_representable_decimal_boundaries(
         self, mocker, operation
     ):

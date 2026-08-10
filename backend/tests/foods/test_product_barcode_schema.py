@@ -220,6 +220,26 @@ class TestFoodProductBarcodeLookup:
         assert draft["fibreG"] is None
         assert draft["saltG"] == 0.11
 
+    def test_lookup_exposes_unknown_package_fields_as_null(
+        self, mocker, requests_mock
+    ):
+        """Drafts keep missing and multipack OFF package values nullable."""
+        user = _create_user("barcode-unknown-package@test.com")
+        payload = _off_payload()
+        payload["product"]["quantity"] = "4 x 100 g"
+        requests_mock.get(_off_url(BARCODE), json=payload)
+
+        result = schema.execute_sync(
+            _lookup_query("openFoodFacts { size sizeUnit }"),
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        assert result.data["foodProductByBarcode"]["openFoodFacts"] == {
+            "size": None,
+            "sizeUnit": None,
+        }
+
     def test_beverage_draft_is_compatible_with_food_product_creation(
         self, mocker, requests_mock
     ):
@@ -331,6 +351,50 @@ class TestFoodProductBarcodeLookup:
             "carbsG": None,
         }
 
+    @pytest.mark.parametrize(
+        "invalid_nutrient",
+        ["NaN", "Infinity", "-Infinity", -0.01, 100_000_000],
+    )
+    def test_lookup_rejects_unusable_provider_nutrients(
+        self, mocker, requests_mock, invalid_nutrient
+    ):
+        """OFF nutrients outside model contracts map to nullable draft values."""
+        user = _create_user(
+            f"invalid-nutrient-{repr(invalid_nutrient)}@test.com"
+        )
+        payload = _off_payload()
+        payload["product"]["nutriments"] = {
+            "energy-kcal_100g": invalid_nutrient,
+            "proteins_100g": invalid_nutrient,
+            "fat_100g": invalid_nutrient,
+            "carbohydrates_100g": invalid_nutrient,
+            "saturated-fat_100g": invalid_nutrient,
+            "sugars_100g": invalid_nutrient,
+            "fiber_100g": invalid_nutrient,
+            "salt_100g": invalid_nutrient,
+        }
+        requests_mock.get(_off_url(BARCODE), json=payload)
+
+        result = schema.execute_sync(
+            _lookup_query(
+                "openFoodFacts { energyKcal proteinG fatG carbsG "
+                "saturatedFatG sugarsG fibreG saltG }"
+            ),
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        assert result.data["foodProductByBarcode"]["openFoodFacts"] == {
+            "energyKcal": None,
+            "proteinG": None,
+            "fatG": None,
+            "carbsG": None,
+            "saturatedFatG": None,
+            "sugarsG": None,
+            "fibreG": None,
+            "saltG": None,
+        }
+
     def test_lookup_unknown_barcode_returns_empty(self, mocker, requests_mock):
         """A barcode unknown to both sources returns an empty lookup."""
         user = _create_user("barcode-miss@test.com")
@@ -408,6 +472,41 @@ class TestFoodProductBarcodeLookup:
         assert result.errors is None
         lookup = result.data["foodProductByBarcode"]
         assert lookup["product"]["name"] == "Local normalized"
+        assert lookup["openFoodFacts"] is None
+        assert not requests_mock.called
+
+    @pytest.mark.parametrize(
+        ("stored_barcode", "scanned_barcode"),
+        [
+            ("036000291452", "0036000291452"),
+            ("0036000291452", "036000291452"),
+            ("00036000291452", "0036000291452"),
+            ("3017620422003", "03017620422003"),
+            ("03017620422003", "3017620422003"),
+        ],
+    )
+    def test_lookup_matches_legacy_equivalent_gtin_forms(
+        self, mocker, requests_mock, stored_barcode, scanned_barcode
+    ):
+        """Canonical scans match equivalent legacy UPC/EAN/GTIN-14 storage."""
+        user = _create_user(
+            f"legacy-{stored_barcode}-{scanned_barcode}@test.com"
+        )
+        FoodProduct.objects.create(
+            name="Legacy representation", barcode=stored_barcode
+        )
+
+        result = schema.execute_sync(
+            _variable_lookup_query(
+                "product { id name } openFoodFacts { name }"
+            ),
+            variable_values={"barcode": scanned_barcode},
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        lookup = result.data["foodProductByBarcode"]
+        assert lookup["product"]["name"] == "Legacy representation"
         assert lookup["openFoodFacts"] is None
         assert not requests_mock.called
 
