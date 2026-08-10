@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
+from urllib.parse import quote
 
 import requests
 from django.conf import settings
@@ -11,10 +12,39 @@ from django.conf import settings
 OFF_API_BASE_URL = "https://world.openfoodfacts.org/api/v2"
 OFF_PRODUCT_PAGE_URL = "https://world.openfoodfacts.org/product/{barcode}"
 OFF_REQUEST_TIMEOUT_SECONDS = 10
+OFF_PRODUCT_FIELDS = ",".join(
+    (
+        "brands",
+        "nutriments",
+        "product_name",
+        "product_quantity",
+        "product_quantity_unit",
+        "quantity",
+        "url",
+    )
+)
 
 MASS_UNITS = frozenset({"g", "kg", "mg", "oz", "lb"})
 VOLUME_UNITS = frozenset({"ml", "cl", "l", "c", "floz", "tbsp", "tsp", "pt"})
 CANONICAL_UNITS = MASS_UNITS | VOLUME_UNITS
+PACKAGE_UNIT_CONVERSIONS = {
+    "kg": ((Decimal("1000"), "g"),),
+    "g": ((Decimal("1000"), "mg"),),
+    "lb": ((Decimal("16"), "oz"),),
+    "oz": (
+        (Decimal("28.349523125"), "g"),
+        (Decimal("28349.523125"), "mg"),
+    ),
+    "l": ((Decimal("1000"), "ml"),),
+    "cl": ((Decimal("10"), "ml"),),
+    "pt": ((Decimal("16"), "floz"),),
+    "c": ((Decimal("8"), "floz"),),
+    "tbsp": ((Decimal("3"), "tsp"),),
+    "floz": ((Decimal("29.573529562499985"), "ml"),),
+    "tsp": ((Decimal("4.92892159375"), "ml"),),
+}
+FOOD_SIZE_QUANTUM = Decimal("0.1")
+GTIN_LENGTHS = frozenset({8, 12, 13, 14})
 
 QUANTITY_PATTERN = re.compile(
     r"^\s*(\d+(?:[.,]\d+)?)\s*"
@@ -76,15 +106,45 @@ def parse_quantity(quantity: str) -> tuple[Decimal, str] | None:
     return amount, match.group(2).lower()
 
 
+def normalize_gtin(barcode: str) -> str | None:
+    """Normalize and validate a product GTIN barcode.
+
+    Only GTIN-8, UPC-A/GTIN-12, EAN-13, and GTIN-14 values with a valid GS1
+    check digit are accepted. Surrounding whitespace is removed; no internal
+    characters are rewritten.
+
+    Args:
+        barcode: Raw scanned barcode value.
+
+    Returns:
+        str | None: normalized GTIN, or None when it is invalid.
+    """
+    normalized = barcode.strip()
+    if (
+        len(normalized) not in GTIN_LENGTHS
+        or re.fullmatch(r"[0-9]+", normalized) is None
+    ):
+        return None
+
+    weighted_sum = sum(
+        int(digit) * (3 if position % 2 else 1)
+        for position, digit in enumerate(reversed(normalized[:-1]), start=1)
+    )
+    check_digit = (10 - weighted_sum % 10) % 10
+    if check_digit != int(normalized[-1]):
+        return None
+    return normalized
+
+
 def fetch_open_food_facts_product(
     barcode: str,
 ) -> OpenFoodFactsProduct | None:
     """Fetch and map an Open Food Facts product for a barcode.
 
-    The draft always uses the per-100g nutrition basis because Open Food
-    Facts exposes per-100g values for mass and volume products alike. The
-    package size is only carried over when its unit is mass-compatible;
-    otherwise the draft defaults to 100 g for the user to adjust.
+    The draft uses a 100 g basis for mass products and a 100 ml basis for
+    volume products. Normalized OFF package quantities take precedence over
+    display labels and are converted when needed to fit the Food model's
+    one-decimal package-size precision.
 
     Args:
         barcode: The scanned product barcode.
@@ -96,10 +156,16 @@ def fetch_open_food_facts_product(
     Raises:
         ValueError: When Open Food Facts cannot be reached.
     """
+    normalized_barcode = normalize_gtin(barcode)
+    if normalized_barcode is None:
+        return None
+    encoded_barcode = quote(normalized_barcode, safe="")
+
     try:
         response = requests.get(
-            f"{OFF_API_BASE_URL}/product/{barcode}.json",
+            f"{OFF_API_BASE_URL}/product/{encoded_barcode}.json",
             headers={"User-Agent": settings.OPEN_FOOD_FACTS_USER_AGENT},
+            params={"fields": OFF_PRODUCT_FIELDS},
             timeout=OFF_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -133,16 +199,17 @@ def fetch_open_food_facts_product(
     nutriments = product.get("nutriments")
     nutriment_values = nutriments if isinstance(nutriments, dict) else {}
 
+    nutritional_info_unit = "ml" if size_unit in VOLUME_UNITS else "g"
     return OpenFoodFactsProduct(
-        barcode=barcode,
+        barcode=normalized_barcode,
         brand=_brand(product.get("brands")),
         name=name.strip(),
-        url=_product_url(product, barcode),
+        url=_product_url(product, normalized_barcode),
         size=size,
         size_unit=size_unit,
         num_servings=Decimal("1"),
         nutritional_info_size=Decimal("100"),
-        nutritional_info_unit="g",
+        nutritional_info_unit=nutritional_info_unit,
         energy_kcal=_nutriment_value(nutriment_values, "energy_kcal"),
         protein_g=_nutriment_value(nutriment_values, "protein_g"),
         fat_g=_nutriment_value(nutriment_values, "fat_g"),
@@ -224,17 +291,98 @@ def _product_url(product: dict[str, Any], barcode: str) -> str:
 
 
 def _package_size(product: dict[str, Any]) -> tuple[Decimal, str]:
-    """Return a package size compatible with the mass nutrition basis.
+    """Return a package size compatible with the Food model.
 
     Args:
         product: OFF product mapping.
 
     Returns:
-        tuple[Decimal, str]: amount and canonical mass unit.
+        tuple[Decimal, str]: creation-compatible amount and canonical unit.
     """
+    normalized = _normalized_package_size(product)
+    if normalized is not None:
+        return normalized
+
     quantity = product.get("quantity")
     if isinstance(quantity, str):
         parsed = parse_quantity(quantity)
-        if parsed is not None and parsed[1] in MASS_UNITS:
-            return parsed
+        if parsed is not None:
+            return _creation_compatible_package_size(*parsed)
     return Decimal("100"), "g"
+
+
+def _normalized_package_size(
+    product: dict[str, Any],
+) -> tuple[Decimal, str] | None:
+    """Return OFF's normalized package quantity when it is usable.
+
+    Args:
+        product: OFF product mapping.
+
+    Returns:
+        tuple[Decimal, str] | None: normalized amount and canonical unit.
+    """
+    unit = product.get("product_quantity_unit")
+    if not isinstance(unit, str):
+        return None
+    canonical_unit = unit.strip().lower()
+    if canonical_unit not in CANONICAL_UNITS:
+        return None
+
+    amount = _positive_decimal(product.get("product_quantity"))
+    if amount is None:
+        return None
+    return _creation_compatible_package_size(amount, canonical_unit)
+
+
+def _positive_decimal(value: Any) -> Decimal | None:
+    """Return a finite positive decimal, or None for an unusable value.
+
+    Args:
+        value: Raw OFF numeric value.
+
+    Returns:
+        Decimal | None: finite positive value or None.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not amount.is_finite() or amount <= 0:
+        return None
+    return amount
+
+
+def _creation_compatible_package_size(
+    amount: Decimal, unit: str
+) -> tuple[Decimal, str]:
+    """Represent a package quantity with at most one decimal place.
+
+    Exact canonical-unit conversions are preferred. If no exact conversion
+    fits the Food model, the original-unit amount is rounded to its supported
+    precision instead of returning a draft that creation would reject.
+
+    Args:
+        amount: Positive package quantity.
+        unit: Canonical package unit.
+
+    Returns:
+        tuple[Decimal, str]: one-decimal-compatible amount and unit.
+    """
+    if _has_food_size_precision(amount):
+        return amount, unit
+
+    for factor, converted_unit in PACKAGE_UNIT_CONVERSIONS.get(unit, ()):
+        converted_amount = amount * factor
+        if _has_food_size_precision(converted_amount):
+            return converted_amount, converted_unit
+
+    rounded_amount = amount.quantize(FOOD_SIZE_QUANTUM, rounding=ROUND_HALF_UP)
+    return max(rounded_amount, FOOD_SIZE_QUANTUM), unit
+
+
+def _has_food_size_precision(amount: Decimal) -> bool:
+    """Return whether an amount is exactly representable to one decimal."""
+    return amount == amount.quantize(FOOD_SIZE_QUANTUM)

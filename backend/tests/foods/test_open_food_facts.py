@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 import requests
 
+from apps.foods import open_food_facts
 from apps.foods.open_food_facts import (
     OFF_API_BASE_URL,
     OpenFoodFactsProduct,
@@ -70,6 +71,54 @@ def test_parse_quantity_rejects_unparseable_labels(quantity):
     assert parse_quantity(quantity) is None
 
 
+@pytest.mark.parametrize(
+    "barcode",
+    [
+        "96385074",
+        "036000291452",
+        "3017620422003",
+        "10012345000017",
+    ],
+)
+def test_normalize_gtin_accepts_valid_product_barcode_lengths(barcode):
+    """GTIN-8, UPC-A, EAN-13, and GTIN-14 examples pass validation."""
+    assert open_food_facts.normalize_gtin(f"  {barcode}\n") == barcode
+
+
+@pytest.mark.parametrize(
+    "barcode",
+    [
+        "",
+        "   ",
+        "https://example.com/qr/3017620422003",
+        "30176204 22003",
+        "1234567",
+        "123456789",
+        "036000291453",
+        "3017620422004",
+        "10012345000018",
+    ],
+)
+def test_fetch_rejects_invalid_gtin_without_off_request(
+    requests_mock, barcode
+):
+    """Invalid scan values never become Open Food Facts requests."""
+    assert fetch_open_food_facts_product(barcode) is None
+    assert not requests_mock.called
+
+
+def test_fetch_normalizes_surrounding_gtin_whitespace(requests_mock):
+    """Surrounding scan whitespace is removed before the OFF request."""
+    requests_mock.get(_off_url(), json=_payload())
+
+    product = fetch_open_food_facts_product(f" \t{BARCODE}\n")
+
+    assert product is not None
+    assert product.barcode == BARCODE
+    assert requests_mock.last_request is not None
+    assert requests_mock.last_request.path.endswith(f"/{BARCODE}.json")
+
+
 def test_fetch_maps_complete_product(requests_mock):
     """A complete OFF product maps to a full draft."""
     requests_mock.get(_off_url(), json=_payload())
@@ -94,6 +143,11 @@ def test_fetch_maps_complete_product(requests_mock):
         sugars_g=Decimal("56.3"),
         fibre_g=Decimal("3.7"),
         salt_g=Decimal("0.11"),
+    )
+    assert requests_mock.last_request is not None
+    assert "product_quantity" in requests_mock.last_request.qs["fields"][0]
+    assert (
+        "product_quantity_unit" in requests_mock.last_request.qs["fields"][0]
     )
 
 
@@ -142,27 +196,124 @@ def test_fetch_ignores_non_numeric_nutrient_markers(requests_mock):
     assert product.fat_g == Decimal("12.34")
 
 
-def test_fetch_uses_mass_quantity(requests_mock):
-    """A mass quantity label becomes the package size."""
-    requests_mock.get(_off_url(), json=_payload(quantity="1.5 kg"))
+@pytest.mark.parametrize(
+    ("quantity", "quantity_unit", "expected_size", "expected_unit"),
+    [
+        (1.25, "kg", Decimal("1250"), "g"),
+        (1.25, "l", Decimal("1250"), "ml"),
+    ],
+)
+def test_fetch_normalizes_package_precision_for_food_creation(
+    requests_mock,
+    quantity,
+    quantity_unit,
+    expected_size,
+    expected_unit,
+):
+    """Normalized package quantities fit the Food one-decimal size field."""
+    requests_mock.get(
+        _off_url(),
+        json=_payload(
+            quantity="unparseable multipack",
+            product_quantity=quantity,
+            product_quantity_unit=quantity_unit,
+        ),
+    )
 
     product = fetch_open_food_facts_product(BARCODE)
 
     assert product is not None
-    assert (product.size, product.size_unit) == (Decimal("1.5"), "kg")
+    assert (product.size, product.size_unit) == (expected_size, expected_unit)
 
 
-@pytest.mark.parametrize("quantity", ["33 cl", "4 x 100 g", None, ""])
-def test_fetch_defaults_size_when_quantity_is_not_mass(
+def test_fetch_uses_normalized_volume_quantity_and_basis(requests_mock):
+    """A beverage uses OFF's normalized package volume and a 100 ml basis."""
+    requests_mock.get(
+        _off_url(),
+        json=_payload(
+            quantity="33 cl",
+            product_quantity=330,
+            product_quantity_unit="ml",
+        ),
+    )
+
+    product = fetch_open_food_facts_product(BARCODE)
+
+    assert product is not None
+    assert (product.size, product.size_unit) == (Decimal("330"), "ml")
+    assert (
+        product.nutritional_info_size,
+        product.nutritional_info_unit,
+    ) == (Decimal("100"), "ml")
+
+
+@pytest.mark.parametrize(
+    ("product_quantity", "product_quantity_unit"),
+    [
+        (330, "unit"),
+        (None, "ml"),
+        (True, "ml"),
+        ({"broken": "value"}, "ml"),
+        (0, "ml"),
+        ("NaN", "ml"),
+    ],
+)
+def test_fetch_ignores_invalid_normalized_package_quantity(
+    requests_mock, product_quantity, product_quantity_unit
+):
+    """Malformed normalized fields fall back to a usable quantity label."""
+    requests_mock.get(
+        _off_url(),
+        json=_payload(
+            quantity="350 g",
+            product_quantity=product_quantity,
+            product_quantity_unit=product_quantity_unit,
+        ),
+    )
+
+    product = fetch_open_food_facts_product(BARCODE)
+
+    assert product is not None
+    assert (product.size, product.size_unit) == (Decimal("350"), "g")
+
+
+@pytest.mark.parametrize(
+    ("quantity", "expected_size"),
+    [(1.234, Decimal("1.2")), (0.01, Decimal("0.1"))],
+)
+def test_fetch_rounds_unconvertible_package_precision_without_zeroing(
+    requests_mock, quantity, expected_size
+):
+    """Inexact imperial quantities remain positive and creation-compatible."""
+    requests_mock.get(
+        _off_url(),
+        json=_payload(
+            product_quantity=quantity,
+            product_quantity_unit="oz",
+        ),
+    )
+
+    product = fetch_open_food_facts_product(BARCODE)
+
+    assert product is not None
+    assert (product.size, product.size_unit) == (expected_size, "oz")
+
+
+@pytest.mark.parametrize("quantity", ["4 x 100 g", None, ""])
+def test_fetch_defaults_size_when_quantity_is_unparseable(
     requests_mock, quantity
 ):
-    """Non-mass or unparseable quantities default to 100 g."""
+    """Unparseable quantities default to a 100 g package and basis."""
     requests_mock.get(_off_url(), json=_payload(quantity=quantity))
 
     product = fetch_open_food_facts_product(BARCODE)
 
     assert product is not None
     assert (product.size, product.size_unit) == (Decimal("100"), "g")
+    assert (
+        product.nutritional_info_size,
+        product.nutritional_info_unit,
+    ) == (Decimal("100"), "g")
 
 
 @pytest.mark.parametrize("brands", [None, "", ", "])
