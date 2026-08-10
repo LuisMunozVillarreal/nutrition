@@ -48,6 +48,8 @@ let cameraResult = null
 let scanResult = null
 let scanSignals = []
 let stopCalls = []
+let detectorCreateCalls = 0
+let cameraStartCalls = 0
 
 vi.doMock('next/navigation', () => ({ useRouter: () => ({ push }) }))
 vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
@@ -64,8 +66,14 @@ vi.doMock('@/lib/graphql', () => ({
 }))
 vi.doMock('@/lib/barcodeScanner', () => ({
   isBarcodeDetectorSupported: () => supported,
-  createBarcodeDetector: async () => detector,
-  startCameraStream: async () => cameraResult,
+  createBarcodeDetector: async () => {
+    detectorCreateCalls += 1
+    return detector
+  },
+  startCameraStream: async () => {
+    cameraStartCalls += 1
+    return cameraResult
+  },
   stopCameraStream: (stream) => {
     if (stream) stopCalls.push(stream)
   },
@@ -118,6 +126,8 @@ afterEach(async () => {
   scanResult = null
   scanSignals = []
   stopCalls = []
+  detectorCreateCalls = 0
+  cameraStartCalls = 0
   vi.restoreAllMocks()
 })
 
@@ -216,7 +226,7 @@ test('scan page prefills the new product page from an OFF draft', async () => {
     '/products/new?barcode=3017620422003&brand=Ferrero&name=Nutella' +
       '&size=350&sizeUnit=g&numServings=1&nutritionalInfoSize=100' +
       '&nutritionalInfoUnit=g&energyKcal=539&proteinG=6.3&fatG=30.9' +
-      '&carbsG=57.5&saltG=0.11',
+      '&carbsG=57.5&saltG=0.11&fromBarcodeScan=1',
   )
 })
 
@@ -251,7 +261,7 @@ test('scan page warns when OFF nutrition is incomplete before review', async () 
   })
   const container = await mount()
   await settle(() =>
-    assert.match(container.textContent, /Nutrition data is incomplete/),
+    assert.match(container.textContent, /Product data is incomplete/),
   )
   await act(async () => {
     buttonByText(container, 'Review and complete product data').click()
@@ -259,6 +269,59 @@ test('scan page warns when OFF nutrition is incomplete before review', async () 
   const destination = push.mock.calls.at(-1)[0]
   assert.match(destination, /proteinG=2/)
   assert.doesNotMatch(destination, /energyKcal=/)
+  assert.match(destination, /fromBarcodeScan=1/)
+})
+
+test('scan page requires review when OFF package quantity is unknown', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Multipack', url: '',
+        size: null, sizeUnit: null, numServings: 1,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 1, proteinG: 2, fatG: 3, carbsG: 4,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Product data is incomplete/),
+  )
+  await act(async () => {
+    buttonByText(container, 'Review and complete product data').click()
+  })
+  const destination = push.mock.calls.at(-1)[0]
+  assert.doesNotMatch(destination, /[?&]size=/)
+  assert.match(destination, /fromBarcodeScan=1/)
+})
+
+test('scan page requires review when OFF package unit is unknown', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Unknown unit', url: '',
+        size: 100, sizeUnit: null, numServings: 1,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 1, proteinG: 2, fatG: 3, carbsG: 4,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Product data is incomplete/),
+  )
 })
 
 test('scan page does not offer staff-only product creation to regular users', async () => {
@@ -554,6 +617,24 @@ test('scan page stops the camera stream when unmounted mid-start', async () => {
     resolveCamera(stream)
   })
   assert.ok(stopCalls.includes(stream))
+})
+
+test('scan page does not acquire a camera after detector startup is cancelled', async () => {
+  supported = true
+  let resolveDetector
+  detector = new Promise((resolve) => {
+    resolveDetector = resolve
+  })
+  await mount()
+  await settle(() => assert.equal(detectorCreateCalls, 1))
+  await act(async () => {
+    mountedView.unmount()
+  })
+  mountedView = undefined
+  await act(async () => {
+    resolveDetector({})
+  })
+  assert.equal(cameraStartCalls, 0)
 })
 
 test('scan page stops the camera stream when unmounted mid-scan', async () => {
