@@ -25,9 +25,9 @@ const DELETE_MUTATION = gql`
 
 interface Measurement {
   id: string
-  bodyFatPerc: number
+  bodyFatPerc: number | null
   weight: number
-  bmr: number
+  bmr: number | null
   createdAt: string
 }
 
@@ -38,9 +38,13 @@ const columns: Column<Measurement>[] = [
     label: 'Date',
     accessor: (r) => new Date(r.createdAt).toLocaleDateString(),
   },
-  { key: 'bodyFatPerc', label: 'Body Fat (%)', accessor: (r) => r.bodyFatPerc },
+  { key: 'bodyFatPerc', label: 'Body Fat (%)', accessor: (r) => r.bodyFatPerc ?? '—' },
   { key: 'weight', label: 'Weight (kg)', accessor: (r) => r.weight },
-  { key: 'bmr', label: 'BMR', accessor: (r) => Math.round(r.bmr) },
+  {
+    key: 'bmr',
+    label: 'BMR',
+    accessor: (r) => r.bmr === null ? '—' : Math.round(r.bmr),
+  },
 ]
 
 export default function MeasurementsPage() {
