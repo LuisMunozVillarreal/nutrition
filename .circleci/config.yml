@@ -108,7 +108,7 @@ commands:
           name: Patch backend image first
           command: |
             set -Eeuo pipefail
-            CURRENT_WEBAPP_IMAGE="$(kubectl get deployment/nutrition-webapp -n << parameters.target_namespace >> -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+            CURRENT_WEBAPP_IMAGE="$(kubectl get deployment/nutrition-webapp -n << parameters.target_namespace >> --ignore-not-found -o jsonpath='{.spec.template.spec.containers[0].image}')"
             if [ -n "$CURRENT_WEBAPP_IMAGE" ]; then
               CURRENT_WEBAPP_TAG="${CURRENT_WEBAPP_IMAGE##*:}"
             else
