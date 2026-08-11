@@ -41,7 +41,9 @@ class FatPercGoal(BaseModel):
         if not measurement:
             return Decimal("0")
 
-        body_fat_perc = measurement.body_fat_perc
+        body_fat_perc = measurement.calculation_body_fat_perc
+        if body_fat_perc is None:
+            return Decimal("0")
         fat_kg = measurement.fat_kg
 
         fat_kg_goal = self.body_fat_perc * fat_kg / body_fat_perc

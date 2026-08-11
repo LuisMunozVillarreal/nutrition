@@ -65,7 +65,7 @@ class DashboardMeasurement:
 
     id: strawberry.ID
     weight: float
-    body_fat_perc: float
+    body_fat_perc: float | None
     created_at: str
 
 
@@ -136,14 +136,21 @@ class UserType:
         return DashboardData(
             latest_weight=float(measurement.weight) if measurement else None,
             latest_body_fat=(
-                float(measurement.body_fat_perc) if measurement else None
+                float(measurement.calculation_body_fat_perc)
+                if measurement
+                and measurement.calculation_body_fat_perc is not None
+                else None
             ),
             goal_body_fat=float(goal.body_fat_perc) if goal else None,
             recent_measurements=[
                 DashboardMeasurement(
                     id=strawberry.ID(str(item.id)),
                     weight=float(item.weight),
-                    body_fat_perc=float(item.body_fat_perc),
+                    body_fat_perc=(
+                        float(item.body_fat_perc)
+                        if item.body_fat_perc is not None
+                        else None
+                    ),
                     created_at=item.created_at.isoformat(),
                 )
                 for item in reversed(measurements)

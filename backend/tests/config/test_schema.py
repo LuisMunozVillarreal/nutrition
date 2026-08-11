@@ -409,6 +409,11 @@ def test_user_dashboard(week_plan_factory, intake_factory):
             weight=80.0 - index / 10,
             body_fat_perc=20.0 - index / 10,
         )
+    Measurement.objects.create(
+        user=user,
+        weight=77.7,
+        body_fat_perc=None,
+    )
     FatPercGoal.objects.create(user=user, body_fat_perc=15.0)
     today = datetime.now(timezone.utc).date()
     plan = week_plan_factory(
@@ -427,11 +432,12 @@ def test_user_dashboard(week_plan_factory, intake_factory):
     # Then the response is actionable and history is bounded
     assert result.errors is None
     dash = result.data["me"]["dashboard"]
-    assert dash["latestWeight"] == 78.6
+    assert dash["latestWeight"] == 77.7
     assert dash["latestBodyFat"] == 18.6
     assert dash["goalBodyFat"] == 15.0
     assert len(dash["recentMeasurements"]) == 14
-    assert dash["recentMeasurements"][-1]["weight"] == 78.6
+    assert dash["recentMeasurements"][-1]["weight"] == 77.7
+    assert dash["recentMeasurements"][-1]["bodyFatPerc"] is None
     assert dash["todayNutrition"]["id"] == str(today_day.id)
     assert dash["todayNutrition"]["day"] == today.isoformat()
     assert dash["todayNutrition"]["intakeCount"] == 1

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
+import { optionalNumberInput, optionalNumberVariable } from '@/lib/optionalNumber'
 import EntityForm from '@/components/EntityForm'
 import { FormField, ReadonlyField } from '@/components/FormField'
 
@@ -19,7 +20,7 @@ const MEASUREMENT_QUERY = gql`
 `
 
 const UPDATE_MUTATION = gql`
-  mutation UpdateMeasurement($id: ID!, $bodyFatPerc: Float!, $weight: Float!) {
+  mutation UpdateMeasurement($id: ID!, $bodyFatPerc: Float, $weight: Float!) {
     updateMeasurement(id: $id, bodyFatPerc: $bodyFatPerc, weight: $weight) {
       id
     }
@@ -50,7 +51,7 @@ export default function EditMeasurementPage() {
         const res = await graphqlRequest<{
           measurement: {
             id: string
-            bodyFatPerc: number
+            bodyFatPerc: number | null
             weight: number
             bmr: number | null
             createdAt: string | null
@@ -59,7 +60,7 @@ export default function EditMeasurementPage() {
 
         if (res.measurement) {
           setForm({
-            bodyFatPerc: String(res.measurement.bodyFatPerc),
+            bodyFatPerc: optionalNumberInput(res.measurement.bodyFatPerc),
             weight: String(res.measurement.weight),
           })
           setBmr(res.measurement.bmr)
@@ -85,7 +86,7 @@ export default function EditMeasurementPage() {
     try {
       await graphqlRequest(UPDATE_MUTATION, {
         id,
-        bodyFatPerc: parseFloat(form.bodyFatPerc),
+        bodyFatPerc: optionalNumberVariable(form.bodyFatPerc),
         weight: parseFloat(form.weight),
       })
     } finally {
@@ -124,7 +125,6 @@ export default function EditMeasurementPage() {
                 max="99.9"
                 value={form.bodyFatPerc}
                 onChange={handleChange}
-                required
               />
               <FormField
                 label="Weight (kg)"
