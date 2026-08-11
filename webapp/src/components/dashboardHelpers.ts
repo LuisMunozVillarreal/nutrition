@@ -8,6 +8,7 @@ export interface DashboardMeasurement {
 export interface WeightTrendPoint {
   id: string
   date: string
+  timestamp: number
   weight: number
 }
 
@@ -40,15 +41,33 @@ export function isCurrentLocalDate(value: string, now = new Date()): boolean {
 
 export function buildWeightTrendSeries(
   measurements: DashboardMeasurement[],
-  limit = 14,
+  limit?: number,
+  dateRange?: { startDate?: string; endDate?: string },
 ): WeightTrendPoint[] {
-  return [...measurements]
+  const rangeStart = dateRange?.startDate
+  const rangeEnd = dateRange?.endDate
+
+  const ordered = [...measurements]
     .filter((measurement) => Number.isFinite(measurement.weight))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .slice(-limit)
+
+  const limited = ordered.filter((measurement) => {
+    const measurementDate = normalizeDateForComparison(measurement.createdAt)
+
+    if (rangeStart && measurementDate < rangeStart) return false
+    if (rangeEnd && measurementDate > rangeEnd) return false
+
+    return true
+  })
+  const series = (typeof limit === 'number' && limit > 0)
+    ? limited.slice(-limit)
+    : limited
+
+  return series
     .map((measurement) => ({
       id: measurement.id,
       date: normalizeDateForComparison(measurement.createdAt),
+      timestamp: Date.parse(measurement.createdAt),
       weight: measurement.weight,
     }))
 }
@@ -64,16 +83,17 @@ export function buildTrendCoordinates(
   const range = max - min
   const availableWidth = width - padding * 2
   const availableHeight = height - padding * 2
-  const timestamps = series.map((point) => Date.parse(point.date))
+  const timestamps = series.map((point) => point.timestamp)
   const firstTimestamp = timestamps[0]
   const elapsedTime = timestamps.at(-1)! - firstTimestamp
+  const boundedElapsedTime = elapsedTime > 0 ? elapsedTime : 0
 
   const points = series.map((point, index) => ({
     ...point,
     x:
-      series.length === 1 || elapsedTime === 0
+      series.length === 1 || boundedElapsedTime === 0
         ? width / 2
-        : padding + ((timestamps[index] - firstTimestamp) / elapsedTime) * availableWidth,
+        : padding + ((timestamps[index] - firstTimestamp) / boundedElapsedTime) * availableWidth,
     y:
       range === 0
         ? height / 2
