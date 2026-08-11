@@ -106,6 +106,7 @@ afterEach(() => {
   params = { id: '42' }
   searchParams = new URLSearchParams()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const deferred = () => {
@@ -735,12 +736,38 @@ test('measurements page renders the reusable trend chart and validates custom da
 
   const rangeError = await screen.findByRole('alert')
   assert.equal(rangeError.textContent, 'Start date must be on or before end date.')
+  assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'true')
+  assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'true')
 
   fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-02' } })
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-03' } })
+  assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'false')
+  assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
   await screen.findByText('Weight trend')
   assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 80.8 kilograms/ }))
   assert.equal(requests.length, 1)
+})
+
+test('measurements preset ranges roll forward at local midnight', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date(2026, 0, 31, 23, 59, 59, 900))
+  responses = [{ measurements: [
+    { id: 'jan-2', bodyFatPerc: 20, weight: 70, bmr: 1600, createdAt: new Date(2026, 0, 2, 12).toISOString() },
+    { id: 'jan-31', bodyFatPerc: 19.8, weight: 69, bmr: 1605, createdAt: new Date(2026, 0, 31, 12).toISOString() },
+    { id: 'feb-1', bodyFatPerc: 19.6, weight: 68, bmr: 1598, createdAt: new Date(2026, 1, 1, 0).toISOString() },
+  ] }]
+
+  render(React.createElement(MeasurementsPage))
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 70 kilograms to 69 kilograms/ }))
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 69 kilograms to 68 kilograms/ }))
 })
 
 test('new measurement submits optional body fat without preloading it', async () => {

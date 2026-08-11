@@ -47,11 +47,17 @@ export function buildWeightTrendSeries(
   const rangeStart = dateRange?.startDate
   const rangeEnd = dateRange?.endDate
 
-  const ordered = [...measurements]
-    .filter((measurement) => Number.isFinite(measurement.weight))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const ordered = measurements
+    .map((measurement) => ({
+      measurement,
+      timestamp: Date.parse(measurement.createdAt),
+    }))
+    .filter(({ measurement, timestamp }) => (
+      Number.isFinite(measurement.weight) && Number.isFinite(timestamp)
+    ))
+    .sort((a, b) => a.timestamp - b.timestamp)
 
-  const limited = ordered.filter((measurement) => {
+  const limited = ordered.filter(({ measurement }) => {
     const measurementDate = normalizeDateForComparison(measurement.createdAt)
 
     if (rangeStart && measurementDate < rangeStart) return false
@@ -64,10 +70,10 @@ export function buildWeightTrendSeries(
     : limited
 
   return series
-    .map((measurement) => ({
+    .map(({ measurement, timestamp }) => ({
       id: measurement.id,
       date: normalizeDateForComparison(measurement.createdAt),
-      timestamp: Date.parse(measurement.createdAt),
+      timestamp,
       weight: measurement.weight,
     }))
 }
