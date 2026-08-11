@@ -1,7 +1,7 @@
 """measurements app module module."""
 
 from decimal import Decimal
-from functools import cached_property
+from typing import Any
 
 from django.db import models
 
@@ -23,6 +23,15 @@ class Measurement(BaseModel):
         verbose_name="Body fat (%)",
         blank=True,
         null=True,
+    )
+
+    body_fat_calculation_perc = models.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        blank=True,
+        null=True,
+        editable=False,
+        verbose_name="Body fat used for calculations (%)",
     )
 
     weight = models.DecimalField(
@@ -50,32 +59,57 @@ class Measurement(BaseModel):
         """
         return f"Measurement - {self.created_at.strftime('%a %d %h %y')}"
 
-    @cached_property
-    def calculation_body_fat_perc(self) -> Decimal | None:
-        """Return body fat to use for derived values.
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Persist a stable body-fat snapshot for weight-only entries.
 
-        A weight-only entry reuses the user's most recently entered body-fat
-        percentage without claiming that it was measured again.
+        Args:
+            *args (Any): positional arguments passed to Django's save method.
+            **kwargs (Any): keyword arguments passed to Django's save method.
+        """
+        calculation_changed = False
+        if (
+            self.body_fat_perc is None
+            and self.body_fat_calculation_perc is None
+        ):
+            previous_body_fat = Measurement.objects.filter(
+                user_id=self.user_id,
+                body_fat_perc__isnull=False,
+            )
+            if self.pk:
+                previous_body_fat = previous_body_fat.exclude(pk=self.pk)
+            self.body_fat_calculation_perc = (
+                previous_body_fat.order_by("-created_at", "-id")
+                .values_list("body_fat_perc", flat=True)
+                .first()
+            )
+            calculation_changed = self.body_fat_calculation_perc is not None
+        elif (
+            self.body_fat_perc is not None
+            and self.body_fat_calculation_perc is not None
+        ):
+            self.body_fat_calculation_perc = None
+            calculation_changed = True
+
+        update_fields = kwargs.get("update_fields")
+        if calculation_changed and update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {
+                "body_fat_calculation_perc"
+            }
+        super().save(*args, **kwargs)
+
+    @property
+    def calculation_body_fat_perc(self) -> Decimal | None:
+        """Return the stable body-fat value used for derived values.
+
+        A weight-only entry snapshots the user's most recently entered
+        body-fat percentage without claiming that it was measured again.
 
         Returns:
             Decimal | None: recorded or most recent body-fat percentage.
         """
         if self.body_fat_perc is not None:
             return self.body_fat_perc
-
-        if not self.user_id:
-            return None
-
-        return (
-            type(self)
-            .objects.filter(
-                user_id=self.user_id,
-                body_fat_perc__isnull=False,
-            )
-            .order_by("-created_at", "-id")
-            .values_list("body_fat_perc", flat=True)
-            .first()
-        )
+        return self.body_fat_calculation_perc
 
     @property
     def fat_kg(self) -> Decimal:
