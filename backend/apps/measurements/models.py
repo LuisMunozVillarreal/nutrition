@@ -71,17 +71,7 @@ class Measurement(BaseModel):
             self.body_fat_perc is None
             and self.body_fat_calculation_perc is None
         ):
-            previous_body_fat = Measurement.objects.filter(
-                user_id=self.user_id,
-                body_fat_perc__isnull=False,
-            )
-            if self.pk:
-                previous_body_fat = previous_body_fat.exclude(pk=self.pk)
-            self.body_fat_calculation_perc = (
-                previous_body_fat.order_by("-created_at", "-id")
-                .values_list("body_fat_perc", flat=True)
-                .first()
-            )
+            self.body_fat_calculation_perc = self.body_fat_snapshot_candidate()
             calculation_changed = self.body_fat_calculation_perc is not None
         elif (
             self.body_fat_perc is not None
@@ -96,6 +86,27 @@ class Measurement(BaseModel):
                 "body_fat_calculation_perc"
             }
         super().save(*args, **kwargs)
+
+    def body_fat_snapshot_candidate(self) -> Decimal | None:
+        """Return the latest body fat available when this entry was created.
+
+        Returns:
+            Decimal | None: body fat from the latest eligible measurement.
+        """
+        candidates = Measurement.objects.filter(
+            user_id=self.user_id,
+            body_fat_perc__isnull=False,
+        )
+        if self.pk is not None and self.created_at is not None:
+            candidates = candidates.filter(
+                models.Q(created_at__lt=self.created_at)
+                | models.Q(created_at=self.created_at, pk__lt=self.pk)
+            )
+        return (
+            candidates.order_by("-created_at", "-id")
+            .values_list("body_fat_perc", flat=True)
+            .first()
+        )
 
     @property
     def calculation_body_fat_perc(self) -> Decimal | None:
