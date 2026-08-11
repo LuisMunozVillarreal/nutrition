@@ -235,22 +235,29 @@ class MeasurementMutation:
         )
         plans = aggregate_locks.plans
         days = aggregate_locks.days
+
+        calculation_body_fat_perc = None
+        if validated_body_fat_perc is None:
+            if obj.body_fat_perc is None:
+                calculation_body_fat_perc = obj.body_fat_calculation_perc
+            else:
+                calculation_body_fat_perc = (
+                    Measurement.objects.filter(
+                        user=user,
+                        body_fat_perc__isnull=False,
+                    )
+                    .exclude(pk=obj.pk)
+                    .order_by("-created_at", "-id")
+                    .values_list("body_fat_perc", flat=True)
+                    .first()
+                )
+
         proposed_measurement = Measurement(
             user=user,
             body_fat_perc=validated_body_fat_perc,
+            body_fat_calculation_perc=calculation_body_fat_perc,
             weight=validated_weight,
         )
-        if validated_body_fat_perc is None:
-            proposed_measurement.calculation_body_fat_perc = (
-                Measurement.objects.filter(
-                    user=user,
-                    body_fat_perc__isnull=False,
-                )
-                .exclude(pk=obj.pk)
-                .order_by("-created_at", "-id")
-                .values_list("body_fat_perc", flat=True)
-                .first()
-            )
         for plan in plans:
             plan_days = [day for day in days if day.plan_id == plan.id]
             proposed_tdee_values = [
@@ -272,8 +279,16 @@ class MeasurementMutation:
 
         try:
             obj.body_fat_perc = validated_body_fat_perc
+            obj.body_fat_calculation_perc = calculation_body_fat_perc
             obj.weight = validated_weight
-            obj.save()
+            obj.save(
+                update_fields=[
+                    "body_fat_perc",
+                    "body_fat_calculation_perc",
+                    "weight",
+                    "updated_at",
+                ]
+            )
             for day in days:
                 day.save()
         finally:
