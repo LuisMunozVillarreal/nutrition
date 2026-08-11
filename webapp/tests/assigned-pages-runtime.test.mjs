@@ -707,11 +707,14 @@ test('measurements list loads rows and handles delete and fetch errors', async (
 })
 
 test('measurements page renders the reusable trend chart and validates custom date ranges', async () => {
-  responses = [{ measurements: [
-    { id: 'm3', bodyFatPerc: 20, weight: 81.2, bmr: 1600, createdAt: '2026-01-01T00:00:00Z' },
-    { id: 'm2', bodyFatPerc: 19.8, weight: 81, bmr: 1605, createdAt: '2026-01-02T00:00:00Z' },
-    { id: 'm1', bodyFatPerc: 19.6, weight: 80.8, bmr: 1598, createdAt: '2026-01-03T00:00:00Z' },
-  ] }]
+  const measurements = Array.from({ length: 20 }, (_, index) => ({
+    id: `m${index + 1}`,
+    bodyFatPerc: 20 - index / 10,
+    weight: 81 - index / 10,
+    bmr: 1600 + index,
+    createdAt: new Date(2026, 0, index + 1, 12).toISOString(),
+  }))
+  responses = [{ measurements }]
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
   assert.equal(requests.length, 1)
@@ -731,7 +734,7 @@ test('measurements page renders the reusable trend chart and validates custom da
     'Pick both a start and end date to use a custom range.',
   )
 
-  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-03' } })
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-20' } })
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-01' } })
 
   const rangeError = await screen.findByRole('alert')
@@ -739,12 +742,13 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'true')
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'true')
 
-  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-02' } })
-  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-03' } })
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-01' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-20' } })
   assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'false')
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
   await screen.findByText('Weight trend')
-  assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 80.8 kilograms/ }))
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ }))
+  assert.equal(document.querySelectorAll('svg circle').length, 20)
   assert.equal(requests.length, 1)
 })
 

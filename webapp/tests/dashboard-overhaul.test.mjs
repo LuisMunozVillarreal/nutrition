@@ -13,10 +13,10 @@ import {
 
 test('trend helpers sort weights by date and trim to recent points', () => {
   const measurements = [
-    { id: '1', createdAt: '2026-02-01T10:00:00Z', weight: 80, bodyFatPerc: 21 },
-    { id: '2', createdAt: '2026-02-03T10:00:00Z', weight: 79.2, bodyFatPerc: 20.6 },
-    { id: '3', createdAt: '2026-01-30T10:00:00Z', weight: 81, bodyFatPerc: 21.3 },
-    { id: '4', createdAt: '2026-02-02T10:00:00Z', weight: 79.8, bodyFatPerc: 20.9 },
+    { id: '1', createdAt: '2026-02-01', weight: 80, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-03', weight: 79.2, bodyFatPerc: 20.6 },
+    { id: '3', createdAt: '2026-01-30', weight: 81, bodyFatPerc: 21.3 },
+    { id: '4', createdAt: '2026-02-02', weight: 79.8, bodyFatPerc: 20.9 },
   ]
 
   const trend = buildWeightTrendSeries(measurements, 3)
