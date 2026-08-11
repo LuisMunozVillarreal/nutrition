@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
 import { subscribeToPromise } from '@/lib/promiseSubscription'
-import { buildWeightTrendSeries } from '@/components/dashboardHelpers'
+import {
+  buildWeightTrendSeries,
+  millisecondsUntilNextLocalDay,
+} from '@/components/dashboardHelpers'
 import WeightTrendChart from '@/components/WeightTrendChart'
 
 const MEASUREMENTS_QUERY = gql`
@@ -104,7 +107,7 @@ export default function MeasurementsPage() {
   const [data, setData] = useState<Measurement[]>([])
   const [loading, setLoading] = useState(true)
   const [rangeSelection, setRangeSelection] = useState<RangeSelection>('lastMonth')
-  const today = useMemo(() => new Date(), [])
+  const [today, setToday] = useState(() => new Date())
   const [customStartDate, setCustomStartDate] = useState(formatInputDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29)))
   const [customEndDate, setCustomEndDate] = useState(formatInputDate(today))
 
@@ -123,6 +126,15 @@ export default function MeasurementsPage() {
     onRejected: reportLoadError,
     onSettled: finishLoading,
   }), [])
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setToday(new Date()),
+      millisecondsUntilNextLocalDay(today),
+    )
+
+    return () => clearTimeout(timer)
+  }, [today])
 
   const handleDelete = async (row: Measurement) => {
     if (!confirm('Delete this measurement?')) return
@@ -195,6 +207,7 @@ export default function MeasurementsPage() {
               type="date"
               value={customStartDate}
               onChange={(event) => setCustomStartDate(event.target.value)}
+              aria-invalid={Boolean(validRangeMessage)}
               aria-describedby={validRangeMessage ? 'trend-range-error' : undefined}
               disabled={rangeSelection !== 'custom'}
               className="rounded-xl border border-white/20 bg-slate-900/50 px-3 py-2"
@@ -207,6 +220,7 @@ export default function MeasurementsPage() {
               type="date"
               value={customEndDate}
               onChange={(event) => setCustomEndDate(event.target.value)}
+              aria-invalid={Boolean(validRangeMessage)}
               aria-describedby={validRangeMessage ? 'trend-range-error' : undefined}
               disabled={rangeSelection !== 'custom'}
               className="rounded-xl border border-white/20 bg-slate-900/50 px-3 py-2"

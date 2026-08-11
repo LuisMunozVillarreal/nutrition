@@ -80,16 +80,38 @@ test('trend coordinate mapping reflects elapsed time even within the same day', 
   assert.deepEqual(plot.points.map((point) => point.x), [10, 90])
 })
 
-test('trend helpers filter by inclusive date ranges and avoid truncating by default', () => {
-  const points = buildWeightTrendSeries([
-    { id: '1', createdAt: '2026-02-01T00:00:00Z', weight: 70.2, bodyFatPerc: 21 },
-    { id: '2', createdAt: '2026-02-02T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
-    { id: '3', createdAt: '2026-02-03T00:00:00Z', weight: 70, bodyFatPerc: 20.4 },
-  ], undefined, { startDate: '2026-02-01', endDate: '2026-02-02' })
+test('trend helpers filter inclusive ranges without timezone assumptions or default truncation', () => {
+  const measurements = Array.from({ length: 20 }, (_, index) => ({
+    id: String(index + 1),
+    createdAt: `2026-02-${String(index + 1).padStart(2, '0')}`,
+    weight: 70 - index / 10,
+    bodyFatPerc: 21 - index / 20,
+  }))
 
-  assert.deepEqual(points.map((point) => point.id), ['1', '2'])
-  assert.deepEqual(points[0].date, '2026-02-01')
-  assert.deepEqual(points[1].date, '2026-02-02')
+  const points = buildWeightTrendSeries(
+    measurements,
+    undefined,
+    { startDate: '2026-02-01', endDate: '2026-02-20' },
+  )
+
+  assert.equal(points.length, 20)
+  assert.equal(points[0].id, '1')
+  assert.equal(points.at(-1).id, '20')
+  assert.equal(points[0].date, '2026-02-01')
+  assert.equal(points.at(-1).date, '2026-02-20')
+})
+
+test('trend helpers discard malformed timestamps before building finite SVG geometry', () => {
+  const points = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01', weight: 70.2, bodyFatPerc: 21 },
+    { id: 'bad-date', createdAt: '2026-02-02-not-a-time', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: '3', createdAt: '2026-02-03', weight: 70, bodyFatPerc: 20.4 },
+  ], undefined, { startDate: '2026-02-01', endDate: '2026-02-03' })
+
+  assert.deepEqual(points.map((point) => point.id), ['1', '3'])
+  const plot = buildTrendCoordinates(points, { width: 100, height: 80, padding: 10 })
+  assert.equal(plot.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)), true)
+  assert.doesNotMatch(plot.path, /NaN|Infinity/)
 })
 
 test('trend series filters non-finite weights and handles a single point', () => {
