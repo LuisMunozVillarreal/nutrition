@@ -246,7 +246,7 @@ class Mutation(
             token = jwt.encode(
                 {
                     "sub": str(user.id),
-                    "exp": datetime.now(timezone.utc) + timedelta(days=1),
+                    "exp": datetime.now(timezone.utc) + timedelta(days=7),
                 },
                 settings.SECRET_KEY,
                 algorithm="HS256",

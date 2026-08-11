@@ -43,8 +43,8 @@ test('NextAuth route wires credentials, capability refresh, sessions, handlers, 
   assert.equal(clients[0].endpoint, 'http://localhost:8000/graphql/')
   assert.equal(defaultRoute.GET, handler)
   assert.equal(defaultRoute.POST, handler)
-  assert.equal(defaultRoute.authOptions.session.maxAge, 24 * 60 * 60)
-  assert.equal(defaultRoute.authOptions.jwt.maxAge, 24 * 60 * 60)
+  assert.equal(defaultRoute.authOptions.session.maxAge, 7 * 24 * 60 * 60)
+  assert.equal(defaultRoute.authOptions.jwt.maxAge, 7 * 24 * 60 * 60)
   assert.equal(defaultRoute.authOptions.pages.signIn, '/login')
 
   const provider = defaultRoute.authOptions.providers[0]

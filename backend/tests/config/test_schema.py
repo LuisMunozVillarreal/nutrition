@@ -76,6 +76,40 @@ def test_login_exposes_staff_capability(is_staff):
 
 
 @pytest.mark.django_db
+def test_login_token_expires_after_one_week():
+    """Login issues a backend token that remains valid for one week."""
+    email = "week-token@example.com"
+    password = secrets.token_urlsafe(24)
+    User.objects.create_user(
+        email=email,
+        password=password,
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    issued_after = datetime.now(timezone.utc)
+
+    result = schema.execute_sync(
+        """
+        mutation Login($email: String!, $password: String!) {
+            login(email: $email, password: $password) { token }
+        }
+        """,
+        variable_values={"email": email, "password": password},
+    )
+
+    issued_before = datetime.now(timezone.utc)
+    assert result.errors is None
+    payload = jwt.decode(
+        result.data["login"]["token"],
+        settings.SECRET_KEY,
+        algorithms=["HS256"],
+    )
+    expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    assert issued_after + timedelta(days=7, seconds=-1) <= expires_at
+    assert expires_at <= issued_before + timedelta(days=7)
+
+
+@pytest.mark.django_db
 def test_graphql_http_view_executes_login(client):
     """Test the configured HTTP view can execute authentication resolvers."""
     email = "http-login@example.com"
