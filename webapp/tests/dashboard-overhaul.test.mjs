@@ -105,8 +105,12 @@ test('trend helpers discard malformed timestamps before building finite SVG geom
   const points = buildWeightTrendSeries([
     { id: '1', createdAt: '2026-02-01', weight: 70.2, bodyFatPerc: 21 },
     { id: 'bad-date', createdAt: '2026-02-02-not-a-time', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'non-iso-date', createdAt: 'February 2, 2026', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'non-leap-day', createdAt: '2026-02-29T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'february-30', createdAt: '2026-02-30T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'april-31', createdAt: '2026-04-31T12:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
     { id: '3', createdAt: '2026-02-03', weight: 70, bodyFatPerc: 20.4 },
-  ], undefined, { startDate: '2026-02-01', endDate: '2026-02-03' })
+  ])
 
   assert.deepEqual(points.map((point) => point.id), ['1', '3'])
   const plot = buildTrendCoordinates(points, { width: 100, height: 80, padding: 10 })

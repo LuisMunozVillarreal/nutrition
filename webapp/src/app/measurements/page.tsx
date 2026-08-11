@@ -234,14 +234,12 @@ export default function MeasurementsPage() {
         )}
         {loading ? (
           <div className="h-44 rounded-2xl bg-white/5 animate-pulse" />
-        ) : (
+        ) : selectedRange.error ? null : (
           <WeightTrendChart
             series={series}
-            emptyMessage={selectedRange.error
-              ? selectedRange.error
-              : series.length === 0
-                ? 'No measurements found for this date range.'
-                : 'Log at least two measurements to see your trend'}
+            emptyMessage={series.length === 0
+              ? 'No measurements found for this date range.'
+              : 'Log at least two measurements to see your trend'}
             emptyActionHref="/measurements/new"
             emptyActionLabel="Log weight"
           />
