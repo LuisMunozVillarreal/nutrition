@@ -739,6 +739,8 @@ test('measurements page renders the reusable trend chart and validates custom da
 
   const rangeError = await screen.findByRole('alert')
   assert.equal(rangeError.textContent, 'Start date must be on or before end date.')
+  assert.equal(screen.getAllByText('Start date must be on or before end date.').length, 1)
+  assert.equal(screen.queryByRole('link', { name: 'Log weight →' }), null)
   assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'true')
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'true')
 
