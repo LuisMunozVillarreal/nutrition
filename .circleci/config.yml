@@ -97,6 +97,37 @@ commands:
             echo "Waiting for webapp pods in << parameters.target_namespace >>..."
             kubectl rollout status deployment/nutrition-webapp -n << parameters.target_namespace >> --timeout=600s
 
+  rollout-compatible-images:
+    parameters:
+      kustomization_name:
+        type: string
+      target_namespace:
+        type: string
+    steps:
+      - run:
+          name: Patch backend image first
+          command: |
+            set -Eeuo pipefail
+            CURRENT_WEBAPP_IMAGE="$(kubectl get deployment/nutrition-webapp -n << parameters.target_namespace >> -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+            if [ -n "$CURRENT_WEBAPP_IMAGE" ]; then
+              CURRENT_WEBAPP_TAG="${CURRENT_WEBAPP_IMAGE##*:}"
+            else
+              CURRENT_WEBAPP_TAG="$CIRCLE_SHA1"
+            fi
+
+            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CURRENT_WEBAPP_TAG'"}]}}'
+      - wait-for-flux-reconciliation:
+          kustomization_name: << parameters.kustomization_name >>
+          target_namespace: << parameters.target_namespace >>
+      - run:
+          name: Patch webapp image after backend
+          command: |
+            set -Eeuo pipefail
+            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
+      - wait-for-flux-reconciliation:
+          kustomization_name: << parameters.kustomization_name >>
+          target_namespace: << parameters.target_namespace >>
+
   validate:
     parameters:
       env:
@@ -339,11 +370,7 @@ jobs:
             - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
       - kubernetes/install
       - setup-kubeconfig
-      - run:
-          name: Patch Staging Flux Kustomization
-          command: |
-            kubectl patch kustomization nutrition-staging -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
-      - wait-for-flux-reconciliation:
+      - rollout-compatible-images:
           kustomization_name: nutrition-staging
           target_namespace: nutrition-staging
 
@@ -358,11 +385,7 @@ jobs:
             - "SHA256:eUMnZKevcHtp4GT33VoOns8oPBGWlMP3oPHfhmlfW9k"
       - kubernetes/install
       - setup-kubeconfig
-      - run:
-          name: Patch Production Flux Kustomization
-          command: |
-            kubectl patch kustomization nutrition-production -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
-      - wait-for-flux-reconciliation:
+      - rollout-compatible-images:
           kustomization_name: nutrition-production
           target_namespace: nutrition-production
 
