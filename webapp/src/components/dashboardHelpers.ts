@@ -2,7 +2,7 @@ export interface DashboardMeasurement {
   id: string
   createdAt: string
   weight: number
-  bodyFatPerc: number
+  bodyFatPerc: number | null
 }
 
 export interface WeightTrendPoint {

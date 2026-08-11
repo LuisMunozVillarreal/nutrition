@@ -1,34 +1,18 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
+import { optionalNumberVariable } from '@/lib/optionalNumber'
 import EntityForm from '@/components/EntityForm'
 import { FormField, ReadonlyField } from '@/components/FormField'
-import {
-  loadAndPrefillPreviousBodyFat,
-} from './measurementForm'
-
-const PREVIOUS_BODY_FAT_QUERY = gql`
-  query GetPreviousBodyFat {
-    latestMeasurement {
-      bodyFatPerc
-    }
-  }
-`
 
 const CREATE_MUTATION = gql`
-  mutation CreateMeasurement($bodyFatPerc: Float!, $weight: Float!) {
+  mutation CreateMeasurement($bodyFatPerc: Float, $weight: Float!) {
     createMeasurement(bodyFatPerc: $bodyFatPerc, weight: $weight) {
       id
     }
   }
 `
-
-interface PreviousBodyFatResponse {
-  latestMeasurement: {
-    bodyFatPerc: number
-  } | null
-}
 
 export default function NewMeasurementPage() {
   const [form, setForm] = useState({
@@ -36,33 +20,8 @@ export default function NewMeasurementPage() {
     weight: '',
   })
   const [saving, setSaving] = useState(false)
-  const bodyFatTouched = useRef(false)
-
-  useEffect(() => {
-    let cancelled = false
-
-    void loadAndPrefillPreviousBodyFat({
-      lookup: async () => {
-        const result = await graphqlRequest<PreviousBodyFatResponse>(
-          PREVIOUS_BODY_FAT_QUERY,
-        )
-        return result.latestMeasurement?.bodyFatPerc ?? null
-      },
-      updateForm: setForm,
-      isTouched: () => bodyFatTouched.current,
-      isCancelled: () => cancelled,
-      onError: (error) => {
-        console.error('Failed to load the previous body fat percentage', error)
-      },
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const handleChange = (name: string, value: string) => {
-    if (name === 'bodyFatPerc') bodyFatTouched.current = true
     setForm(prev => ({ ...prev, [name]: value }))
   }
 
@@ -70,7 +29,7 @@ export default function NewMeasurementPage() {
     setSaving(true)
     try {
       await graphqlRequest(CREATE_MUTATION, {
-        bodyFatPerc: parseFloat(form.bodyFatPerc),
+        bodyFatPerc: optionalNumberVariable(form.bodyFatPerc),
         weight: parseFloat(form.weight),
       })
     } finally {
@@ -98,7 +57,6 @@ export default function NewMeasurementPage() {
                 max="99.9"
                 value={form.bodyFatPerc}
                 onChange={handleChange}
-                required
               />
               <FormField
                 label="Weight (kg)"

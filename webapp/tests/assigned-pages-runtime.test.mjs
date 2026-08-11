@@ -667,10 +667,17 @@ test('measurements list loads rows and handles delete and fetch errors', async (
     weight: 82.4,
     bmr: 1650.9,
     createdAt: '2026-01-01T00:00:00Z',
+  }, {
+    id: 'm0',
+    bodyFatPerc: null,
+    weight: 81.9,
+    bmr: null,
+    createdAt: '2025-12-31T00:00:00Z',
   }] }]
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
   assert.equal(screen.getByTestId('row-m1').dataset.href, '/measurements/m1')
+  assert.equal((screen.getByTestId('row-m0').textContent.match(/—/g) ?? []).length, 2)
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   const confirmMock = vi.spyOn(globalThis, 'confirm').mockImplementation(() => false)
   fireEvent.click(screen.getByText('delete-m1'))
@@ -698,50 +705,28 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
 })
 
-test('new measurement prefills body fat and submits parsed values', async () => {
-  // Prefill lookup returns no previous value; the create mutation carries parsed inputs.
+test('new measurement submits optional body fat without preloading it', async () => {
   const pending = deferred()
-  responses = [{ latestMeasurement: null }, () => pending.promise]
+  responses = [() => pending.promise]
   render(React.createElement(NewMeasurementPage))
-  await waitFor(() => assert.equal(requests.length, 1))
-  assert.match(requests[0].operation, /GetPreviousBodyFat/)
+  assert.equal(screen.getByLabelText('Body Fat (%)').value, '')
+  assert.equal(requests.length, 0)
   fireEvent.change(screen.getByLabelText('Body Fat (%)'), { target: { value: '18.2' } })
   fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '81.5' } })
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'true'))
-  assert.deepEqual(requests[1].variables, { bodyFatPerc: 18.2, weight: 81.5 })
+  assert.deepEqual(requests[0].variables, { bodyFatPerc: 18.2, weight: 81.5 })
   pending.resolve({ createMeasurement: { id: 'm2' } })
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'false'))
 
-  // A previous value prefills the untouched body fat field and is submitted.
   cleanup()
   requests.length = 0
-  responses = [{ latestMeasurement: { bodyFatPerc: 18.4 } }, { createMeasurement: { id: 'm3' } }]
+  responses = [{ createMeasurement: { id: 'm3' } }]
   render(React.createElement(NewMeasurementPage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Body Fat (%)').value, '18.4'))
+  fireEvent.change(screen.getByLabelText('Weight (kg)'), { target: { value: '80' } })
   fireEvent.submit(document.querySelector('form'))
-  await waitFor(() => assert.equal(requests.length, 2))
-  assert.equal(requests[1].variables.bodyFatPerc, 18.4)
-  assert.ok(Number.isNaN(requests[1].variables.weight))
-
-  // Touching the field before the lookup resolves keeps the user's value.
-  cleanup()
-  requests.length = 0
-  const pendingPrefill = deferred()
-  responses = [() => pendingPrefill.promise]
-  render(React.createElement(NewMeasurementPage))
-  fireEvent.change(screen.getByLabelText('Body Fat (%)'), { target: { value: '19.2' } })
-  pendingPrefill.resolve({ latestMeasurement: { bodyFatPerc: 18.4 } })
-  await waitFor(() => assert.equal(screen.getByLabelText('Body Fat (%)').value, '19.2'))
-
-  // A failed prefill lookup is reported without touching the form.
-  cleanup()
-  requests.length = 0
-  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-  responses = [new Error('prefill failed')]
-  render(React.createElement(NewMeasurementPage))
-  await waitFor(() => assert.equal(consoleError.mock.calls.length, 1))
-  assert.deepEqual(consoleError.mock.calls[0], ['Failed to load the previous body fat percentage', new Error('prefill failed')])
+  await waitFor(() => assert.equal(requests.length, 1))
+  assert.deepEqual(requests[0].variables, { bodyFatPerc: null, weight: 80 })
 })
 
 test('edit measurement covers success, missing, and fetch failures', async () => {
@@ -778,11 +763,12 @@ test('edit measurement covers success, missing, and fetch failures', async () =>
   requests.length = 0
   responses = [{
     measurement: {
-      id: 'm1', bodyFatPerc: 19.1, weight: 82.3, bmr: null, createdAt: '',
+      id: 'm1', bodyFatPerc: null, weight: 82.3, bmr: null, createdAt: '',
     },
   }]
   render(React.createElement(EditMeasurementPage))
   await waitForEditLoaded()
+  assert.equal(screen.getByLabelText('Body Fat (%)').value, '')
   assert.equal(screen.getByLabelText('BMR').textContent, '—')
   assert.equal(screen.getByLabelText('Created At').textContent, '—')
 
