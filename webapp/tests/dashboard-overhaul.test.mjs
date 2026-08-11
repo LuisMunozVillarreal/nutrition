@@ -65,7 +65,7 @@ test('trend coordinate mapping spaces measurements by elapsed time', () => {
   assert.deepEqual(plot.points.map((point) => point.x), [10, 20, 90])
 })
 
-test('trend coordinate mapping centres measurements from the same date', () => {
+test('trend coordinate mapping reflects elapsed time even within the same day', () => {
   const trendPoints = buildWeightTrendSeries([
     { id: '1', createdAt: '2026-02-01T08:00:00Z', weight: 70, bodyFatPerc: 21 },
     { id: '2', createdAt: '2026-02-01T20:00:00Z', weight: 69.8, bodyFatPerc: 20.5 },
@@ -77,7 +77,19 @@ test('trend coordinate mapping centres measurements from the same date', () => {
     padding: 10,
   })
 
-  assert.deepEqual(plot.points.map((point) => point.x), [50, 50])
+  assert.deepEqual(plot.points.map((point) => point.x), [10, 90])
+})
+
+test('trend helpers filter by inclusive date ranges and avoid truncating by default', () => {
+  const points = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01T00:00:00Z', weight: 70.2, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-02T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: '3', createdAt: '2026-02-03T00:00:00Z', weight: 70, bodyFatPerc: 20.4 },
+  ], undefined, { startDate: '2026-02-01', endDate: '2026-02-02' })
+
+  assert.deepEqual(points.map((point) => point.id), ['1', '2'])
+  assert.deepEqual(points[0].date, '2026-02-01')
+  assert.deepEqual(points[1].date, '2026-02-02')
 })
 
 test('trend series filters non-finite weights and handles a single point', () => {
@@ -137,6 +149,10 @@ test('dashboard query and actions include required data shape and remove hydrati
     new URL('../src/components/Dashboard.tsx', import.meta.url),
     'utf8',
   )
+  const trendChartSource = await readFile(
+    new URL('../src/components/WeightTrendChart.tsx', import.meta.url),
+    'utf8',
+  )
 
   assert.match(dashboardSource, /DASHBOARD_QUERY/)
   assert.match(dashboardSource, /latestWeight/)
@@ -152,8 +168,8 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /Log a meal/i)
   assert.match(dashboardSource, /role="progressbar"/)
   assert.match(dashboardSource, /aria-valuetext=/)
-  assert.match(dashboardSource, /key=\{point\.id\}/)
-  assert.match(dashboardSource, /flex justify-between text-xs text-slate-400/)
+  assert.match(trendChartSource, /key=\{point\.id\}/)
+  assert.match(trendChartSource, /flex justify-between text-xs text-slate-400/)
   assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
   assert.match(dashboardSource, /visibilitychange/)
   assert.match(dashboardSource, /requestSequence/)

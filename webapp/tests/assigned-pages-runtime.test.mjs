@@ -705,6 +705,44 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
 })
 
+test('measurements page renders the reusable trend chart and validates custom date ranges', async () => {
+  responses = [{ measurements: [
+    { id: 'm3', bodyFatPerc: 20, weight: 81.2, bmr: 1600, createdAt: '2026-01-01T00:00:00Z' },
+    { id: 'm2', bodyFatPerc: 19.8, weight: 81, bmr: 1605, createdAt: '2026-01-02T00:00:00Z' },
+    { id: 'm1', bodyFatPerc: 19.6, weight: 80.8, bmr: 1598, createdAt: '2026-01-03T00:00:00Z' },
+  ] }]
+  render(React.createElement(MeasurementsPage))
+  await waitForTableLoaded()
+  assert.equal(requests.length, 1)
+  assert.match(document.body.textContent, /Showing measurements for:/)
+  assert.match(document.body.textContent, /No measurements found for this date range/)
+
+  const rangeSelect = screen.getByLabelText('Trend range')
+  fireEvent.change(rangeSelect, { target: { value: 'lastQuarter' } })
+  assert.match(document.body.textContent, /Showing measurements for: Last quarter/)
+  fireEvent.change(rangeSelect, { target: { value: 'lastYear' } })
+  assert.match(document.body.textContent, /Showing measurements for: Last year/)
+  fireEvent.change(rangeSelect, { target: { value: 'custom' } })
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } })
+  assert.equal(
+    (await screen.findByRole('alert')).textContent,
+    'Pick both a start and end date to use a custom range.',
+  )
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-03' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-01' } })
+
+  const rangeError = await screen.findByRole('alert')
+  assert.equal(rangeError.textContent, 'Start date must be on or before end date.')
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-02' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-03' } })
+  await screen.findByText('Weight trend')
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 80.8 kilograms/ }))
+  assert.equal(requests.length, 1)
+})
+
 test('new measurement submits optional body fat without preloading it', async () => {
   const pending = deferred()
   responses = [() => pending.promise]
