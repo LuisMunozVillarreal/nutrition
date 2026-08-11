@@ -155,6 +155,9 @@ def test_model_save_keeps_calculation_snapshot_consistent():
     measurement.refresh_from_db()
     assert measurement.body_fat_calculation_perc is None
 
+    Measurement.objects.create(
+        user=user, body_fat_perc=Decimal("30"), weight=Decimal("76")
+    )
     measurement.body_fat_perc = None
     measurement.save(update_fields=["body_fat_perc"])
     measurement.refresh_from_db()
@@ -222,6 +225,39 @@ def test_update_can_clear_body_fat_and_reuse_previous_value():
     assert measurement.body_fat_perc is None
     assert measurement.body_fat_calculation_perc == Decimal("18")
     assert measurement.weight == Decimal("75.0")
+
+
+@pytest.mark.django_db
+def test_clearing_historical_body_fat_ignores_future_readings():
+    """A historical weight can only snapshot body fat known when it was entered."""
+    user = _user("historical-clear@example.com")
+    Measurement.objects.create(
+        user=user, body_fat_perc=Decimal("20"), weight=Decimal("80")
+    )
+    measurement = Measurement.objects.create(
+        user=user, body_fat_perc=Decimal("25"), weight=Decimal("78")
+    )
+    later = Measurement.objects.create(
+        user=user, body_fat_perc=Decimal("30"), weight=Decimal("76")
+    )
+    Measurement.objects.filter(pk__in=[measurement.pk, later.pk]).update(
+        created_at=measurement.created_at
+    )
+
+    result = schema.execute_sync(
+        """
+            mutation ClearHistoricalBodyFat($id: ID!) {
+                updateMeasurement(id: $id, weight: 78) { id }
+            }
+        """,
+        variable_values={"id": str(measurement.id)},
+        context_value=_context(user),
+    )
+
+    assert result.errors is None
+    measurement.refresh_from_db()
+    assert measurement.body_fat_perc is None
+    assert measurement.body_fat_calculation_perc == Decimal("20")
 
 
 @pytest.mark.django_db

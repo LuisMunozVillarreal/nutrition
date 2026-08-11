@@ -241,16 +241,7 @@ class MeasurementMutation:
             if obj.body_fat_perc is None:
                 calculation_body_fat_perc = obj.body_fat_calculation_perc
             else:
-                calculation_body_fat_perc = (
-                    Measurement.objects.filter(
-                        user=user,
-                        body_fat_perc__isnull=False,
-                    )
-                    .exclude(pk=obj.pk)
-                    .order_by("-created_at", "-id")
-                    .values_list("body_fat_perc", flat=True)
-                    .first()
-                )
+                calculation_body_fat_perc = obj.body_fat_snapshot_candidate()
 
         proposed_measurement = Measurement(
             user=user,
