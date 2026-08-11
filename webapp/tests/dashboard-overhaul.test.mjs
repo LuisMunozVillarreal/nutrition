@@ -49,6 +49,37 @@ test('trend coordinate mapping is bounded and stable for flat series', () => {
   assert.equal(typeof plot.viewBox, 'string')
 })
 
+test('trend coordinate mapping spaces measurements by elapsed time', () => {
+  const trendPoints = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01T00:00:00Z', weight: 70, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-02T00:00:00Z', weight: 69.8, bodyFatPerc: 20.5 },
+    { id: '3', createdAt: '2026-02-09T00:00:00Z', weight: 69.5, bodyFatPerc: 20 },
+  ], 3)
+
+  const plot = buildTrendCoordinates(trendPoints, {
+    width: 100,
+    height: 80,
+    padding: 10,
+  })
+
+  assert.deepEqual(plot.points.map((point) => point.x), [10, 20, 90])
+})
+
+test('trend coordinate mapping centres measurements from the same date', () => {
+  const trendPoints = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01T08:00:00Z', weight: 70, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-01T20:00:00Z', weight: 69.8, bodyFatPerc: 20.5 },
+  ])
+
+  const plot = buildTrendCoordinates(trendPoints, {
+    width: 100,
+    height: 80,
+    padding: 10,
+  })
+
+  assert.deepEqual(plot.points.map((point) => point.x), [50, 50])
+})
+
 test('trend series filters non-finite weights and handles a single point', () => {
   const measurements = [
     { id: 'bad', createdAt: '2026-02-01T00:00:00Z', weight: Number.NaN, bodyFatPerc: 21 },

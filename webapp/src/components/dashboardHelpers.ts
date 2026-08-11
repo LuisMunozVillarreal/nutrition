@@ -64,13 +64,16 @@ export function buildTrendCoordinates(
   const range = max - min
   const availableWidth = width - padding * 2
   const availableHeight = height - padding * 2
+  const timestamps = series.map((point) => Date.parse(point.date))
+  const firstTimestamp = timestamps[0]
+  const elapsedTime = timestamps.at(-1)! - firstTimestamp
 
   const points = series.map((point, index) => ({
     ...point,
     x:
-      series.length === 1
+      series.length === 1 || elapsedTime === 0
         ? width / 2
-        : padding + (index / (series.length - 1)) * availableWidth,
+        : padding + ((timestamps[index] - firstTimestamp) / elapsedTime) * availableWidth,
     y:
       range === 0
         ? height / 2
