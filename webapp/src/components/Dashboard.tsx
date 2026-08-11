@@ -7,13 +7,12 @@ import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { gql, graphqlRequest } from '@/lib/graphql'
 import {
-  buildTrendCoordinates,
   buildWeightTrendSeries,
-  describeWeightTrendChange,
   isCurrentLocalDate,
   millisecondsUntilNextLocalDay,
   type DashboardMeasurement,
 } from './dashboardHelpers'
+import WeightTrendChart from './WeightTrendChart'
 
 const DASHBOARD_QUERY = gql`
   query GetDashboard($timezoneOffsetMinutes: Int!) {
@@ -127,7 +126,7 @@ export default function Dashboard() {
   const summary = response?.me?.dashboard
   // Memoize the fallback so the dependency identity stays stable across renders.
   const measurements = useMemo(() => summary?.recentMeasurements ?? [], [summary?.recentMeasurements])
-  const trend = useMemo(() => buildWeightTrendSeries(measurements), [measurements])
+  const trend = useMemo(() => buildWeightTrendSeries(measurements, 14), [measurements])
   const latestMeasurement = measurements.at(-1)
   const today = summary?.todayNutrition ?? null
   const todayIsCurrent = today !== null && isCurrentLocalDate(today.day)
@@ -250,37 +249,14 @@ export default function Dashboard() {
           </Link>
         </div>
         {loading ? <div className="h-40 animate-pulse rounded-2xl bg-white/5" /> : (
-          <WeightTrend series={trend} />
+          <WeightTrendChart
+            series={trend}
+            emptyMessage="Log at least two measurements to see your trend"
+            emptyActionHref="/measurements/new"
+            emptyActionLabel="Log weight"
+          />
         )}
       </motion.section>
-    </div>
-  )
-}
-
-function WeightTrend({ series }: { series: ReturnType<typeof buildWeightTrendSeries> }) {
-  if (series.length < 2) {
-    return <EmptyValue message="Log at least two measurements to see your trend" href="/measurements/new" linkText="Log weight" />
-  }
-  const plot = buildTrendCoordinates(series, { width: 720, height: 180, padding: 20 })
-  const first = series[0]
-  const last = series.at(-1)!
-  const change = last.weight - first.weight
-  const label = `Weight trend from ${first.weight} kilograms to ${last.weight} kilograms, ${describeWeightTrendChange(change)}`
-
-  return (
-    <div>
-      <svg role="img" aria-label={label} viewBox={plot.viewBox} className="h-44 w-full" preserveAspectRatio="none">
-        <title>{label}</title>
-        <path d={plot.path} fill="none" stroke="rgb(192 132 252)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-        {plot.points.map((point) => (
-          <circle key={point.id} cx={point.x} cy={point.y} r="5" fill="rgb(216 180 254)">
-            <title>{`${point.date}: ${point.weight} kg`}</title>
-          </circle>
-        ))}
-      </svg>
-      <div className="flex justify-between text-xs text-slate-400">
-        <span>{first.date}</span><span>{last.date}</span>
-      </div>
     </div>
   )
 }
