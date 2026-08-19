@@ -84,6 +84,23 @@ export function stopCameraStream(stream: MediaStream | null): void {
   }
 }
 
+export function captureVideoFrame(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+): boolean {
+  if (!video.videoWidth || !video.videoHeight) return false
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  const context = canvas.getContext('2d')
+  if (!context) return false
+  try {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function waitForNextFrame(
   video: HTMLVideoElement,
   signal?: AbortSignal,
