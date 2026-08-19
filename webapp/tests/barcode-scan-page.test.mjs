@@ -50,6 +50,8 @@ let scanSignals = []
 let stopCalls = []
 let detectorCreateCalls = 0
 let cameraStartCalls = 0
+let frozenFrame = false
+let captureCalls = []
 
 vi.doMock('next/navigation', () => ({ useRouter: () => ({ push }) }))
 vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
@@ -76,6 +78,10 @@ vi.doMock('@/lib/barcodeScanner', () => ({
   },
   stopCameraStream: (stream) => {
     if (stream) stopCalls.push(stream)
+  },
+  captureVideoFrame: (...args) => {
+    captureCalls.push(args)
+    return frozenFrame
   },
   readBarcodeFromVideo: async (_video, _detector, signal) => {
     scanSignals.push(signal)
@@ -128,6 +134,8 @@ afterEach(async () => {
   stopCalls = []
   detectorCreateCalls = 0
   cameraStartCalls = 0
+  frozenFrame = false
+  captureCalls = []
   vi.restoreAllMocks()
 })
 
@@ -154,6 +162,32 @@ test('scan page looks up a detected barcode and links to a local product', async
   assert.ok(container.querySelector('a[href="/products/p1"]'))
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '3017620422003' })
   assert.deepEqual(stopCalls, [cameraResult])
+})
+
+test('scan page keeps the detected camera frame visible after stopping', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [{ stop: vi.fn() }] }
+  scanResult = '3017620422003'
+  frozenFrame = true
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  const container = await mount()
+  await settle(() =>
+    assert.match(container.textContent, /Already in your catalog/),
+  )
+
+  const canvas = container.querySelector('canvas[aria-label="Detected barcode frame"]')
+  assert.ok(canvas)
+  assert.doesNotMatch(canvas.className, /\bhidden\b/)
+  assert.match(container.querySelector('video').className, /\bhidden\b/)
+  assert.equal(captureCalls.length, 1)
+  assert.equal(captureCalls[0][1], canvas)
 })
 
 test('scan page shows a lookup state after detecting a barcode', async () => {

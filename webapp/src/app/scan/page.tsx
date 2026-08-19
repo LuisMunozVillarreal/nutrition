@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import {
+  captureVideoFrame,
   createBarcodeDetector,
   isBarcodeDetectorSupported,
   readBarcodeFromVideo,
@@ -97,6 +98,8 @@ export default function ScanPage() {
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
   const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [frameCaptured, setFrameCaptured] = useState(false)
   const [cameraState, setCameraState] = useState<CameraState>('starting')
   const [manual, setManual] = useState(false)
   const [barcodeInput, setBarcodeInput] = useState('')
@@ -163,12 +166,16 @@ export default function ScanPage() {
         scanController.signal,
       )
       if (cancelled) return
-      stopCameraStream(stream)
-      activeStream = null
       if (!value) {
+        stopCameraStream(stream)
+        activeStream = null
         setCameraState('unavailable')
         return
       }
+      const canvas = canvasRef.current!
+      setFrameCaptured(captureVideoFrame(video, canvas))
+      stopCameraStream(stream)
+      activeStream = null
       setCameraState('stopped')
       searchBarcode(value)
     }
@@ -208,6 +215,7 @@ export default function ScanPage() {
     setLookup(null)
     setError(null)
     setManual(false)
+    setFrameCaptured(false)
     setCameraState('starting')
     setScanKey((key) => key + 1)
   }
@@ -228,9 +236,14 @@ export default function ScanPage() {
         <div className="space-y-4">
           <video
             ref={videoRef}
-            className="aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video"
+            className={`aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video ${frameCaptured ? 'hidden' : ''}`}
             muted
             playsInline
+          />
+          <canvas
+            ref={canvasRef}
+            aria-label="Detected barcode frame"
+            className={`aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video ${frameCaptured ? '' : 'hidden'}`}
           />
           {cameraState === 'starting' && (
             <p className="text-slate-500">Starting camera...</p>
