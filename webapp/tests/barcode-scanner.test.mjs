@@ -162,6 +162,49 @@ test('stopCameraStream tolerates a null stream', () => {
   scanner.stopCameraStream(null)
 })
 
+test('captureVideoFrame copies the current video image to a canvas', () => {
+  const drawImage = vi.fn()
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ drawImage }),
+  }
+  const video = { videoWidth: 1280, videoHeight: 720 }
+
+  assert.equal(scanner.captureVideoFrame(video, canvas), true)
+  assert.equal(canvas.width, 1280)
+  assert.equal(canvas.height, 720)
+  assert.deepEqual(drawImage.mock.calls[0], [video, 0, 0, 1280, 720])
+})
+
+test('captureVideoFrame rejects videos without a rendered frame', () => {
+  assert.equal(
+    scanner.captureVideoFrame(
+      { videoWidth: 0, videoHeight: 0 },
+      { getContext: vi.fn() },
+    ),
+    false,
+  )
+})
+
+test('captureVideoFrame returns false when the canvas cannot draw', () => {
+  const video = { videoWidth: 640, videoHeight: 480 }
+  assert.equal(
+    scanner.captureVideoFrame(video, { getContext: () => null }),
+    false,
+  )
+  assert.equal(
+    scanner.captureVideoFrame(video, {
+      getContext: () => ({
+        drawImage: () => {
+          throw new Error('drawing failed')
+        },
+      }),
+    }),
+    false,
+  )
+})
+
 test('expandUpcE expands every UPC-E compression form', () => {
   assert.equal(scanner.expandUpcE('04252614'), '042100005264')
   assert.equal(scanner.expandUpcE('01234505'), '012000003455')
