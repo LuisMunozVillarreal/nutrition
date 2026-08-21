@@ -196,7 +196,10 @@ def test_preview_generates_every_secret_referenced_by_base_workloads():
             if isinstance(secret_ref, dict) and "name" in secret_ref:
                 required.add(secret_ref["name"])
             secret_volume = value.get("secret")
-            if isinstance(secret_volume, dict) and "secretName" in secret_volume:
+            if (
+                isinstance(secret_volume, dict)
+                and "secretName" in secret_volume
+            ):
                 required.add(secret_volume["secretName"])
             for child in value.values():
                 collect(child)
