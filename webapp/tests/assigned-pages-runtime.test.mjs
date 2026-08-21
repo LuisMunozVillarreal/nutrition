@@ -10,7 +10,7 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'M
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 globalThis.confirm = () => true
 const rtlModule = await import('@testing-library/react')
-const { act, cleanup, fireEvent, render, screen, waitFor, within } = rtlModule.default ?? rtlModule
+const { act, cleanup, fireEvent, render, screen, waitFor } = rtlModule.default ?? rtlModule
 
 const requests = []
 let responses = []
@@ -758,19 +758,28 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.ok(trendDots.every((dot) => dot.classList.contains('rounded-full')))
   assert.ok(trendDots.every((dot) => dot.classList.contains('size-2.5')))
   assert.ok(trendDots.every((dot) => dot.classList.contains('cursor-help')))
-  assert.ok(trendDots.every((dot) => dot.classList.contains('group')))
   assert.ok(trendDots.every((dot) => dot.tabIndex === 0))
-  assert.ok(trendDots.every((dot) => dot.title.endsWith(' kg')))
   assert.ok(trendDots.every((dot) => dot.style.left.endsWith('%') && dot.style.top.endsWith('%')))
-  const firstTooltip = within(trendDots[0]).getByRole('tooltip')
-  assert.equal(firstTooltip.textContent, '2026-01-01: 81 kg')
-  assert.equal(trendDots[0].getAttribute('aria-describedby'), firstTooltip.id)
-  assert.ok(firstTooltip.classList.contains('group-hover:block'))
-  assert.ok(firstTooltip.classList.contains('group-focus:block'))
+  assert.equal(screen.queryByRole('tooltip'), null)
+
   fireEvent.mouseEnter(trendDots[0])
-  assert.equal(within(trendDots[0]).getByRole('tooltip').textContent, '2026-01-01: 81 kg')
-  fireEvent.focus(trendDots[0])
-  assert.equal(within(trendDots[0]).getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  const hoveredTooltip = screen.getByRole('tooltip')
+  assert.equal(hoveredTooltip.textContent, '2026-01-01: 81 kg')
+  assert.equal(trendDots[0].getAttribute('aria-describedby'), hoveredTooltip.id)
+  assert.ok(hoveredTooltip.classList.contains('w-full'))
+  assert.equal(hoveredTooltip.classList.contains('absolute'), false)
+  fireEvent.mouseEnter(hoveredTooltip)
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+
+  fireEvent.keyDown(trendDots[0], { key: 'ArrowRight' })
+  assert.ok(screen.getByRole('tooltip'))
+  fireEvent.keyDown(trendDots[0], { key: 'Escape' })
+  assert.equal(screen.queryByRole('tooltip'), null)
+
+  fireEvent.focus(trendDots.at(-1))
+  const focusedTooltip = screen.getByRole('tooltip')
+  assert.equal(focusedTooltip.textContent, '2026-01-20: 79.1 kg')
+  assert.equal(trendDots.at(-1).getAttribute('aria-describedby'), focusedTooltip.id)
   assert.equal(requests.length, 1)
 })
 
