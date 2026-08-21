@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import {
   buildTrendCoordinates,
   describeWeightTrendChange,
@@ -17,6 +19,8 @@ export default function WeightTrendChart({
   emptyActionHref,
   emptyActionLabel,
 }: WeightTrendChartProps) {
+  const [activePointId, setActivePointId] = useState<string | null>(null)
+
   if (series.length < 2) {
     return (
       <EmptyValue
@@ -30,6 +34,8 @@ export default function WeightTrendChart({
   const chartWidth = 720
   const chartHeight = 180
   const plot = buildTrendCoordinates(series, { width: chartWidth, height: chartHeight, padding: 20 })
+  const activePoint = plot.points.find((point) => point.id === activePointId)
+  const tooltipId = 'weight-trend-tooltip'
   const first = series[0]
   const last = series.at(-1)!
   const change = last.weight - first.weight
@@ -50,35 +56,40 @@ export default function WeightTrendChart({
             vectorEffect="non-scaling-stroke"
           />
         </svg>
-        {plot.points.map((point, index) => {
-          const tooltipId = `weight-trend-point-${index}`
-          const pointLabel = `${point.date}: ${point.weight} kg`
-
-          return (
-            <span
-              key={point.id}
-              data-testid="weight-trend-dot"
-              role="img"
-              tabIndex={0}
-              aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
-              aria-describedby={tooltipId}
-              title={pointLabel}
-              className="group absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-              style={{
-                left: `${(point.x / chartWidth) * 100}%`,
-                top: `${(point.y / chartHeight) * 100}%`,
-              }}
-            >
-              <span
-                id={tooltipId}
-                role="tooltip"
-                className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden w-max max-w-48 -translate-x-1/2 rounded-md bg-slate-950 px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block group-focus:block"
-              >
-                {pointLabel}
-              </span>
-            </span>
-          )
-        })}
+        {plot.points.map((point) => (
+          <span
+            key={point.id}
+            data-testid="weight-trend-dot"
+            role="img"
+            tabIndex={0}
+            aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
+            aria-describedby={activePoint?.id === point.id ? tooltipId : undefined}
+            className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+            style={{
+              left: `${(point.x / chartWidth) * 100}%`,
+              top: `${(point.y / chartHeight) * 100}%`,
+            }}
+            onMouseEnter={() => setActivePointId(point.id)}
+            onFocus={() => setActivePointId(point.id)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation()
+                setActivePointId(null)
+              }
+            }}
+          />
+        ))}
+      </div>
+      <div className="min-h-7 w-full py-1 text-center">
+        {activePoint && (
+          <span
+            id={tooltipId}
+            role="tooltip"
+            className="block w-full max-w-full rounded-md bg-slate-950 px-2 py-1 text-xs font-medium text-white shadow-lg"
+          >
+            {activePoint.date}: {activePoint.weight} kg
+          </span>
+        )}
       </div>
       <div className="flex justify-between text-xs text-slate-400">
         <span>{first.date}</span><span>{last.date}</span>
