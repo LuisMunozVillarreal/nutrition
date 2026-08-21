@@ -10,7 +10,7 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'M
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 globalThis.confirm = () => true
 const rtlModule = await import('@testing-library/react')
-const { act, cleanup, fireEvent, render, screen, waitFor } = rtlModule.default ?? rtlModule
+const { act, cleanup, fireEvent, render, screen, waitFor, within } = rtlModule.default ?? rtlModule
 
 const requests = []
 let responses = []
@@ -758,9 +758,19 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.ok(trendDots.every((dot) => dot.classList.contains('rounded-full')))
   assert.ok(trendDots.every((dot) => dot.classList.contains('size-2.5')))
   assert.ok(trendDots.every((dot) => dot.classList.contains('cursor-help')))
+  assert.ok(trendDots.every((dot) => dot.classList.contains('group')))
   assert.ok(trendDots.every((dot) => dot.tabIndex === 0))
   assert.ok(trendDots.every((dot) => dot.title.endsWith(' kg')))
   assert.ok(trendDots.every((dot) => dot.style.left.endsWith('%') && dot.style.top.endsWith('%')))
+  const firstTooltip = within(trendDots[0]).getByRole('tooltip')
+  assert.equal(firstTooltip.textContent, '2026-01-01: 81 kg')
+  assert.equal(trendDots[0].getAttribute('aria-describedby'), firstTooltip.id)
+  assert.ok(firstTooltip.classList.contains('group-hover:block'))
+  assert.ok(firstTooltip.classList.contains('group-focus:block'))
+  fireEvent.mouseEnter(trendDots[0])
+  assert.equal(within(trendDots[0]).getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  fireEvent.focus(trendDots[0])
+  assert.equal(within(trendDots[0]).getByRole('tooltip').textContent, '2026-01-01: 81 kg')
   assert.equal(requests.length, 1)
 })
 
