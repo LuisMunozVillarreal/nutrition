@@ -80,6 +80,23 @@ test('trend coordinate mapping reflects elapsed time even within the same day', 
   assert.deepEqual(plot.points.map((point) => point.x), [10, 90])
 })
 
+test('trend helpers preserve backend microsecond ordering within one millisecond', () => {
+  const trendPoints = buildWeightTrendSeries([
+    { id: 'later', createdAt: '2026-02-01T08:00:00.123900Z', weight: 69.8, bodyFatPerc: 20.5 },
+    { id: 'earlier', createdAt: '2026-02-01T08:00:00.123100Z', weight: 70, bodyFatPerc: 21 },
+  ])
+
+  assert.deepEqual(trendPoints.map((point) => point.id), ['earlier', 'later'])
+  assert.equal(trendPoints[0].timestamp < trendPoints[1].timestamp, true)
+
+  const plot = buildTrendCoordinates(trendPoints, {
+    width: 100,
+    height: 80,
+    padding: 10,
+  })
+  assert.deepEqual(plot.points.map((point) => point.x), [10, 90])
+})
+
 test('trend helpers filter inclusive ranges without timezone assumptions or default truncation', () => {
   const measurements = Array.from({ length: 20 }, (_, index) => ({
     id: String(index + 1),

@@ -70,8 +70,9 @@ function parseStrictMeasurementTimestamp(value: string): number | null {
     offsetMinutes = direction * (offsetHour * 60 + offsetMinute)
   }
 
-  const milliseconds = Number((match[7] ?? '').padEnd(3, '0').slice(0, 3))
-  return Date.UTC(year, month - 1, day, hour, minute, second, milliseconds)
+  const fractionalMilliseconds = match[7] ? Number(`0.${match[7]}`) * 1000 : 0
+  return Date.UTC(year, month - 1, day, hour, minute, second)
+    + fractionalMilliseconds
     - offsetMinutes * 60_000
 }
 
