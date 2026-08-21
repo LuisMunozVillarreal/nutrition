@@ -27,7 +27,9 @@ export default function WeightTrendChart({
     )
   }
 
-  const plot = buildTrendCoordinates(series, { width: 720, height: 180, padding: 20 })
+  const chartWidth = 720
+  const chartHeight = 180
+  const plot = buildTrendCoordinates(series, { width: chartWidth, height: chartHeight, padding: 20 })
   const first = series[0]
   const last = series.at(-1)!
   const change = last.weight - first.weight
@@ -35,23 +37,33 @@ export default function WeightTrendChart({
 
   return (
     <div>
-      <svg role="img" aria-label={label} viewBox={plot.viewBox} className="h-44 w-full" preserveAspectRatio="none">
-        <title>{label}</title>
-        <path
-          d={plot.path}
-          fill="none"
-          stroke="rgb(192 132 252)"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-        />
+      <div className="relative h-44 w-full">
+        <svg role="img" aria-label={label} viewBox={plot.viewBox} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+          <title>{label}</title>
+          <path
+            d={plot.path}
+            fill="none"
+            stroke="rgb(192 132 252)"
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
         {plot.points.map((point) => (
-          <circle key={point.id} cx={point.x} cy={point.y} r="5" fill="rgb(216 180 254)">
-            <title>{`${point.date}: ${point.weight} kg`}</title>
-          </circle>
+          <span
+            key={point.id}
+            data-testid="weight-trend-dot"
+            aria-hidden="true"
+            title={`${point.date}: ${point.weight} kg`}
+            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-300"
+            style={{
+              left: `${(point.x / chartWidth) * 100}%`,
+              top: `${(point.y / chartHeight) * 100}%`,
+            }}
+          />
         ))}
-      </svg>
+      </div>
       <div className="flex justify-between text-xs text-slate-400">
         <span>{first.date}</span><span>{last.date}</span>
       </div>

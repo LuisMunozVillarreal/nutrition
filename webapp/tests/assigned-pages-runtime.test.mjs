@@ -750,7 +750,12 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
   await screen.findByText('Weight trend')
   assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ }))
-  assert.equal(document.querySelectorAll('svg circle').length, 20)
+  const trendDots = screen.getAllByTestId('weight-trend-dot')
+  assert.equal(trendDots.length, 20)
+  assert.equal(document.querySelectorAll('svg circle').length, 0)
+  assert.ok(trendDots.every((dot) => dot.classList.contains('rounded-full')))
+  assert.ok(trendDots.every((dot) => dot.classList.contains('size-2.5')))
+  assert.ok(trendDots.every((dot) => dot.style.left.endsWith('%') && dot.style.top.endsWith('%')))
   assert.equal(requests.length, 1)
 })
 
