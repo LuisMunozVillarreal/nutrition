@@ -50,21 +50,35 @@ export default function WeightTrendChart({
             vectorEffect="non-scaling-stroke"
           />
         </svg>
-        {plot.points.map((point) => (
-          <span
-            key={point.id}
-            data-testid="weight-trend-dot"
-            role="img"
-            tabIndex={0}
-            aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
-            title={`${point.date}: ${point.weight} kg`}
-            className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-            style={{
-              left: `${(point.x / chartWidth) * 100}%`,
-              top: `${(point.y / chartHeight) * 100}%`,
-            }}
-          />
-        ))}
+        {plot.points.map((point, index) => {
+          const tooltipId = `weight-trend-point-${index}`
+          const pointLabel = `${point.date}: ${point.weight} kg`
+
+          return (
+            <span
+              key={point.id}
+              data-testid="weight-trend-dot"
+              role="img"
+              tabIndex={0}
+              aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
+              aria-describedby={tooltipId}
+              title={pointLabel}
+              className="group absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+              style={{
+                left: `${(point.x / chartWidth) * 100}%`,
+                top: `${(point.y / chartHeight) * 100}%`,
+              }}
+            >
+              <span
+                id={tooltipId}
+                role="tooltip"
+                className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden w-max max-w-48 -translate-x-1/2 rounded-md bg-slate-950 px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block group-focus:block"
+              >
+                {pointLabel}
+              </span>
+            </span>
+          )
+        })}
       </div>
       <div className="flex justify-between text-xs text-slate-400">
         <span>{first.date}</span><span>{last.date}</span>
