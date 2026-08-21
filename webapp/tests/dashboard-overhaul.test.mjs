@@ -109,10 +109,19 @@ test('trend helpers discard malformed timestamps before building finite SVG geom
     { id: 'non-leap-day', createdAt: '2026-02-29T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
     { id: 'february-30', createdAt: '2026-02-30T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
     { id: 'april-31', createdAt: '2026-04-31T12:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'timezone-less', createdAt: '2026-02-02T12:00:00', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'hour-overflow', createdAt: '2026-02-02T24:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'minute-overflow', createdAt: '2026-02-02T12:60:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'offset-overflow', createdAt: '2026-02-02T12:00:00+01:60', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'valid-offset', createdAt: '2026-02-02T12:00:00.125+01:30', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'valid-negative-offset', createdAt: '2026-02-02T12:00:00.5-01:30', weight: 70.05, bodyFatPerc: 20.45 },
     { id: '3', createdAt: '2026-02-03', weight: 70, bodyFatPerc: 20.4 },
   ])
 
-  assert.deepEqual(points.map((point) => point.id), ['1', '3'])
+  assert.deepEqual(
+    points.map((point) => point.id),
+    ['1', 'valid-offset', 'valid-negative-offset', '3'],
+  )
   const plot = buildTrendCoordinates(points, { width: 100, height: 80, padding: 10 })
   assert.equal(plot.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)), true)
   assert.doesNotMatch(plot.path, /NaN|Infinity/)

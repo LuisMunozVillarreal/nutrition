@@ -39,18 +39,40 @@ export function isCurrentLocalDate(value: string, now = new Date()): boolean {
   return value === normalizeDateForComparison(now.toISOString(), now.getTimezoneOffset())
 }
 
-function hasValidIsoCalendarDate(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value)
-  if (!match) return false
+function parseStrictMeasurementTimestamp(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2}))?$/.exec(value)
+  if (!match) return null
 
   const year = Number(match[1])
   const month = Number(match[2])
   const day = Number(match[3])
-  const parsed = new Date(Date.UTC(year, month - 1, day))
+  const parsedDate = new Date(Date.UTC(year, month - 1, day))
+  if (
+    parsedDate.getUTCFullYear() !== year
+    || parsedDate.getUTCMonth() !== month - 1
+    || parsedDate.getUTCDate() !== day
+  ) return null
 
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day
+  if (!match[4]) return parsedDate.getTime()
+
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const timezone = match[8]
+  if (hour > 23 || minute > 59 || second > 59) return null
+
+  let offsetMinutes = 0
+  if (timezone !== 'Z') {
+    const offsetHour = Number(timezone.slice(1, 3))
+    const offsetMinute = Number(timezone.slice(4, 6))
+    if (offsetHour > 23 || offsetMinute > 59) return null
+    const direction = timezone[0] === '+' ? 1 : -1
+    offsetMinutes = direction * (offsetHour * 60 + offsetMinute)
+  }
+
+  const milliseconds = Number((match[7] ?? '').padEnd(3, '0').slice(0, 3))
+  return Date.UTC(year, month - 1, day, hour, minute, second, milliseconds)
+    - offsetMinutes * 60_000
 }
 
 export function buildWeightTrendSeries(
@@ -64,12 +86,11 @@ export function buildWeightTrendSeries(
   const ordered = measurements
     .map((measurement) => ({
       measurement,
-      timestamp: Date.parse(measurement.createdAt),
+      timestamp: parseStrictMeasurementTimestamp(measurement.createdAt),
     }))
-    .filter(({ measurement, timestamp }) => (
-      Number.isFinite(measurement.weight)
-      && Number.isFinite(timestamp)
-      && hasValidIsoCalendarDate(measurement.createdAt)
+    .filter((entry): entry is { measurement: DashboardMeasurement; timestamp: number } => (
+      Number.isFinite(entry.measurement.weight)
+      && entry.timestamp !== null
     ))
     .sort((a, b) => a.timestamp - b.timestamp)
 
