@@ -8,6 +8,7 @@ export interface DashboardMeasurement {
 export interface WeightTrendPoint {
   id: string
   date: string
+  timestamp: number
   weight: number
 }
 
@@ -38,17 +39,57 @@ export function isCurrentLocalDate(value: string, now = new Date()): boolean {
   return value === normalizeDateForComparison(now.toISOString(), now.getTimezoneOffset())
 }
 
+function hasValidIsoCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value)
+  if (!match) return false
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+}
+
 export function buildWeightTrendSeries(
   measurements: DashboardMeasurement[],
-  limit = 14,
+  limit?: number,
+  dateRange?: { startDate?: string; endDate?: string },
 ): WeightTrendPoint[] {
-  return [...measurements]
-    .filter((measurement) => Number.isFinite(measurement.weight))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .slice(-limit)
+  const rangeStart = dateRange?.startDate
+  const rangeEnd = dateRange?.endDate
+
+  const ordered = measurements
     .map((measurement) => ({
+      measurement,
+      timestamp: Date.parse(measurement.createdAt),
+    }))
+    .filter(({ measurement, timestamp }) => (
+      Number.isFinite(measurement.weight)
+      && Number.isFinite(timestamp)
+      && hasValidIsoCalendarDate(measurement.createdAt)
+    ))
+    .sort((a, b) => a.timestamp - b.timestamp)
+
+  const limited = ordered.filter(({ measurement }) => {
+    const measurementDate = normalizeDateForComparison(measurement.createdAt)
+
+    if (rangeStart && measurementDate < rangeStart) return false
+    if (rangeEnd && measurementDate > rangeEnd) return false
+
+    return true
+  })
+  const series = (typeof limit === 'number' && limit > 0)
+    ? limited.slice(-limit)
+    : limited
+
+  return series
+    .map(({ measurement, timestamp }) => ({
       id: measurement.id,
       date: normalizeDateForComparison(measurement.createdAt),
+      timestamp,
       weight: measurement.weight,
     }))
 }
@@ -64,13 +105,17 @@ export function buildTrendCoordinates(
   const range = max - min
   const availableWidth = width - padding * 2
   const availableHeight = height - padding * 2
+  const timestamps = series.map((point) => point.timestamp)
+  const firstTimestamp = timestamps[0]
+  const elapsedTime = timestamps.at(-1)! - firstTimestamp
+  const boundedElapsedTime = elapsedTime > 0 ? elapsedTime : 0
 
   const points = series.map((point, index) => ({
     ...point,
     x:
-      series.length === 1
+      series.length === 1 || boundedElapsedTime === 0
         ? width / 2
-        : padding + (index / (series.length - 1)) * availableWidth,
+        : padding + ((timestamps[index] - firstTimestamp) / boundedElapsedTime) * availableWidth,
     y:
       range === 0
         ? height / 2
