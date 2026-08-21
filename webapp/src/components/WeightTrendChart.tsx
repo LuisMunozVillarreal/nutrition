@@ -54,9 +54,11 @@ export default function WeightTrendChart({
           <span
             key={point.id}
             data-testid="weight-trend-dot"
-            aria-hidden="true"
+            role="img"
+            tabIndex={0}
+            aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
             title={`${point.date}: ${point.weight} kg`}
-            className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-300"
+            className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
             style={{
               left: `${(point.x / chartWidth) * 100}%`,
               top: `${(point.y / chartHeight) * 100}%`,
