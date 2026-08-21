@@ -2,12 +2,14 @@
 
 import base64
 import json
+from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import main
+from clone_preview_secrets import COPIED_SECRETS, GENERATED_SECRET_SCHEMA, main
 from sanitise_branch import sanitise_branch_name
 
 GCP_SOURCE_SECRET = {
@@ -233,3 +235,32 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
             "10.0.0.0/8",
         ]
     )
+def test_preview_generates_every_secret_referenced_by_base_workloads():
+    """Preview namespaces generate every Secret required by base workloads."""
+    repository = Path(__file__).resolve().parents[2]
+    required: set[str] = set()
+
+    def collect(value: Any) -> None:
+        if isinstance(value, dict):
+            secret_ref = value.get("secretKeyRef")
+            if isinstance(secret_ref, dict) and "name" in secret_ref:
+                required.add(secret_ref["name"])
+            secret_volume = value.get("secret")
+            if (
+                isinstance(secret_volume, dict)
+                and "secretName" in secret_volume
+            ):
+                required.add(secret_volume["secretName"])
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    for manifest_name in ("backend.yaml", "webapp.yaml"):
+        manifest = repository / "platform/k8s/base" / manifest_name
+        for document in yaml.safe_load_all(manifest.read_text()):
+            collect(document)
+
+    available = set(GENERATED_SECRET_SCHEMA) | set(COPIED_SECRETS)
+    assert required <= available
