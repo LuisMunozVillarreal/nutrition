@@ -160,13 +160,7 @@ spec:
                 name: nutrition-backend
                 port:
                   number: 80
-          - path: /api/health-sync
-            pathType: Prefix
-            backend:
-              service:
-                name: nutrition-backend
-                port:
-                  number: 80
+
           - path: /dashboard
             pathType: Prefix
             backend:
