@@ -1,5 +1,6 @@
 """Script to generate short-lived, least-privilege preview secrets in CI."""
 
+import base64
 import json
 import secrets
 import subprocess  # nosec: B404
@@ -8,6 +9,12 @@ import time
 
 import click
 from sanitise_branch import sanitise_branch_name
+
+
+def _fernet_key() -> str:
+    """Return a valid 32-byte URL-safe base64 Fernet key."""
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+
 
 SECRET_SCHEMA = {
     "nutrition-webapp-nextauth-secret": {
@@ -31,8 +38,8 @@ SECRET_SCHEMA = {
         "callback-url": lambda: "https://example.com/settings/garmin-callback",
         "provider-origins": lambda: "https://example.com",
         "callback-allowed-origins": lambda: "https://example.com",
-        "token-encryption-keys": lambda: secrets.token_urlsafe(32),
-        "token-encryption-key": lambda: secrets.token_urlsafe(32),
+        "token-encryption-keys": _fernet_key,
+        "token-encryption-key": _fernet_key,
     },
 }
 NAMESPACE_PREFIX = "nutrition-staging--"

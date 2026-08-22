@@ -240,6 +240,10 @@ def test_helm_rejects_string_scheduler_booleans(
         ("GARMIN_TOKEN_URL", "http://token.runtime.internal/oauth/token"),
         (
             "GARMIN_TOKEN_URL",
+            "https://token.runtime.internal/oauth/token#fragment",
+        ),
+        (
+            "GARMIN_TOKEN_URL",
             "https://user:password@token.runtime.internal/oauth/token",
         ),
         ("GARMIN_PROVIDER_ORIGINS", "https://provider.runtime.internal/path"),

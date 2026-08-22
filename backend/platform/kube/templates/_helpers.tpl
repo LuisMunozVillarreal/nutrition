@@ -82,7 +82,10 @@ Validate one active Garmin URL or comma-separated origin list.
 {{- if or (regexMatch "(^|\\.)example\\.(com|net|org)(:[0-9]+)?$" $host) (regexMatch "(^|\\.)(invalid|localhost|test|local)(:[0-9]+)?$" $host) -}}
 {{- fail (printf "active Garmin scheduler requires %s to contain complete non-placeholder HTTPS values" $name) -}}
 {{- end -}}
-{{- if and $origin (or (not (has (get $parsed "path") (list "" "/"))) (not (empty (get $parsed "query"))) (not (empty (get $parsed "fragment")))) -}}
+{{- if not (empty (get $parsed "fragment")) -}}
+{{- fail (printf "active Garmin scheduler requires %s to contain complete non-placeholder HTTPS values" $name) -}}
+{{- end -}}
+{{- if and $origin (or (not (has (get $parsed "path") (list "" "/"))) (not (empty (get $parsed "query")))) -}}
 {{- fail (printf "active Garmin scheduler requires %s origins to be pathless" $name) -}}
 {{- end -}}
 {{- end -}}

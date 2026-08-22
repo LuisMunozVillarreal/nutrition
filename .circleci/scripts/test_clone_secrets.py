@@ -9,6 +9,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 from clone_preview_secrets import SECRET_SCHEMA, main
+from cryptography.fernet import Fernet
 from sanitise_branch import sanitise_branch_name
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -174,8 +175,6 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         "token-3",
         "token-4",
         "token-5",
-        "token-6",
-        "token-7",
     ]
     mocker.patch(
         "clone_preview_secrets.secrets.token_urlsafe",
@@ -204,6 +203,16 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         secrets_payload = payload["stringData"]
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
+    garmin_payload = next(
+        json.loads(call.kwargs["input"].decode("utf-8"))
+        for call in apply_calls
+        if json.loads(call.kwargs["input"].decode("utf-8"))["metadata"]["name"]
+        == "nutrition-garmin-config"
+    )
+    fernet_keys = [
+        garmin_payload["stringData"]["token-encryption-keys"],
+        garmin_payload["stringData"]["token-encryption-key"],
+    ]
     assert sorted(seen_values) == sorted(
         [
             "token-1",
@@ -211,8 +220,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
             "token-3",
             "token-4",
             "token-5",
-            "token-6",
-            "token-7",
+            *fernet_keys,
             "preview-disabled",
             "https://example.com/settings/garmin-callback",
             "https://example.com",
@@ -220,3 +228,6 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
             "{}",
         ]
     )
+
+    Fernet(garmin_payload["stringData"]["token-encryption-keys"].encode())
+    Fernet(garmin_payload["stringData"]["token-encryption-key"].encode())
