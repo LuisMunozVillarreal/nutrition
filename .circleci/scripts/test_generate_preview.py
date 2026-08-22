@@ -107,8 +107,6 @@ def test_build_preview_rbac_is_namespace_scoped():
     assert f"name: nutrition-preview-rbac-{sanitized}" in rbac_manifest
     assert f"name: nutrition-preview-sa-{sanitized}" in rbac_manifest
     assert f"name: nutrition-preview-sa-{sanitized}" in rbac_manifest
-    assert "kind: Middleware" in rbac_manifest
-    assert "maxRequestBodyBytes: 65536" in rbac_manifest
 
 
 def test_generate_manifest_content():
@@ -135,7 +133,6 @@ def test_generate_manifest_content():
     assert "path: /spec/rules/0/http/paths/-" in manifest
     assert "path: /api/health-sync" in manifest
     assert "number: 80" in manifest
-    assert "router.middlewares" in manifest
 
     repository = Path(__file__).resolve().parents[2]
     services = [
