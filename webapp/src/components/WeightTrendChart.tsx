@@ -103,7 +103,10 @@ export default function WeightTrendChart({
               top: `${(point.y / chartHeight) * 100}%`,
             }}
             onMouseEnter={() => setPointerSelection({ pointId: point.id, series })}
-            onFocus={() => setFocusSelection({ pointId: point.id, series })}
+            onFocus={() => {
+              setPointerSelection(null)
+              setFocusSelection({ pointId: point.id, series })
+            }}
           />
         ))}
       </div>
