@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 
 import {
   buildTrendCoordinates,
@@ -13,6 +13,10 @@ interface WeightTrendChartProps {
   emptyActionLabel: string
 }
 
+const CHART_WIDTH = 720
+const CHART_HEIGHT = 180
+const CHART_PADDING = 20
+
 export default function WeightTrendChart({
   series,
   emptyMessage,
@@ -20,6 +24,7 @@ export default function WeightTrendChart({
   emptyActionLabel,
 }: WeightTrendChartProps) {
   const chartId = useId()
+  const [activePointIndex, setActivePointIndex] = useState(0)
 
   if (series.length < 2) {
     return (
@@ -31,9 +36,15 @@ export default function WeightTrendChart({
     )
   }
 
-  const plot = buildTrendCoordinates(series, { width: 720, height: 180, padding: 20 })
+  const plot = buildTrendCoordinates(series, {
+    width: CHART_WIDTH,
+    height: CHART_HEIGHT,
+    padding: CHART_PADDING,
+  })
   const first = series[0]
   const last = series.at(-1)!
+  const selectedPointIndex = Math.min(activePointIndex, plot.points.length - 1)
+  const selectedPoint = plot.points[selectedPointIndex]
   const change = last.weight - first.weight
   const label = `Weight trend from ${first.weight} kilograms to ${last.weight} kilograms, ${describeWeightTrendChange(change)}`
 
@@ -55,9 +66,9 @@ export default function WeightTrendChart({
         {plot.points.map((point, index) => {
           const pointLabel = `${point.date}: ${point.weight} kg`
           const descriptionId = `${chartId}-point-${index}`
-          const tooltipPosition = index === 0
+          const tooltipPosition = point.x <= CHART_WIDTH * 0.1
             ? 'left-0'
-            : index === plot.points.length - 1
+            : point.x >= CHART_WIDTH * 0.9
               ? 'right-0'
               : 'left-1/2 -translate-x-1/2'
 
@@ -70,8 +81,8 @@ export default function WeightTrendChart({
               onPointerDown={(event) => event.currentTarget.focus()}
               className="group absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-300 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-100 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
               style={{
-                left: `${(point.x / 720) * 100}%`,
-                top: `${(point.y / 180) * 100}%`,
+                left: `${(point.x / CHART_WIDTH) * 100}%`,
+                top: `${(point.y / CHART_HEIGHT) * 100}%`,
               }}
             >
               <span
@@ -87,6 +98,23 @@ export default function WeightTrendChart({
       <div className="flex justify-between text-xs text-slate-400">
         <span>{first.date}</span><span>{last.date}</span>
       </div>
+      <label className="mt-2 block text-xs text-slate-300">
+        <span className="sr-only">Inspect weight trend point</span>
+        <input
+          type="range"
+          min="0"
+          max={plot.points.length - 1}
+          step="1"
+          value={selectedPointIndex}
+          aria-label="Inspect weight trend point"
+          aria-valuetext={`${selectedPoint.date}: ${selectedPoint.weight} kg`}
+          onChange={(event) => setActivePointIndex(Number(event.target.value))}
+          className="h-11 w-full cursor-pointer accent-purple-300"
+        />
+        <output role="status" aria-live="polite" className="block text-center">
+          {selectedPoint.date}: {selectedPoint.weight} kg
+        </output>
+      </label>
     </div>
   )
 }
