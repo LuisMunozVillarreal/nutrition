@@ -60,6 +60,41 @@ def test_production_health_sync_settings_fail_closed(overrides, message):
     assert message in result.stderr
 
 
+def test_preview_settings_allow_local_rate_limit_cache_before_manifest_merge():
+    """A staging preview can boot from trusted main manifests during a PR."""
+    result = subprocess.run(
+        [sys.executable, "-c", "import config.settings"],
+        env=_production_probe_env(ENVIRONMENT="staging"),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "cache_url", ["dummycache://", "filecache:///tmp/cache"]
+)
+def test_production_rejects_non_distributed_cache_backends(cache_url):
+    """Production rate limiting accepts only an approved shared cache."""
+    result = subprocess.run(
+        [sys.executable, "-c", "import config.settings"],
+        env=_production_probe_env(
+            HEALTH_SYNC_TOKEN_PEPPER="independent-health-pepper",
+            CACHE_URL=cache_url,
+        ),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "shared CACHE_URL" in result.stderr
+
+
 @pytest.mark.django_db
 def test_pairing_code_issue_exhausts_collision_retries(
     user_factory, monkeypatch

@@ -59,12 +59,18 @@ CACHES = {
         default="locmemcache://health-sync-development",
     )
 }
-if IS_PRODUCTION:
+# Preview environments intentionally reconcile trusted manifests from ``main``
+# while running the PR image. Enforce these deployment-only requirements once
+# the production manifests and image advance atomically; previews still receive
+# an independent pepper through the generated Flux patch below.
+if ENVIRONMENT == "production":
     if HEALTH_SYNC_TOKEN_PEPPER == SECRET_KEY:
         raise ImproperlyConfigured(
             "HEALTH_SYNC_TOKEN_PEPPER must be independent from SECRET_KEY"
         )
-    if CACHES["default"]["BACKEND"].endswith("LocMemCache"):
+    if CACHES["default"]["BACKEND"] not in {
+        "django.core.cache.backends.redis.RedisCache"
+    }:
         raise ImproperlyConfigured(
             "Production health-sync rate limits require a shared CACHE_URL"
         )
