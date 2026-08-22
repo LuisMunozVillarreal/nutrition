@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from django.core.exceptions import RequestDataTooBig
 from django.test import override_settings
 from django.utils import timezone
 
@@ -230,6 +231,20 @@ def test_json_body_handles_invalid_or_deceptive_content_lengths(http_request):
     else:
         with pytest.raises(ValueError, match="too large"):
             views._json_body(http_request)
+
+
+def test_json_body_normalizes_django_memory_limit_errors():
+    """Framework body limits retain the endpoint's stable validation error."""
+
+    class OversizedRequest:
+        META = {"CONTENT_LENGTH": "0"}
+
+        @property
+        def body(self):
+            raise RequestDataTooBig
+
+    with pytest.raises(ValueError, match="Request body is too large"):
+        views._json_body(OversizedRequest())
 
 
 @pytest.mark.django_db
