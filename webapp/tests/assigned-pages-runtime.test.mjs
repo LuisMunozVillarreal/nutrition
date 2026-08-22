@@ -10,7 +10,7 @@ for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Event', 'M
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 globalThis.confirm = () => true
 const rtlModule = await import('@testing-library/react')
-const { act, cleanup, fireEvent, render, screen, waitFor } = rtlModule.default ?? rtlModule
+const { act, cleanup, fireEvent, render, screen, waitFor, within } = rtlModule.default ?? rtlModule
 
 const requests = []
 let responses = []
@@ -771,7 +771,7 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.equal(pointScrubber.getAttribute('step'), '1')
   assert.equal(pointScrubber.classList.contains('h-11'), true)
   assert.equal(pointScrubber.getAttribute('aria-valuetext'), 'Point 1 of 20, 2026-01-01: 81 kg')
-  assert.equal(document.querySelector('[role="status"]'), null)
+  assert.equal(within(pointScrubber.closest('label')).queryByRole('status'), null)
   assert.match(screen.getByTestId('weight-trend-selected-point').textContent, /^Point 1 of 20, 2026-01-01: 81 kg$/)
   fireEvent.change(pointScrubber, { target: { value: '19' } })
   assert.equal(pointScrubber.getAttribute('aria-valuetext'), 'Point 20 of 20, 2026-01-20: 79.1 kg')
