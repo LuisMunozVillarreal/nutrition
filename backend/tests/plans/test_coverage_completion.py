@@ -338,9 +338,13 @@ def test_plan_mutations_translate_missing_owned_objects(
     mocker, resolver, model, kwargs, message
 ):
     """Mutation ownership lookups expose stable domain errors."""
+    principal = _authenticated_user()
+    principal.pk = 1
+    mocker.patch("apps.plans.schema.lock_plan_owner", return_value=principal)
     mocker.patch.object(model.objects, "get", side_effect=model.DoesNotExist)
+    mocker.patch.object(
+        model.objects, "using"
+    ).return_value.get.side_effect = model.DoesNotExist
 
     with pytest.raises(ValueError, match=message):
-        getattr(PlanMutation(), resolver)(
-            _info(_authenticated_user()), **kwargs
-        )
+        getattr(PlanMutation(), resolver)(_info(principal), **kwargs)

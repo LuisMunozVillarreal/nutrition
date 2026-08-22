@@ -2,8 +2,10 @@
 
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 from generate_flux_preview import _build_preview_rbac, generate_manifest, main
 from sanitise_branch import MAX_LENGTH, sanitise_branch_name
@@ -129,6 +131,27 @@ def test_generate_manifest_content():
     )
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
+    assert "name: HEALTH_SYNC_TOKEN_PEPPER" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_COUNT" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS" in manifest
+    assert "path: /spec/rules/0/http/paths/-" in manifest
+    assert "path: /api/health-sync" in manifest
+    assert "number: 80" in manifest
+
+    repository = Path(__file__).resolve().parents[2]
+    services = [
+        document
+        for document in yaml.safe_load_all(
+            (repository / "platform/k8s/base/backend.yaml").read_text()
+        )
+        if document and document.get("kind") == "Service"
+    ]
+    backend_service = next(
+        service
+        for service in services
+        if service["metadata"]["name"] == "nutrition-backend"
+    )
+    assert 80 in {port["port"] for port in backend_service["spec"]["ports"]}
 
 
 def test_generate_manifest_default_domain():
