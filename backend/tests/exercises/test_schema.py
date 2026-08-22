@@ -1,12 +1,17 @@
 """Tests for Exercises GraphQL schema."""
 
+# pylint: disable=too-many-lines
+
 import datetime
+from contextlib import nullcontext
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.auth import get_user_model
 
 from apps.exercises.models import DaySteps, Exercise
+from apps.exercises.schema import ExerciseMutation
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, WeekPlan
 from config.schema import schema
@@ -454,6 +459,47 @@ class TestUpdateExercise:
             hours=hours, minutes=minutes, seconds=seconds
         )
 
+    def test_update_exercise_missing_user_lock_raises_redacted(
+        self, mocker, monkeypatch
+    ):
+        """A vanished user row surfaces the redacted auth error."""
+        user, day = _create_user_with_day("update-lock-redacted@example.com")
+        exercise = Exercise.objects.create(
+            day=day,
+            time="10:00",
+            type="walk",
+            kcals=100,
+            duration=datetime.timedelta(minutes=15),
+            distance=Decimal("1.25"),
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        def _raise(*args, **kwargs):
+            raise User.DoesNotExist("User matching query does not exist.")
+
+        monkeypatch.setattr(
+            "apps.exercises.schema.lock_user_for_garmin_sync", _raise
+        )
+
+        result = schema.execute_sync(
+            """
+                mutation UpdateExercise($id: ID!) {
+                    updateExercise(
+                        id: $id, time: "11:00", type: "run", kcals: 120,
+                        duration: "00:15:00", distance: 1.5
+                    ) { id }
+                }
+            """,
+            variable_values={"id": str(exercise.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors
+        message = str(result.errors[0])
+        assert "Authentication required" in message
+        assert "matching query does not exist" not in message
+
     @pytest.mark.parametrize("duration", MALFORMED_DURATIONS)
     def test_update_exercise_rejects_malformed_duration_without_changes(
         self, mocker, duration
@@ -494,6 +540,178 @@ class TestUpdateExercise:
         assert exercise.kcals == 100
         assert exercise.duration == datetime.timedelta(minutes=15)
         assert exercise.distance == Decimal("1.25")
+
+    def test_update_exercise_rejects_stale_rows_without_day_owner(
+        self, mocker
+    ):
+        """A stale row detached from its day is treated as not found."""
+        mutation = ExerciseMutation()
+        user = SimpleNamespace(pk=3, is_authenticated=True)
+        info = SimpleNamespace(
+            context=SimpleNamespace(request=SimpleNamespace(user=user))
+        )
+        stale = SimpleNamespace(day_id=None)
+        routed_manager = mocker.Mock()
+        routed_manager.get.return_value = stale
+        mocker.patch(
+            "apps.exercises.schema.router.db_for_write",
+            return_value="default",
+        )
+        mocker.patch(
+            "apps.exercises.schema.transaction.atomic",
+            side_effect=lambda **_kwargs: nullcontext(),
+        )
+        mocker.patch.object(
+            Exercise,
+            "objects",
+            SimpleNamespace(using=lambda _using: routed_manager),
+        )
+
+        with pytest.raises(ValueError, match="Exercise not found"):
+            mutation.update_exercise(
+                info,
+                "9",
+                kcals=100,
+                type_="walk",
+                time="08:00",
+            )
+
+    def test_update_exercise_skips_save_when_nothing_changed(self, mocker):
+        """No-op updates return the row without issuing a write."""
+        mutation = ExerciseMutation()
+        user = SimpleNamespace(pk=4, is_authenticated=True)
+        info = SimpleNamespace(
+            context=SimpleNamespace(request=SimpleNamespace(user=user))
+        )
+        day = SimpleNamespace(pk=7)
+        stale = SimpleNamespace(
+            pk=9,
+            day_id=7,
+            time=datetime.time(8, 0),
+            type="walk",
+            kcals=100,
+            duration=None,
+            distance=None,
+        )
+        obj = SimpleNamespace(
+            pk=9,
+            id=9,
+            day_id=7,
+            day=day,
+            time=datetime.time(8, 0),
+            type="walk",
+            kcals=100,
+            duration=None,
+            distance=None,
+            created_at=datetime.datetime.now(datetime.UTC),
+            save=mocker.Mock(),
+        )
+        routed_manager = mocker.Mock()
+        routed_manager.get.return_value = stale
+        locked_filter = mocker.Mock()
+        locked_related = (
+            locked_filter.select_for_update.return_value.select_related
+        )
+        locked_related.return_value.get.return_value = obj
+        routed_manager.filter.return_value = locked_filter
+        day_locks = SimpleNamespace(
+            days_by_pk={7: day},
+            clear_markers=mocker.Mock(),
+        )
+        mocker.patch(
+            "apps.exercises.schema.router.db_for_write",
+            return_value="default",
+        )
+        mocker.patch(
+            "apps.exercises.schema.transaction.atomic",
+            side_effect=lambda **_kwargs: nullcontext(),
+        )
+        mocker.patch.object(
+            Exercise,
+            "objects",
+            SimpleNamespace(using=lambda _using: routed_manager),
+        )
+        mocker.patch(
+            "apps.exercises.schema.lock_user_for_garmin_sync",
+            return_value=object(),
+        )
+        mocker.patch(
+            "apps.exercises.schema.lock_plan_aggregate_rows",
+            return_value=day_locks,
+        )
+
+        result = mutation.update_exercise(
+            info,
+            "9",
+            kcals=100,
+            type_="walk",
+            time="08:00",
+        )
+
+        assert result.kcals == 100
+        obj.save.assert_not_called()
+        day_locks.clear_markers.assert_called_once_with()
+
+    def test_update_exercise_translates_missing_locked_row(self, mocker):
+        """A row disappearing after the stale read still returns not found."""
+        mutation = ExerciseMutation()
+        user = SimpleNamespace(pk=5, is_authenticated=True)
+        info = SimpleNamespace(
+            context=SimpleNamespace(request=SimpleNamespace(user=user))
+        )
+        stale = SimpleNamespace(
+            pk=9,
+            day_id=7,
+            time=datetime.time(8, 0),
+            type="walk",
+            kcals=100,
+            duration=None,
+            distance=None,
+        )
+        routed_manager = mocker.Mock()
+        routed_manager.get.return_value = stale
+        locked_filter = mocker.Mock()
+        locked_related = (
+            locked_filter.select_for_update.return_value.select_related
+        )
+        locked_related.return_value.get.side_effect = Exercise.DoesNotExist
+        routed_manager.filter.return_value = locked_filter
+        day_locks = SimpleNamespace(
+            days_by_pk={7: SimpleNamespace(pk=7)},
+            clear_markers=mocker.Mock(),
+        )
+        mocker.patch(
+            "apps.exercises.schema.router.db_for_write",
+            return_value="default",
+        )
+        mocker.patch(
+            "apps.exercises.schema.transaction.atomic",
+            side_effect=lambda **_kwargs: nullcontext(),
+        )
+        mocker.patch.object(
+            Exercise,
+            "objects",
+            SimpleNamespace(using=lambda _using: routed_manager),
+        )
+        mocker.patch(
+            "apps.exercises.schema.lock_user_for_garmin_sync",
+            return_value=object(),
+        )
+        mocker.patch(
+            "apps.exercises.schema.lock_plan_aggregate_rows",
+            return_value=day_locks,
+        )
+
+        with pytest.raises(ValueError, match="Exercise not found"):
+            mutation.update_exercise(
+                info,
+                "9",
+                kcals=100,
+                type_="walk",
+                time="08:00",
+            )
+
+        day_locks.clear_markers.assert_called_once_with()
 
 
 @pytest.mark.django_db

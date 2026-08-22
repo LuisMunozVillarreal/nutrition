@@ -1,12 +1,23 @@
 """Canonical row locking for plan aggregate mutations."""
 
+# pylint: disable=missing-param-doc,missing-return-doc
+
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Iterable, cast
+from typing import TYPE_CHECKING, Any, Iterable, cast
 
 from django.apps import apps
+from django.contrib.auth import get_user_model
 
 if TYPE_CHECKING:
     from apps.plans.models import Day, WeekPlan
+
+
+@dataclass
+class GarminSyncUserLock:
+    """Canonical row lock for Garmin user-level serialization."""
+
+    using: str
+    user: object
 
 
 @dataclass
@@ -65,6 +76,20 @@ class PlanAggregateLocks:
             if getattr(day, "_plan_aggregate_locks", None) is self:
                 setattr(day, "_plan_aggregate_locks", None)
 
+    def recompute_days(
+        self,
+        day_ids: Iterable[int],
+        *,
+        using: str,
+    ) -> None:
+        """Recompute all locked day rows by primary key."""
+        if self.using != using:
+            return
+        for day_id in sorted(day_ids):
+            day = self.days_by_pk.get(day_id)
+            if day is not None:
+                day.save(using=using)
+
 
 def lock_plan_aggregate_rows(
     *,
@@ -87,20 +112,23 @@ def lock_plan_aggregate_rows(
     Returns:
         PlanAggregateLocks: Locked plans and days in deterministic order.
     """
-    day_model = cast(type["Day"], apps.get_model("plans", "Day"))
-    plan_model = cast(type["WeekPlan"], apps.get_model("plans", "WeekPlan"))
+    day_model = apps.get_model("plans", "Day")
+    week_plan_model = apps.get_model("plans", "WeekPlan")
+    day_manager = cast(Any, day_model).objects
+    plan_manager = cast(Any, week_plan_model).objects
+
     normalized_day_ids = tuple(sorted(set(day_ids)))
     normalized_plan_ids = set(plan_ids)
     if normalized_day_ids:
         normalized_plan_ids.update(
-            day_model.objects.using(using)
+            day_manager.using(using)
             .filter(pk__in=normalized_day_ids)
             .values_list("plan_id", flat=True)
         )
 
     plans = tuple(
         plan
-        for plan in plan_model.objects.select_for_update(of=("self",))
+        for plan in plan_manager.select_for_update(of=("self",))
         .using(using)
         .filter(pk__in=normalized_plan_ids)
         .order_by("pk")
@@ -108,7 +136,7 @@ def lock_plan_aggregate_rows(
     plans_by_pk = {plan.pk: plan for plan in plans}
     days = tuple(
         day
-        for day in day_model.objects.select_for_update(of=("self",))
+        for day in day_manager.select_for_update(of=("self",))
         .using(using)
         .filter(pk__in=normalized_day_ids)
         .order_by("pk")
@@ -119,3 +147,16 @@ def lock_plan_aggregate_rows(
     for day in days:
         setattr(day, "_plan_aggregate_locks", locks)
     return locks
+
+
+def lock_user_for_garmin_sync(
+    *, using: str, user_id: int
+) -> GarminSyncUserLock:
+    """Return a row-level lock for one user during Garmin synchronization."""
+    user_model = get_user_model()
+    user = (
+        user_model.objects.select_for_update(of=("self",))
+        .using(using)
+        .get(pk=user_id)
+    )
+    return GarminSyncUserLock(using=using, user=user)

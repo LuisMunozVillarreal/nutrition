@@ -1,5 +1,7 @@
 """Intake models module."""
 
+# pylint: disable=missing-param-doc
+
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -80,6 +82,7 @@ def lock_intake_deletion_rows(
     targets: models.QuerySet,
     using: str,
     cupboard_item_ids: tuple[int, ...] = (),
+    aggregate_locks: PlanAggregateLocks | None = None,
 ) -> IntakeDeletionLocks:
     """Lock all target plans, days, and intakes in canonical PK order.
 
@@ -95,7 +98,11 @@ def lock_intake_deletion_rows(
     target_rows = list(targets.order_by().values_list("pk", "day_id"))
     intake_ids = tuple(sorted(row[0] for row in target_rows))
     day_ids = tuple(sorted({row[1] for row in target_rows}))
-    aggregate_locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
+    resolved_aggregate_locks = (
+        aggregate_locks
+        if aggregate_locks is not None
+        else lock_plan_aggregate_rows(using=using, day_ids=day_ids)
+    )
     intakes = tuple(
         intake
         for intake in targets.model.objects.select_for_update(of=("self",))
@@ -113,7 +120,12 @@ def lock_intake_deletion_rows(
     from apps.foods.cupboard_locks import lock_cupboard_items
 
     cupboard_locks = lock_cupboard_items(all_cupboard_item_ids, using)
-    return IntakeDeletionLocks(using, aggregate_locks, intakes, cupboard_locks)
+    return IntakeDeletionLocks(
+        using=using,
+        aggregate_locks=resolved_aggregate_locks,
+        intakes=tuple(intakes),
+        cupboard_locks=cupboard_locks,
+    )
 
 
 def lock_intake_cupboard_rows(
@@ -183,9 +195,7 @@ class IntakeQuerySet(models.QuerySet):
                 locks.aggregate_locks.clear_markers()
 
 
-class IntakeManager(
-    models.Manager.from_queryset(IntakeQuerySet)  # type: ignore[misc]
-):
+class IntakeManager(models.Manager.from_queryset(IntakeQuerySet)):  # type: ignore[misc]
     """Manager exposing deletion-safe intake querysets."""
 
 
@@ -226,6 +236,30 @@ class IntakeCascadeQuerySet(models.QuerySet):
         intake_targets = intake_targets_for_cascade(self, using)
         if not intake_targets.exists():
             return super().delete()
+        intake_targets_rows = tuple(
+            intake_targets.order_by("pk")
+            .values_list("pk", "day_id")
+            .distinct()
+        )
+        if not intake_targets_rows:
+            return super().delete()
+        existing_locks = get_intake_deletion_locks()
+        if existing_locks is not None and all(
+            existing_locks.covers(
+                intake_pk,
+                day_id,
+                using=using,
+            )
+            for intake_pk, day_id in intake_targets_rows
+        ):
+            with transaction.atomic(using=using):
+                result = super().delete()
+                if existing_locks.aggregate_locks is not None:
+                    existing_locks.aggregate_locks.recompute_days(
+                        set(existing_locks.aggregate_locks.days_by_pk),
+                        using=using,
+                    )
+                return result
         with transaction.atomic(using=using):
             locks = lock_intake_deletion_rows(intake_targets, using)
             try:
@@ -259,18 +293,75 @@ class IntakeCascadeDeletionMixin:
         using = kwargs.get("using") or router.db_for_write(
             model, instance=instance
         )
-        manager = cast(Any, model).objects
-        targets = manager.using(using).filter(pk=instance.pk)
-        intake_targets = intake_targets_for_cascade(targets, using)
-        if not intake_targets.exists():
-            return models.Model.delete(instance, *args, **kwargs)
         with transaction.atomic(using=using):
-            locks = lock_intake_deletion_rows(intake_targets, using)
+            manager = cast(Any, model).objects
+            targets = manager.using(using).filter(pk=instance.pk)
+            intake_targets = intake_targets_for_cascade(targets, using)
+            from apps.exercises.models import (
+                activate_exercise_deletion_locks,
+                exercise_targets_for_cascade,
+                lock_exercise_deletion_rows,
+            )
+
+            exercise_targets = exercise_targets_for_cascade(targets, using)
+            if not intake_targets.exists() and not exercise_targets.exists():
+                return models.Model.delete(instance, *args, **kwargs)
+
+            aggregate_day_ids: set[int] = set()
+            aggregate_day_ids.update(
+                intake_targets.order_by("day_id").values_list(
+                    "day_id", flat=True
+                )
+            )
+            aggregate_day_ids.update(
+                exercise_targets.order_by("day_id").values_list(
+                    "day_id", flat=True
+                )
+            )
+            aggregate_locks = (
+                lock_plan_aggregate_rows(
+                    using=using, day_ids=tuple(sorted(aggregate_day_ids))
+                )
+                if aggregate_day_ids
+                else None
+            )
+            intake_locks = (
+                lock_intake_deletion_rows(
+                    intake_targets,
+                    using,
+                    aggregate_locks=aggregate_locks,
+                )
+                if intake_targets.exists()
+                else None
+            )
+            exercise_locks = (
+                lock_exercise_deletion_rows(
+                    exercise_targets,
+                    using,
+                    aggregate_locks=aggregate_locks,
+                )
+                if exercise_targets.exists()
+                else None
+            )
+
             try:
-                with activate_intake_deletion_locks(locks):
-                    return models.Model.delete(instance, *args, **kwargs)
+                if intake_locks is not None and exercise_locks is not None:
+                    with activate_intake_deletion_locks(intake_locks):
+                        with activate_exercise_deletion_locks(exercise_locks):
+                            return targets.delete()
+
+                if intake_locks is not None:
+                    with activate_intake_deletion_locks(intake_locks):
+                        return targets.delete()
+
+                if exercise_locks is not None:
+                    with activate_exercise_deletion_locks(exercise_locks):
+                        return targets.delete()
+
+                return targets.delete()
             finally:
-                locks.aggregate_locks.clear_markers()
+                if aggregate_locks is not None:
+                    aggregate_locks.clear_markers()
 
 
 class Intake(Nutrients):

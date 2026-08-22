@@ -1,5 +1,7 @@
 """plans app signal handlers module."""
 
+# pylint: disable=missing-param-doc
+
 import datetime
 from decimal import Decimal
 from typing import Any
@@ -13,7 +15,11 @@ from django.db.models.signals import (
 )
 from django.dispatch import receiver
 
-from apps.exercises.models import DaySteps, Exercise
+from apps.exercises.models import (
+    DaySteps,
+    Exercise,
+    get_exercise_deletion_locks,
+)
 from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
@@ -70,6 +76,8 @@ def _recalculate_intake_days(instance: Intake, using: str) -> None:
             using=using, day_ids=day_ids
         )
         setattr(instance, "_nutrition_locks", aggregate_locks)
+    assert aggregate_locks is not None  # nosec B101 - internal lock invariant
+
     days_by_pk = aggregate_locks.days_by_pk
     days = [days_by_pk[day_id] for day_id in sorted(day_ids)]
     aggregate_fields = {
@@ -93,6 +101,38 @@ def _recalculate_intake_days(instance: Intake, using: str) -> None:
                         caller_day, field.attname, getattr(day, field.attname)
                     )
             instance.day = day
+
+
+@receiver(pre_delete, sender=Exercise)
+def lock_day_and_exercise_before_delete(
+    sender: Exercise,  # pylint: disable=unused-argument
+    instance: Exercise,
+    **kwargs: Any,
+) -> None:
+    """Attach locked aggregate rows before exercise delete handling."""
+    using = kwargs["using"]
+    with transaction.atomic(using=using):
+        deletion_locks = get_exercise_deletion_locks()
+        if deletion_locks is not None and deletion_locks.covers(
+            instance.pk,
+            using,
+            instance.day_id,
+        ):
+            aggregate_locks = deletion_locks.aggregate_locks
+            if aggregate_locks is not None:
+                if instance.day_id in aggregate_locks.days_by_pk:
+                    instance.day = aggregate_locks.days_by_pk[instance.day_id]
+                return
+            return
+
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=using,
+            day_ids=() if instance.day_id is None else (instance.day_id,),
+        )
+        if aggregate_locks is not None and instance.day_id is not None:
+            if instance.day_id in aggregate_locks.days_by_pk:
+                instance.day = aggregate_locks.days_by_pk[instance.day_id]
+            setattr(instance, "_plan_aggregate_locks", aggregate_locks)
 
 
 @receiver(pre_delete, sender=Intake)
@@ -129,6 +169,9 @@ def lock_day_and_intake_before_delete(
                 pk=instance.pk
             )
             setattr(instance, "_nutrition_locks", aggregate_locks)
+        assert (
+            aggregate_locks is not None
+        )  # nosec B101 - internal lock invariant
         day = aggregate_locks.days_by_pk[instance.day_id]
         instance.day = day
         setattr(instance, "_nutrition_day_ids", (day.pk,))
@@ -196,6 +239,12 @@ def decrease_day_goals_and_percs(
         instance (Exercise): instance to be deleted.
         kwargs (Any): keyword arguments.
     """
+    using = kwargs["using"]
+    deletion_locks = get_exercise_deletion_locks()
+    if deletion_locks is not None and deletion_locks.covers(
+        instance.pk, using, instance.day_id
+    ):
+        return
     instance.day.save()
 
 

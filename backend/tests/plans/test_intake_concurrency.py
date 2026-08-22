@@ -122,6 +122,39 @@ class IntakeAggregateConcurrencyTests(TransactionTestCase):
         self.assertEqual(Intake.objects.filter(day=self.day).count(), 2)
         self._assert_stored_totals_match_rows()
 
+    def test_direct_day_delete_from_autocommit_acquires_locks_in_transaction(
+        self,
+    ):
+        """A direct Day delete may start from PostgreSQL autocommit mode."""
+        Intake.objects.create(
+            day=self.day,
+            food=None,
+            meal=Intake.MEAL_LUNCH,
+            energy_kcal=Decimal("100"),
+        )
+
+        self.assertFalse(connection.in_atomic_block)
+        self.day.delete()
+
+        self.assertFalse(Day.objects.filter(pk=self.day.pk).exists())
+
+    def test_direct_plan_delete_from_autocommit_acquires_locks_in_transaction(
+        self,
+    ):
+        """A direct WeekPlan delete may start from PostgreSQL autocommit mode."""
+        Intake.objects.create(
+            day=self.day,
+            food=None,
+            meal=Intake.MEAL_LUNCH,
+            energy_kcal=Decimal("100"),
+        )
+        plan_pk = self.plan.pk
+
+        self.assertFalse(connection.in_atomic_block)
+        self.plan.delete()
+
+        self.assertFalse(WeekPlan.objects.filter(pk=plan_pk).exists())
+
     def test_concurrent_update_and_delete_leave_fresh_totals(self):
         """An update/delete race cannot preserve a deleted intake contribution."""
         intake = Intake.objects.create(

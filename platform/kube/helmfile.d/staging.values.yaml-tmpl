@@ -2,3 +2,36 @@ environment: staging
 namespace: nutrition-staging
 domain: staging.<domain>
 debug: True
+garmin:
+  enabled: false
+  authorizationUrl: https://provider.example.com/oauth/authorize
+  tokenUrl: https://provider.example.com/oauth/token
+  activitiesUrl: https://provider.example.com/activities
+  revokeTokenUrl: https://provider.example.com/oauth/revoke
+  providerOrigins: https://provider.example.com
+  callbackUrl: https://staging.example.com/settings/garmin-callback
+  callbackAllowedOrigins: https://staging.example.com
+  scopes: read
+  requestTimeoutSeconds: 10
+  activityMaxPages: 200
+  activitySyncBatchSize: 200
+  activitiesLimit: 100
+  activityMaxTotalItems: 10000
+  stateTtlSeconds: 300
+  stateMaxInFlight: 5
+  tokenMaxTtlSeconds: 86400
+  activityEndpointMaxResponseBytes: 1048576
+  activityEndpointMaxTotalBytes: 5242880
+  tokenEndpointMaxResponseBytes: 262144
+  sync:
+    enabled: false
+    suspend: true
+    schedule: "*/15 * * * *"
+    timeZone: Etc/UTC
+    concurrencyPolicy: Forbid
+    startingDeadlineSeconds: 600
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 5
+    activeDeadlineSeconds: 1800
+    backoffLimit: 1
+    ttlSecondsAfterFinished: 86400

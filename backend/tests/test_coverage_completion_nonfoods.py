@@ -4,6 +4,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from django.db.models import QuerySet
 
 from apps.exercises.models import DaySteps, Exercise
 from apps.exercises.schema import ExerciseMutation, ExerciseQuery
@@ -139,9 +140,9 @@ def test_exercise_mutations_auth_gate_forbidden() -> None:
     ctx = _context_with_request_user(is_authenticated=False)
 
     with pytest.raises(PermissionError, match="Authentication required"):
-        mutation.create_exercise(ctx, day_id=1, type="walk", kcals=10)
+        mutation.create_exercise(ctx, day_id=1, type_="walk", kcals=10)
     with pytest.raises(PermissionError, match="Authentication required"):
-        mutation.update_exercise(ctx, id="1", type="walk", kcals=10)
+        mutation.update_exercise(ctx, id="1", type_="walk", kcals=10)
     with pytest.raises(PermissionError, match="Authentication required"):
         mutation.delete_exercise(ctx, id="1")
     with pytest.raises(PermissionError, match="Authentication required"):
@@ -161,7 +162,7 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
         "apps.plans.models.Day.objects.get", side_effect=Day.DoesNotExist
     )
     with pytest.raises(ValueError, match="Day not found"):
-        mutation.create_exercise(ctx, day_id=999, type="walk", kcals=10)
+        mutation.create_exercise(ctx, day_id=999, type_="walk", kcals=10)
     with pytest.raises(ValueError, match="Day not found"):
         mutation.create_day_steps(ctx, day_id=999, steps=100)
 
@@ -169,8 +170,12 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
         "apps.exercises.schema.Exercise.objects.get",
         side_effect=Exercise.DoesNotExist,
     )
+    queryset_get = mocker.patch.object(
+        QuerySet, "get", side_effect=Exercise.DoesNotExist
+    )
     with pytest.raises(ValueError, match="Exercise not found"):
-        mutation.update_exercise(ctx, id="1", type="walk", kcals=10)
+        mutation.update_exercise(ctx, id="1", type_="walk", kcals=10)
+    mocker.stop(queryset_get)
     with pytest.raises(ValueError, match="Exercise not found"):
         mutation.delete_exercise(ctx, id="1")
 

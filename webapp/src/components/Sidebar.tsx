@@ -18,6 +18,7 @@ import {
   Calendar,
   CalendarDays,
   Menu,
+  Settings,
   X,
 } from 'lucide-react'
 
@@ -67,6 +68,12 @@ const navSections: NavSection[] = [
       { label: 'Products', href: '/products', icon: <Package size={18} /> },
       { label: 'Recipes', href: '/recipes', icon: <ChefHat size={18} /> },
       { label: 'Cupboard', href: '/cupboard', icon: <ShoppingBasket size={18} /> },
+    ],
+  },
+  {
+    title: 'Settings',
+    items: [
+      { label: 'Settings', href: '/settings', icon: <Settings size={18} /> },
     ],
   },
 ]

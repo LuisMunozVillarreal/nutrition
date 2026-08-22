@@ -364,6 +364,58 @@ class TestPlanGraphQLBudget:
         # Check that 7 days were generated
         assert len(result.data["createWeekPlan"]["days"]) == 7
 
+    def test_create_week_plan_missing_user_lock_raises_redacted(
+        self, mocker, monkeypatch
+    ):
+        """A vanished user row surfaces the redacted auth error."""
+        user = User.objects.create_user(
+            email="wplock-redacted@test.com",
+            password="password123",
+            date_of_birth="2000-01-01",
+            height=170.0,
+        )
+        Measurement.objects.create(
+            user=user, body_fat_perc=Decimal("20.0"), weight=Decimal("80.0")
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        def _raise(*args, **kwargs):
+            raise User.DoesNotExist("User matching query does not exist.")
+
+        monkeypatch.setattr(
+            "apps.plans.schema.lock_user_for_garmin_sync", _raise
+        )
+
+        mutation = """
+            mutation CreatePlan(
+                $startDate: String!, $proteinGKg: Float!,
+                $fatPerc: Float!, $deficit: Int!, $measurementId: Int!
+            ) {
+                createWeekPlan(
+                    startDate: $startDate, proteinGKg: $proteinGKg,
+                    fatPerc: $fatPerc, deficit: $deficit,
+                    measurementId: $measurementId
+                ) { id }
+            }
+        """
+        result = schema.execute_sync(
+            mutation,
+            variable_values={
+                "startDate": str(datetime.date.today()),
+                "proteinGKg": 2.0,
+                "fatPerc": 20.0,
+                "deficit": 300,
+                "measurementId": Measurement.objects.get(user=user).id,
+            },
+            context_value=mock_context,
+        )
+
+        assert result.errors
+        message = str(result.errors[0])
+        assert "Authentication required" in message
+        assert "matching query does not exist" not in message
+
     @pytest.mark.parametrize(
         ("operation", "protein_g_kg", "fat_perc", "deficit"),
         [

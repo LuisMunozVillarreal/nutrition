@@ -14,7 +14,7 @@ KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.33.0}"
 RENDER_DIR="$(mktemp -d)"
 
 if [[ ! -x "$HELM_BIN" ]]; then
-  if command -v helm >/dev/null 2>&1; then
+  if [[ "${HELM_INSTALL_ONLY:-0}" != "1" ]] && command -v helm >/dev/null 2>&1; then
     HELM_BIN="$(command -v helm)"
   else
     mkdir -p "$HELM_CACHE_DIR"
@@ -29,10 +29,23 @@ if [[ ! -x "$HELM_BIN" ]]; then
       *) echo "Unsupported architecture: ${HELM_ARCH}" >&2; exit 1 ;;
     esac
 
+    HELM_URL="https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz"
     echo "Helm not found, downloading ${HELM_VERSION} for linux/${HELM_ARCH} to ${HELM_BIN}..."
-    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz" \
-      | tar -xz -C "$HELM_CACHE_DIR" --strip-components=1 "linux-${HELM_ARCH}/helm"
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL "$HELM_URL" \
+        | tar -xz -C "$HELM_CACHE_DIR" --strip-components=1 "linux-${HELM_ARCH}/helm"
+    else
+      HELM_ARCHIVE="${HELM_CACHE_DIR}/helm.tar.gz"
+      python3 -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+        "$HELM_URL" "$HELM_ARCHIVE"
+      tar -xzf "$HELM_ARCHIVE" -C "$HELM_CACHE_DIR" --strip-components=1 "linux-${HELM_ARCH}/helm"
+      rm -f "$HELM_ARCHIVE"
+    fi
   fi
+fi
+
+if [[ "${HELM_INSTALL_ONLY:-0}" == "1" ]]; then
+  exit 0
 fi
 
 if [[ ! -x "$KUBECONFORM_BIN" ]]; then

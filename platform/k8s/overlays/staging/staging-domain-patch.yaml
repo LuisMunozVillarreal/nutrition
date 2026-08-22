@@ -12,6 +12,27 @@ spec:
               value: "staging.${BASE_DOMAIN}"
             - name: CSRF_TRUSTED_ORIGINS
               value: "https://staging.${BASE_DOMAIN}"
+            - name: GARMIN_CALLBACK_URL
+              value: "https://staging.${BASE_DOMAIN}/settings/garmin-callback"
+            - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+              value: "https://staging.${BASE_DOMAIN}"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nutrition-garmin-sync
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: garmin-sync
+              env:
+                - name: GARMIN_CALLBACK_URL
+                  value: "https://staging.${BASE_DOMAIN}/settings/garmin-callback"
+                - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
+                  value: "https://staging.${BASE_DOMAIN}"
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -81,6 +81,21 @@ tolerations: []
 
 affinity: {}
 
+# Garmin synchronization is opt-in. Production operators must explicitly
+# enable the workload and unsuspend it in runtime values.
+garminSync:
+  enabled: false
+  suspend: true
+  schedule: "*/15 * * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  activeDeadlineSeconds: 1800
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+
 postgresql:
   global:
     postgresql:

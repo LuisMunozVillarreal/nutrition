@@ -1,13 +1,49 @@
 """Tests for the clone_preview_secrets script."""
 
 import json
+from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any
 
 import pytest
+import yaml
 from click.testing import CliRunner
-from clone_preview_secrets import main
+from clone_preview_secrets import SECRET_SCHEMA, main
+from cryptography.fernet import Fernet
 from sanitise_branch import sanitise_branch_name
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _secret_names(value):
+    """Recursively collect Secret objects referenced by manifest data."""
+    names = set()
+    if isinstance(value, dict):
+        reference = value.get("secretKeyRef")
+        if isinstance(reference, dict) and reference.get("name"):
+            names.add(reference["name"])
+        secret = value.get("secret")
+        if isinstance(secret, dict) and secret.get("secretName"):
+            names.add(secret["secretName"])
+        for nested in value.values():
+            names.update(_secret_names(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            names.update(_secret_names(nested))
+    return names
+
+
+def test_preview_generates_every_base_workload_secret():
+    """Preview Secret inventory must cover every base workload reference."""
+    required = set()
+    for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob(
+        "*.yaml"
+    ):
+        for document in yaml.safe_load_all(manifest_path.read_text()):
+            required.update(_secret_names(document))
+
+    assert required <= set(SECRET_SCHEMA)
+    assert "nutrition-garmin-config" in required
 
 
 @pytest.fixture
@@ -58,7 +94,7 @@ def test_main_success(mock_run, mocker):
     assert (
         "Creating least-privilege preview secret nutrition-gemini-api-key..."
     ) in result.output
-    assert mock_run.call_count == 11
+    assert mock_run.call_count == 13
 
     # Secrets are created directly in the target namespace and never read from
     # staging.
@@ -86,7 +122,7 @@ def test_main_apply_payload(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     for call in apply_calls:
         payload = json.loads(call.kwargs["input"].decode("utf-8"))
@@ -138,6 +174,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         "token-2",
         "token-3",
         "token-4",
+        "token-5",
     ]
     mocker.patch(
         "clone_preview_secrets.secrets.token_urlsafe",
@@ -156,7 +193,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         if call.args[0][0:3] == ["kubectl", "apply", "-n"]
         and call.args[0][3] == expected_ns
     ]
-    assert len(apply_calls) == 5
+    assert len(apply_calls) == 6
 
     seen_values: list[str] = []
     for call in apply_calls:
@@ -166,6 +203,31 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
         secrets_payload = payload["stringData"]
         assert secrets_payload
         seen_values.extend(secrets_payload.values())
-    assert sorted(seen_values) == sorted(
-        ["token-1", "token-2", "token-3", "token-4", "{}"]
+    garmin_payload = next(
+        json.loads(call.kwargs["input"].decode("utf-8"))
+        for call in apply_calls
+        if json.loads(call.kwargs["input"].decode("utf-8"))["metadata"]["name"]
+        == "nutrition-garmin-config"
     )
+    fernet_keys = [
+        garmin_payload["stringData"]["token-encryption-keys"],
+        garmin_payload["stringData"]["token-encryption-key"],
+    ]
+    assert sorted(seen_values) == sorted(
+        [
+            "token-1",
+            "token-2",
+            "token-3",
+            "token-4",
+            "token-5",
+            *fernet_keys,
+            "preview-disabled",
+            "https://example.com/settings/garmin-callback",
+            "https://example.com",
+            "https://example.com",
+            "{}",
+        ]
+    )
+
+    Fernet(garmin_payload["stringData"]["token-encryption-keys"].encode())
+    Fernet(garmin_payload["stringData"]["token-encryption-key"].encode())

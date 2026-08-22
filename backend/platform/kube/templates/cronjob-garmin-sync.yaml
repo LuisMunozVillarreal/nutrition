@@ -1,0 +1,72 @@
+{{- $sync := .Values.garminSync | default dict -}}{{- include "nutrition.validateGarminSchedulerActivation" . -}}
+{{- if (default false $sync.enabled) }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "nutrition.fullname" . }}-garmin-sync
+  labels:
+    {{- include "nutrition.labels" . | nindent 4 }}
+    app.kubernetes.io/component: garmin-sync
+spec:
+  schedule: {{ default "*/15 * * * *" $sync.schedule | quote }}
+  {{- with $sync.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ if hasKey $sync "suspend" }}{{ $sync.suspend }}{{ else }}true{{ end }}
+  concurrencyPolicy: {{ default "Forbid" $sync.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ default 600 $sync.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ default 3 $sync.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ default 5 $sync.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ default 1800 $sync.activeDeadlineSeconds }}
+      backoffLimit: {{ default 1 $sync.backoffLimit }}
+      ttlSecondsAfterFinished: {{ default 86400 $sync.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          {{- with .Values.podAnnotations }}
+          annotations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          labels:
+            {{- include "nutrition.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: garmin-sync
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "nutrition.serviceAccountName" . }}
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          restartPolicy: Never
+          containers:
+            - name: {{ .Chart.Name }}-garmin-sync
+              securityContext:
+                {{- toYaml .Values.securityContext | nindent 16 }}
+              image: {{ .Values.image.repository }}:{{ include "nutrition.imageTag" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - python
+                - manage.py
+                - sync_garmin
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              {{- with .Values.env }}
+              env:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

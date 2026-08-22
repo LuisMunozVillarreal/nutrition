@@ -1,6 +1,6 @@
 """Focused branch coverage for plan locking and intake helpers."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,import-outside-toplevel
 
 from contextlib import nullcontext
 from types import SimpleNamespace
@@ -34,6 +34,21 @@ def test_clear_markers_ignores_days_owned_by_another_lock_set():
 
     assert owned_elsewhere._plan_aggregate_locks is other_locks
     assert not hasattr(unmarked, "_plan_aggregate_locks")
+
+
+def test_recompute_days_skips_wrong_database_and_missing_day(mocker):
+    """Recomputation only persists known days on the owning database alias."""
+    saved_day = SimpleNamespace(pk=1, save=mocker.Mock())
+    locks = PlanAggregateLocks(
+        using="default",
+        plans=(),
+        days=(saved_day,),
+    )
+
+    locks.recompute_days((1, 2), using="replica")
+    locks.recompute_days((1, 2), using="default")
+
+    saved_day.save.assert_called_once_with(using="default")
 
 
 def test_intake_targets_for_unrelated_cascade_is_empty(mocker):
@@ -254,3 +269,125 @@ def test_delete_signal_relocks_when_active_locks_do_not_cover_day(mocker):
     locked_queryset.get.assert_called_once_with(pk=9)
     assert instance._nutrition_locks is fresh
     assert instance.day is day
+
+
+def test_exercise_delete_signal_returns_when_active_locks_have_no_aggregate(
+    mocker,
+):
+    """Exercise bulk delete tolerates a lock bundle without aggregate rows."""
+    from apps.plans.signals.handlers import lock_day_and_exercise_before_delete
+
+    mocker.patch(
+        "apps.plans.signals.handlers.transaction.atomic",
+        side_effect=lambda **_kwargs: nullcontext(),
+    )
+    mocker.patch(
+        "apps.plans.signals.handlers.get_exercise_deletion_locks",
+        return_value=SimpleNamespace(
+            covers=lambda *_args: True,
+            aggregate_locks=None,
+        ),
+    )
+    relock = mocker.patch(
+        "apps.plans.signals.handlers.lock_plan_aggregate_rows"
+    )
+    instance = SimpleNamespace(pk=3, day_id=4)
+
+    lock_day_and_exercise_before_delete(None, instance, using="default")
+
+    relock.assert_not_called()
+
+
+def test_exercise_delete_signal_returns_when_locked_day_is_not_in_bundle(
+    mocker,
+):
+    """A covered delete may omit a day that no longer belongs to the bundle."""
+    from apps.plans.signals.handlers import lock_day_and_exercise_before_delete
+
+    mocker.patch(
+        "apps.plans.signals.handlers.transaction.atomic",
+        side_effect=lambda **_kwargs: nullcontext(),
+    )
+    mocker.patch(
+        "apps.plans.signals.handlers.get_exercise_deletion_locks",
+        return_value=SimpleNamespace(
+            covers=lambda *_args: True,
+            aggregate_locks=SimpleNamespace(days_by_pk={}),
+        ),
+    )
+    relock = mocker.patch(
+        "apps.plans.signals.handlers.lock_plan_aggregate_rows"
+    )
+    instance = SimpleNamespace(pk=3, day_id=4)
+
+    lock_day_and_exercise_before_delete(None, instance, using="default")
+
+    relock.assert_not_called()
+    assert not hasattr(instance, "day")
+
+
+def test_exercise_delete_signal_handles_missing_or_null_day_locks(mocker):
+    """Direct exercise delete only reattaches a day when one is locked."""
+    from apps.plans.signals.handlers import lock_day_and_exercise_before_delete
+
+    mocker.patch(
+        "apps.plans.signals.handlers.transaction.atomic",
+        side_effect=lambda **_kwargs: nullcontext(),
+    )
+    mocker.patch(
+        "apps.plans.signals.handlers.get_exercise_deletion_locks",
+        return_value=None,
+    )
+    lock_rows = mocker.patch(
+        "apps.plans.signals.handlers.lock_plan_aggregate_rows",
+        return_value=SimpleNamespace(days_by_pk={}),
+    )
+    missing = SimpleNamespace(pk=3, day_id=4)
+
+    lock_day_and_exercise_before_delete(None, missing, using="default")
+
+    lock_rows.assert_called_once_with(using="default", day_ids=(4,))
+    assert not hasattr(missing, "day")
+
+    null_day_lock = mocker.patch(
+        "apps.plans.signals.handlers.lock_plan_aggregate_rows",
+        return_value=SimpleNamespace(days_by_pk={}),
+    )
+    no_day = SimpleNamespace(pk=5, day_id=None)
+
+    lock_day_and_exercise_before_delete(None, no_day, using="default")
+
+    null_day_lock.assert_called_once_with(using="default", day_ids=())
+    assert not hasattr(no_day, "_plan_aggregate_locks")
+
+
+def test_exercise_delete_signals_attach_and_recompute_locked_day(mocker):
+    """Direct exercise delete paths attach locked days and recompute when uncovered."""
+    from apps.plans.signals.handlers import (
+        decrease_day_goals_and_percs,
+        lock_day_and_exercise_before_delete,
+    )
+
+    mocker.patch(
+        "apps.plans.signals.handlers.transaction.atomic",
+        side_effect=lambda **_kwargs: nullcontext(),
+    )
+    locked_day = SimpleNamespace(save=mocker.Mock())
+    aggregate_locks = SimpleNamespace(days_by_pk={4: locked_day})
+    mocker.patch(
+        "apps.plans.signals.handlers.get_exercise_deletion_locks",
+        return_value=None,
+    )
+    mocker.patch(
+        "apps.plans.signals.handlers.lock_plan_aggregate_rows",
+        return_value=aggregate_locks,
+    )
+    instance = SimpleNamespace(pk=3, day_id=4)
+
+    lock_day_and_exercise_before_delete(None, instance, using="default")
+
+    assert instance.day is locked_day
+    assert instance._plan_aggregate_locks is aggregate_locks
+
+    decrease_day_goals_and_percs(None, instance, using="default")
+    locked_day.save.assert_called_once_with()
