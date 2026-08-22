@@ -119,6 +119,7 @@ test('health sync panel loads devices and creates an expiring pairing code', asy
   fireEvent.click(screen.getByRole('button', { name: 'Pair Android phone' }))
   assert.equal((await screen.findByTestId('pairing-code')).textContent, pairing.code)
   assert.match(screen.getByText(/Enter this code/).textContent, /only be used once/)
+  await act(async () => flushPromises())
   assert.equal(expiryCallbacks.length, 1)
   await act(async () => expiryCallbacks[0]())
   assert.equal(screen.queryByTestId('pairing-code'), null)
