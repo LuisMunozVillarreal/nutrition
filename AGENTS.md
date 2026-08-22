@@ -21,7 +21,11 @@ When reporting that a pull request is ready:
 - Do not call it ready until the terminal preview-environment CI job has succeeded.
 - Retrieve and verify the deployed preview URL from the deployment system.
 - Include the pull-request URL, deployed preview URL, and final CI status in the direct handoff to the repository owner so the change can be inspected immediately.
-- Treat the preview URL as sensitive. Share the real value only in the owner's direct handoff; never add it to repository files, commits, pull-request text, review replies, issues, CI logs, screenshots, or public/multi-user channels. If the current channel is not private, ask the owner where to send it.
+- A ready handoff without a clickable preview URL is incomplete. Do not merely say that the preview exists, that it was verified, or that the owner can ask for it elsewhere.
+- Treat the preview URL as sensitive. Never add it to repository files, commits, pull-request text, review replies, issues, CI logs, screenshots, or conversations where an actual non-owner participant is present.
+- An owner-only conversation with the repository owner and Hermes is an authorized direct handoff, including a Discord thread or channel labelled as a group or multi-user surface. Platform metadata alone is not evidence that a third party is present.
+- When the owner explicitly asks for the preview link in an owner-only conversation, provide the clickable URL in that same reply. Do not withhold it merely because the surface is a thread or is classified as multi-user.
+- Before withholding a preview URL, inspect the actual recent participants. Ask for a private destination only when a non-owner participant is actually present or the participant list cannot be verified.
 - If a preview was not deployed, state that explicitly instead of implying the pull request is ready for visual inspection.
 
 ## Pull-Request Review Policy
