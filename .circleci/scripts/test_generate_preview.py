@@ -129,6 +129,11 @@ def test_generate_manifest_content():
     )
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
+    assert "name: HEALTH_SYNC_TOKEN_PEPPER" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_COUNT" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS" in manifest
+    assert "path: /spec/rules/0/http/paths/-" in manifest
+    assert "path: /api/health-sync" in manifest
 
 
 def test_generate_manifest_default_domain():

@@ -20,7 +20,7 @@ from apps.libs.graphql import (
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
-from apps.plans.locks import lock_plan_aggregate_rows
+from apps.plans.locks import lock_plan_aggregate_rows, lock_plan_owner
 from apps.plans.models import Day, Intake, WeekPlan
 
 # WeekPlanType fields that traverse the days relation (and therefore need the
@@ -521,8 +521,13 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
+        using = router.db_for_write(WeekPlan)
+        user = lock_plan_owner(using=using, user_id=user.pk)
+
         try:
-            measurement = Measurement.objects.get(pk=measurement_id, user=user)
+            measurement = Measurement.objects.using(using).get(
+                pk=measurement_id, user=user
+            )
         except Measurement.DoesNotExist as e:
             raise ValueError("Measurement not found") from e
 
@@ -607,6 +612,7 @@ class PlanMutation:
         return WeekPlanType.from_model(obj)
 
     @strawberry.mutation
+    @transaction.atomic
     def delete_week_plan(self, info: Info, id: strawberry.ID) -> bool:
         """Delete a week plan.
 
@@ -625,8 +631,11 @@ class PlanMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
+        using = router.db_for_write(WeekPlan)
+        user = lock_plan_owner(using=using, user_id=user.pk)
+
         try:
-            obj = WeekPlan.objects.get(pk=id, user=user)
+            obj = WeekPlan.objects.using(using).get(pk=id, user=user)
         except WeekPlan.DoesNotExist as e:
             raise ValueError("WeekPlan not found") from e
 
