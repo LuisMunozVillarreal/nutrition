@@ -13,6 +13,9 @@ import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.storage.SecurePairingStore
 import java.util.concurrent.TimeUnit
 
+internal fun ApiException.isRetryableForBackgroundSync(): Boolean =
+    retryable || statusCode == 408 || statusCode == 429 || (statusCode ?: 0) >= 500
+
 class StepsSyncWorker(
     appContext: Context,
     workerParameters: WorkerParameters,
@@ -21,7 +24,7 @@ class StepsSyncWorker(
         SyncCoordinator(applicationContext).syncNow(requireBackgroundPermission = true)
         Result.success()
     } catch (error: ApiException) {
-        if (error.statusCode == 408 || error.statusCode == 429 || (error.statusCode ?: 0) >= 500) {
+        if (error.isRetryableForBackgroundSync()) {
             Result.retry()
         } else {
             Result.failure()
