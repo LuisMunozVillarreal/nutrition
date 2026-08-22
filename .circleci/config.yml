@@ -143,6 +143,9 @@ jobs:
     executor: python-postgresql
     steps:
       - python-dependencies
+      - run:
+          name: Install pinned Helm test dependency
+          command: HELM_INSTALL_ONLY=1 ./platform/kube/tests/chart-contract-test.sh
       - gcp-credentials
       - validate:
           env: pytest

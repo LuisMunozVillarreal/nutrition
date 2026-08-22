@@ -35,6 +35,10 @@ if [[ ! -x "$HELM_BIN" ]]; then
   fi
 fi
 
+if [[ "${HELM_INSTALL_ONLY:-0}" == "1" ]]; then
+  exit 0
+fi
+
 if [[ ! -x "$KUBECONFORM_BIN" ]]; then
   if command -v kubeconform >/dev/null 2>&1; then
     KUBECONFORM_BIN="$(command -v kubeconform)"

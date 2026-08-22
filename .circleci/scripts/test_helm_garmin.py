@@ -11,6 +11,8 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CHART_ROOT = REPOSITORY_ROOT / "backend/platform/kube"
+CACHED_HELM = CHART_ROOT / "tests/.cache/helm/helm"
+HELM_BINARY = shutil.which("helm") or str(CACHED_HELM)
 BASE_BACKEND = REPOSITORY_ROOT / "platform/k8s/base/backend.yaml"
 SETTINGS = REPOSITORY_ROOT / "backend/config/settings.py"
 ACTIVE_GARMIN_URL_SETTINGS = (
@@ -41,7 +43,7 @@ def _render_result(
     set_strings: tuple[tuple[str, str], ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     """Render a chart and return the Helm process result."""
-    command = ["helm", "template", "contract", str(chart)]
+    command = [HELM_BINARY, "template", "contract", str(chart)]
     if values is not None:
         values_path = chart.parent / "contract-values.yaml"
         values_path.write_text(yaml.safe_dump(values))
