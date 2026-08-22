@@ -77,6 +77,9 @@ vi.doMock('@/components/FormField', () => ({
     CheckboxField: input('checkbox'),
     ReadonlyField: ({ label, value }) => React.createElement('output', { 'aria-label': label }, String(value)),
 }))
+vi.doMock('../src/app/steps/HealthSyncPanel.tsx', () => ({
+  default: () => React.createElement('section', { 'data-testid': 'health-sync-panel' }),
+}))
 
 const DaysPage = (await import('../src/app/days/page.tsx')).default
 const EditDayPage = (await import('../src/app/days/[id]/page.tsx')).default
