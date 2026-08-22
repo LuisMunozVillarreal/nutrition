@@ -791,7 +791,12 @@ test('measurements page renders the reusable trend chart and validates custom da
   const focusedTooltip = screen.getByRole('tooltip')
   assert.equal(focusedTooltip.textContent, '2026-01-20: 79.1 kg')
   assert.equal(trendDots.at(-1).getAttribute('aria-describedby'), focusedTooltip.id)
-  fireEvent.blur(trendDots.at(-1), { relatedTarget: document.body })
+  fireEvent.mouseEnter(trendDots[0])
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  act(() => trendDots[1].focus())
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-02: 80.9 kg')
+  assert.equal(trendDots[1].getAttribute('aria-describedby'), focusedTooltip.id)
+  fireEvent.blur(trendDots[1], { relatedTarget: document.body })
   assert.equal(screen.queryByRole('tooltip'), null)
 
   fireEvent.mouseEnter(trendDots.at(-1))
