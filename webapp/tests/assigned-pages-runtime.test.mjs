@@ -749,8 +749,26 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'false')
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
   await screen.findByText('Weight trend')
-  assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ }))
-  assert.equal(document.querySelectorAll('svg circle').length, 20)
+  const chart = screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ })
+  assert.ok(chart)
+  assert.equal(chart.querySelectorAll('circle').length, 0)
+
+  const markers = screen.getAllByRole('button', { name: /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/ })
+  assert.equal(markers.length, 20)
+  for (const marker of markers) {
+    assert.equal(marker.classList.contains('size-3'), true)
+    assert.equal(marker.classList.contains('rounded-full'), true)
+    assert.equal(marker.classList.contains('focus-visible:ring-2'), true)
+    assert.match(marker.style.left, /%$/)
+    assert.match(marker.style.top, /%$/)
+    const descriptionId = marker.getAttribute('aria-describedby')
+    assert.ok(descriptionId)
+    const description = document.getElementById(descriptionId)
+    assert.ok(description)
+    assert.match(description.textContent, /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/)
+    assert.equal(description.classList.contains('group-hover:opacity-100'), true)
+    assert.equal(description.classList.contains('group-focus-visible:opacity-100'), true)
+  }
   assert.equal(requests.length, 1)
 })
 
