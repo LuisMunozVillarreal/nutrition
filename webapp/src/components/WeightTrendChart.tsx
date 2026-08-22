@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
   buildTrendCoordinates,
@@ -19,7 +19,27 @@ export default function WeightTrendChart({
   emptyActionHref,
   emptyActionLabel,
 }: WeightTrendChartProps) {
-  const [activePointId, setActivePointId] = useState<string | null>(null)
+  const [activeSelection, setActiveSelection] = useState<{
+    pointId: string
+    series: WeightTrendPoint[]
+  } | null>(null)
+  const activePointId = activeSelection?.series === series
+    ? activeSelection.pointId
+    : null
+
+  useEffect(() => {
+    if (activePointId === null) return
+
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setActiveSelection(null)
+      }
+    }
+
+    window.addEventListener('keydown', dismissOnEscape)
+    return () => window.removeEventListener('keydown', dismissOnEscape)
+  }, [activePointId])
 
   if (series.length < 2) {
     return (
@@ -42,7 +62,15 @@ export default function WeightTrendChart({
   const label = `Weight trend from ${first.weight} kilograms to ${last.weight} kilograms, ${describeWeightTrendChange(change)}`
 
   return (
-    <div>
+    <div
+      data-testid="weight-trend-interaction"
+      onMouseLeave={(event) => {
+        if (!event.currentTarget.contains(document.activeElement)) setActiveSelection(null)
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setActiveSelection(null)
+      }}
+    >
       <div className="relative h-44 w-full">
         <svg role="img" aria-label={label} viewBox={plot.viewBox} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
           <title>{label}</title>
@@ -69,14 +97,8 @@ export default function WeightTrendChart({
               left: `${(point.x / chartWidth) * 100}%`,
               top: `${(point.y / chartHeight) * 100}%`,
             }}
-            onMouseEnter={() => setActivePointId(point.id)}
-            onFocus={() => setActivePointId(point.id)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                setActivePointId(null)
-              }
-            }}
+            onMouseEnter={() => setActiveSelection({ pointId: point.id, series })}
+            onFocus={() => setActiveSelection({ pointId: point.id, series })}
           />
         ))}
       </div>
