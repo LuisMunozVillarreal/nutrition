@@ -12,7 +12,11 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CHART_ROOT = REPOSITORY_ROOT / "backend/platform/kube"
 CACHED_HELM = CHART_ROOT / "tests/.cache/helm/helm"
-HELM_BINARY = shutil.which("helm") or str(CACHED_HELM)
+HELM_BINARY = (
+    str(CACHED_HELM)
+    if CACHED_HELM.is_file()
+    else shutil.which("helm") or str(CACHED_HELM)
+)
 BASE_BACKEND = REPOSITORY_ROOT / "platform/k8s/base/backend.yaml"
 SETTINGS = REPOSITORY_ROOT / "backend/config/settings.py"
 ACTIVE_GARMIN_URL_SETTINGS = (

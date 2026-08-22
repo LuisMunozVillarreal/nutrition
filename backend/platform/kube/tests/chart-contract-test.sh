@@ -14,7 +14,7 @@ KUBERNETES_VERSION="${KUBERNETES_VERSION:-1.33.0}"
 RENDER_DIR="$(mktemp -d)"
 
 if [[ ! -x "$HELM_BIN" ]]; then
-  if command -v helm >/dev/null 2>&1; then
+  if [[ "${HELM_INSTALL_ONLY:-0}" != "1" ]] && command -v helm >/dev/null 2>&1; then
     HELM_BIN="$(command -v helm)"
   else
     mkdir -p "$HELM_CACHE_DIR"
