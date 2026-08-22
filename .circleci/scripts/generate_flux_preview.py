@@ -37,16 +37,6 @@ kind: Namespace
 metadata:
   name: {namespace}
 ---
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: health-sync-body-limit
-  namespace: {namespace}
-spec:
-  buffering:
-    maxRequestBodyBytes: 65536
-    memRequestBodyBytes: 65536
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -219,9 +209,6 @@ spec:
         - op: add
           path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.priority
           value: "200"
-        - op: add
-          path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.middlewares
-          value: {target_namespace}-health-sync-body-limit@kubernetescrd
         - op: add
           path: /spec/rules/0/http/paths/-
           value:
