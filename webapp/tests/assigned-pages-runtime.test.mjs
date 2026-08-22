@@ -93,6 +93,7 @@ const PlansPage = (await import('../src/app/plans/page.tsx')).default
 const NewPlanPage = (await import('../src/app/plans/new/page.tsx')).default
 const EditPlanPage = (await import('../src/app/plans/[id]/page.tsx')).default
 const MeasurementsPage = (await import('../src/app/measurements/page.tsx')).default
+const WeightTrendChart = (await import('../src/components/WeightTrendChart.tsx')).default
 const NewMeasurementPage = (await import('../src/app/measurements/new/page.tsx')).default
 const EditMeasurementPage = (await import('../src/app/measurements/[id]/page.tsx')).default
 const StepsPage = (await import('../src/app/steps/page.tsx')).default
@@ -720,7 +721,6 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.equal(requests.length, 1)
   assert.match(document.body.textContent, /Showing measurements for:/)
   assert.match(document.body.textContent, /No measurements found for this date range/)
-
   const rangeSelect = screen.getByLabelText('Trend range')
   fireEvent.change(rangeSelect, { target: { value: 'lastQuarter' } })
   assert.match(document.body.textContent, /Showing measurements for: Last quarter/)
@@ -748,54 +748,79 @@ test('measurements page renders the reusable trend chart and validates custom da
   fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-20' } })
   assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'false')
   assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
-  await screen.findByText('Weight trend')
-  const chart = screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ })
+  const chart = document.querySelector('svg[role="img"]')
   assert.ok(chart)
+  assert.match(chart.getAttribute('aria-label'), /Weight trend from 81 kilograms to 79.1 kilograms/)
   assert.equal(chart.querySelectorAll('circle').length, 0)
 
-  const markers = screen.getAllByRole('img', { name: /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/ })
+  const markers = document.querySelectorAll('[data-testid="weight-trend-marker"]')
   assert.equal(markers.length, 20)
-  const descriptions = []
   for (const marker of markers) {
     assert.equal(marker.tagName, 'SPAN')
-    assert.equal(marker.getAttribute('tabindex'), '0')
+    assert.equal(marker.getAttribute('aria-hidden'), 'true')
+    assert.equal(marker.getAttribute('tabindex'), null)
     assert.equal(marker.classList.contains('size-3'), true)
     assert.equal(marker.classList.contains('rounded-full'), true)
-    assert.equal(marker.classList.contains('focus-visible:ring-2'), true)
     assert.match(marker.style.left, /%$/)
     assert.match(marker.style.top, /%$/)
-    assert.equal(marker.getAttribute('aria-label'), null)
-    assert.equal(marker.getAttribute('aria-describedby'), null)
-    const labelId = marker.getAttribute('aria-labelledby')
-    assert.ok(labelId)
-    const description = document.getElementById(labelId)
-    assert.ok(description)
-    descriptions.push(description)
-    assert.match(description.textContent, /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/)
-    assert.equal(description.classList.contains('group-hover:opacity-100'), true)
-    assert.equal(description.classList.contains('group-focus:opacity-100'), true)
   }
-  assert.equal(descriptions[0].classList.contains('left-0'), true)
-  assert.equal(descriptions[0].classList.contains('-translate-x-1/2'), false)
-  assert.equal(descriptions[1].classList.contains('left-0'), true)
-  assert.equal(descriptions[2].classList.contains('left-1/2'), true)
-  assert.equal(descriptions[2].classList.contains('-translate-x-1/2'), true)
-  assert.equal(descriptions.at(-2).classList.contains('right-0'), true)
-  assert.equal(descriptions.at(-1).classList.contains('right-0'), true)
-  assert.equal(descriptions.at(-1).classList.contains('-translate-x-1/2'), false)
 
-  const pointScrubber = screen.getByRole('slider', { name: 'Inspect weight trend point' })
+  const pointScrubber = screen.getByLabelText('Inspect weight trend point')
   assert.equal(pointScrubber.getAttribute('min'), '0')
   assert.equal(pointScrubber.getAttribute('max'), '19')
   assert.equal(pointScrubber.getAttribute('step'), '1')
   assert.equal(pointScrubber.classList.contains('h-11'), true)
-  assert.match(screen.getByRole('status').textContent, /^2026-01-01: 81 kg$/)
+  assert.equal(pointScrubber.getAttribute('aria-valuetext'), 'Point 1 of 20, 2026-01-01: 81 kg')
+  assert.equal(document.querySelector('[role="status"]'), null)
+  assert.match(screen.getByTestId('weight-trend-selected-point').textContent, /^Point 1 of 20, 2026-01-01: 81 kg$/)
   fireEvent.change(pointScrubber, { target: { value: '19' } })
-  assert.match(screen.getByRole('status').textContent, /^2026-01-20: 79.1 kg$/)
-
-  fireEvent.pointerDown(markers[0])
-  assert.equal(document.activeElement, markers[0])
+  assert.equal(pointScrubber.getAttribute('aria-valuetext'), 'Point 20 of 20, 2026-01-20: 79.1 kg')
+  assert.match(screen.getByTestId('weight-trend-selected-point').textContent, /^Point 20 of 20, 2026-01-20: 79.1 kg$/)
   assert.equal(requests.length, 1)
+})
+
+test('weight trend scrubber reconciles selection by point identity as series change', () => {
+  const chartProps = {
+    emptyMessage: 'No trend',
+    emptyActionHref: '/measurements/new',
+    emptyActionLabel: 'Log weight',
+  }
+  const makePoint = (id, date, weight, timestamp) => ({ id, date, weight, timestamp })
+  const original = [
+    makePoint('a', '2026-01-01', 81, 1),
+    makePoint('b', '2026-01-02', 80, 2),
+    makePoint('c', '2026-01-03', 79, 3),
+    makePoint('d', '2026-01-04', 78, 4),
+    makePoint('e', '2026-01-05', 77, 5),
+  ]
+  const view = render(React.createElement(WeightTrendChart, { ...chartProps, series: original }))
+  let scrubber = screen.getByRole('slider', { name: 'Inspect weight trend point' })
+
+  fireEvent.change(scrubber, { target: { value: '4' } })
+  assert.equal(scrubber.getAttribute('aria-valuetext'), 'Point 5 of 5, 2026-01-05: 77 kg')
+
+  view.rerender(React.createElement(WeightTrendChart, { ...chartProps, series: original.slice(0, 2) }))
+  scrubber = screen.getByRole('slider', { name: 'Inspect weight trend point' })
+  assert.equal(scrubber.value, '0')
+  assert.equal(scrubber.getAttribute('aria-valuetext'), 'Point 1 of 2, 2026-01-01: 81 kg')
+
+  view.rerender(React.createElement(WeightTrendChart, { ...chartProps, series: original }))
+  scrubber = screen.getByRole('slider', { name: 'Inspect weight trend point' })
+  assert.equal(scrubber.value, '0')
+  assert.equal(scrubber.getAttribute('aria-valuetext'), 'Point 1 of 5, 2026-01-01: 81 kg')
+
+  fireEvent.change(scrubber, { target: { value: '1' } })
+  const replacement = [
+    makePoint('x', '2026-02-01', 76, 6),
+    makePoint('y', '2026-02-02', 75, 7),
+    makePoint('z', '2026-02-03', 74, 8),
+    makePoint('w', '2026-02-04', 73, 9),
+    makePoint('v', '2026-02-05', 72, 10),
+  ]
+  view.rerender(React.createElement(WeightTrendChart, { ...chartProps, series: replacement }))
+  scrubber = screen.getByRole('slider', { name: 'Inspect weight trend point' })
+  assert.equal(scrubber.value, '0')
+  assert.equal(scrubber.getAttribute('aria-valuetext'), 'Point 1 of 5, 2026-02-01: 76 kg')
 })
 
 test('measurements preset ranges roll forward at local midnight', async () => {
