@@ -66,8 +66,7 @@ export default function WeightTrendChart({
               key={point.id}
               role="img"
               tabIndex={0}
-              aria-label={pointLabel}
-              aria-describedby={descriptionId}
+              aria-labelledby={descriptionId}
               onPointerDown={(event) => event.currentTarget.focus()}
               className="group absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-300 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-100 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
               style={{
