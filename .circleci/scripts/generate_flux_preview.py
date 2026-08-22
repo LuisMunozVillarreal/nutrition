@@ -172,6 +172,18 @@ spec:
                       value: "{preview_host}"
                     - name: CSRF_TRUSTED_ORIGINS
                       value: "https://{preview_host}"
+                    - name: HEALTH_SYNC_TOKEN_PEPPER
+                      valueFrom:
+                        secretKeyRef:
+                          key: token-pepper
+                          name: nutrition-health-sync-secrets
+                    - name: HEALTH_SYNC_TRUSTED_PROXY_COUNT
+                      value: "1"
+                    - name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS
+                      valueFrom:
+                        secretKeyRef:
+                          key: trusted-proxy-cidrs
+                          name: nutrition-health-sync-secrets
       target:
         kind: Deployment
         name: nutrition-backend
@@ -193,6 +205,20 @@ spec:
       target:
         kind: Deployment
         name: nutrition-webapp
+    - patch: |
+        - op: add
+          path: /spec/rules/0/http/paths/-
+          value:
+            path: /api/health-sync
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 8000
+      target:
+        kind: Ingress
+        name: nutrition-backend
 """
     return manifest, sanitized_branch
 

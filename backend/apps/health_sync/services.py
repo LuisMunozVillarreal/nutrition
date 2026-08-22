@@ -16,7 +16,7 @@ from django.utils.dateparse import parse_datetime
 
 from apps.exercises.models import DaySteps
 from apps.health_sync.models import HealthSyncDevice, StepImport
-from apps.plans.locks import lock_plan_aggregate_rows
+from apps.plans.locks import lock_plan_aggregate_rows, lock_plan_owner
 from apps.plans.models import Day
 
 MAX_RECORDS = 31
@@ -96,10 +96,11 @@ def sync_records(
 
     for record in records:
         with transaction.atomic(using=using):
+            locked_user = lock_plan_owner(using=using, user_id=device.user_id)
             day_ids = list(
                 Day.objects.using(using)
                 .filter(
-                    plan__user=device.user,
+                    plan__user=locked_user,
                     day=record.date,
                 )
                 .values_list("pk", flat=True)[:2]
@@ -113,7 +114,19 @@ def sync_records(
             aggregate_locks = lock_plan_aggregate_rows(
                 using=using, day_ids=day_ids
             )
-            day = aggregate_locks.days_by_pk[day_ids[0]]
+            revalidated_day_ids = list(
+                Day.objects.using(using)
+                .filter(plan__user=locked_user, day=record.date)
+                .values_list("pk", flat=True)[:2]
+            )
+            day = aggregate_locks.days_by_pk.get(day_ids[0])
+            if revalidated_day_ids != day_ids or day is None:
+                aggregate_locks.clear_markers()
+                summary["skipped"] += 1
+                results.append(
+                    {"date": record.date.isoformat(), "status": "skipped"}
+                )
+                continue
             try:
                 day_steps = (
                     DaySteps.objects.select_for_update()
