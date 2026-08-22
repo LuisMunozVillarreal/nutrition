@@ -22,6 +22,7 @@ from apps.health_sync.models import (
     HealthSyncDevice,
     HealthSyncPairingCode,
     StepImport,
+    StepSyncWatermark,
 )
 from apps.health_sync.services import parse_records
 from config.schema import schema
@@ -58,11 +59,15 @@ def test_kubernetes_routes_and_runtime_dependencies_are_declared():
     backend_manifest = (
         repository / "platform/k8s/base/backend.yaml"
     ).read_text()
+    health_ingress_manifest = (
+        repository / "platform/k8s/base/health-sync-ingress.yaml"
+    ).read_text()
     base_kustomization = (
         repository / "platform/k8s/base/kustomization.yaml"
     ).read_text()
 
-    assert "path: /api/health-sync" in backend_manifest
+    assert "path: /api/health-sync" in health_ingress_manifest
+    assert "maxRequestBodyBytes: 65536" in health_ingress_manifest
     assert "name: CACHE_URL" in backend_manifest
     assert "name: HEALTH_SYNC_TOKEN_PEPPER" in backend_manifest
     assert "name: HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS" in backend_manifest
@@ -89,6 +94,30 @@ def test_kubernetes_routes_and_runtime_dependencies_are_declared():
             {
                 "records": [
                     {"date": "31-07-2026", "steps": 1, "observed_at": "x"}
+                ]
+            },
+            "date must use YYYY-MM-DD",
+        ),
+        (
+            {
+                "records": [
+                    {"date": "20260822", "steps": 1, "observed_at": "x"}
+                ]
+            },
+            "date must use YYYY-MM-DD",
+        ),
+        (
+            {
+                "records": [
+                    {"date": "2026-W34-6", "steps": 1, "observed_at": "x"}
+                ]
+            },
+            "date must use YYYY-MM-DD",
+        ),
+        (
+            {
+                "records": [
+                    {"date": "2026-99-99", "steps": 1, "observed_at": "x"}
                 ]
             },
             "date must use YYYY-MM-DD",
@@ -316,6 +345,11 @@ def test_manual_step_update_clears_import_provenance(
         device=device,
         observed_at=observed_at,
     )
+    StepSyncWatermark.objects.create(
+        user=user,
+        date=day.day,
+        observed_at=observed_at,
+    )
 
     result = schema.execute_sync(
         f"""
@@ -381,6 +415,29 @@ def test_manual_step_create_returns_stable_error_when_row_already_exists(
 
 
 @pytest.mark.django_db
+def test_manual_step_create_returns_stable_error_when_day_disappears(
+    user_factory, day_factory, monkeypatch
+):
+    """Concurrent day deletion cannot escape as a KeyError."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    original = health_sync_services.lock_plan_aggregate_rows
+
+    def delete_then_lock(*args, **kwargs):
+        type(day).objects.filter(pk=day.pk).delete()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        health_sync_services,
+        "lock_plan_aggregate_rows",
+        delete_then_lock,
+    )
+
+    with pytest.raises(ValueError, match="Day not found"):
+        health_sync_services.create_manual_day_steps(user, day.pk, 10000)
+
+
+@pytest.mark.django_db
 def test_manual_step_delete_uses_canonical_plan_locks(
     user_factory, day_factory, monkeypatch
 ):
@@ -409,6 +466,64 @@ def test_manual_step_delete_uses_canonical_plan_locks(
     assert result.data == {"deleteDaySteps": True}
     assert calls == [(day.id,)]
     assert not DaySteps.objects.filter(pk=day_steps.pk).exists()
+
+
+@pytest.mark.django_db
+def test_delete_and_recreate_preserves_stale_sync_watermark(
+    client, user_factory, day_factory
+):
+    """Deleting and recreating manual steps cannot revive an old upload."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    day_steps = health_sync_services.create_manual_day_steps(
+        user, day.pk, 9000
+    )
+    token, device = HealthSyncDevice.issue(user, "Phone")
+    observed_at = timezone.now() - datetime.timedelta(minutes=5)
+    first = client.post(
+        "/api/health-sync/steps/",
+        data=json.dumps(
+            {
+                "records": [
+                    {
+                        "date": day.day.isoformat(),
+                        "steps": 9500,
+                        "observed_at": observed_at.isoformat(),
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+    assert first.status_code == 200
+
+    health_sync_services.delete_manual_day_steps(user, day_steps.pk)
+    recreated = health_sync_services.create_manual_day_steps(
+        user, day.pk, 10000
+    )
+    replay = client.post(
+        "/api/health-sync/steps/",
+        data=json.dumps(
+            {
+                "records": [
+                    {
+                        "date": day.day.isoformat(),
+                        "steps": 9500,
+                        "observed_at": observed_at.isoformat(),
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+
+    assert replay.status_code == 200
+    assert replay.json()["summary"]["unchanged"] == 1
+    recreated.refresh_from_db()
+    assert recreated.steps == 10000
+    assert StepImport.objects.filter(device=device).count() == 0
 
 
 def test_admin_cannot_bypass_health_sync_locks_or_provenance():
@@ -613,6 +728,34 @@ def test_expired_device_token_is_rejected(user_factory):
     )
     assert result.errors is None
     assert result.data == {"healthSyncDevices": []}
+
+
+@pytest.mark.django_db
+def test_device_issuance_caps_active_rows_and_prunes_expired_devices(
+    user_factory,
+):
+    """One account cannot accumulate an unbounded active device list."""
+    user = user_factory()
+    devices = [
+        HealthSyncDevice.issue(user, f"Phone {index}")[1]
+        for index in range(10)
+    ]
+
+    with pytest.raises(
+        ValueError, match="Too many active health-sync devices"
+    ):
+        HealthSyncDevice.issue(user, "Overflow")
+
+    expired = devices[0]
+    expired.expires_at = timezone.now() - datetime.timedelta(seconds=1)
+    expired.save(update_fields=["expires_at"])
+    HealthSyncDevice.issue(user, "Replacement")
+
+    assert not HealthSyncDevice.objects.filter(pk=expired.pk).exists()
+    assert (
+        HealthSyncDevice.objects.filter(user=user, revoked_at=None).count()
+        == 10
+    )
 
 
 @pytest.mark.django_db
