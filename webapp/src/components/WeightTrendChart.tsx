@@ -104,9 +104,9 @@ function WeightTrendChartContent({
           onChange={(event) => setActivePointIndex(Number(event.target.value))}
           className="h-11 w-full cursor-pointer accent-purple-300"
         />
-        <output data-testid="weight-trend-selected-point" className="block text-center">
+        <p data-testid="weight-trend-selected-point" className="block text-center">
           {selectedPointLabel}
-        </output>
+        </p>
       </label>
     </div>
   )
