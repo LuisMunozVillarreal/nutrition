@@ -634,3 +634,82 @@ def test_token_pepper_fallback_rehashes_a_device_after_rotation(user_factory):
 
     device.refresh_from_db()
     assert device.token_hash != old_hash
+
+
+@pytest.mark.django_db
+def test_sync_revalidates_target_after_overlapping_day_appears(
+    user_factory, day_factory, monkeypatch
+):
+    """A date that becomes ambiguous while locking is skipped, never guessed."""
+    user = user_factory()
+    target_date = timezone.localdate()
+    day_factory(plan__user=user, day=target_date)
+    _token, device = HealthSyncDevice.issue(user, "Phone")
+    original = health_sync_services.lock_plan_aggregate_rows
+
+    def add_overlap_then_lock(*args, **kwargs):
+        locks = original(*args, **kwargs)
+        day_factory(plan__user=user, day=target_date)
+        return locks
+
+    monkeypatch.setattr(
+        health_sync_services,
+        "lock_plan_aggregate_rows",
+        add_overlap_then_lock,
+    )
+    result = health_sync_services.sync_records(
+        device,
+        parse_records(
+            {
+                "records": [
+                    {
+                        "date": target_date.isoformat(),
+                        "steps": 123,
+                        "observed_at": timezone.now().isoformat(),
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert result["summary"]["skipped"] == 1
+    assert DaySteps.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_sync_skips_target_deleted_before_aggregate_lock(
+    user_factory, day_factory, monkeypatch
+):
+    """A concurrently deleted target becomes a stable skipped result."""
+    user = user_factory()
+    target_date = timezone.localdate()
+    day = day_factory(plan__user=user, day=target_date)
+    _token, device = HealthSyncDevice.issue(user, "Phone")
+    original = health_sync_services.lock_plan_aggregate_rows
+
+    def delete_then_lock(*args, **kwargs):
+        DaySteps.objects.filter(day=day).delete()
+        type(day).objects.filter(pk=day.pk).delete()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        health_sync_services,
+        "lock_plan_aggregate_rows",
+        delete_then_lock,
+    )
+    result = health_sync_services.sync_records(
+        device,
+        parse_records(
+            {
+                "records": [
+                    {
+                        "date": target_date.isoformat(),
+                        "steps": 123,
+                        "observed_at": timezone.now().isoformat(),
+                    }
+                ]
+            }
+        ),
+    )
+
+    assert result["summary"]["skipped"] == 1
