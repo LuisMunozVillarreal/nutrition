@@ -194,7 +194,7 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /Log a meal/i)
   assert.match(dashboardSource, /role="progressbar"/)
   assert.match(dashboardSource, /aria-valuetext=/)
-  assert.match(trendChartSource, /key=\{point\.id\}/)
+  assert.match(trendChartSource, /key=\{marker\.id\}/)
   assert.match(trendChartSource, /flex justify-between text-xs text-slate-400/)
   assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
   assert.match(dashboardSource, /visibilitychange/)

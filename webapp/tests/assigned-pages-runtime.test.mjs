@@ -93,6 +93,7 @@ const PlansPage = (await import('../src/app/plans/page.tsx')).default
 const NewPlanPage = (await import('../src/app/plans/new/page.tsx')).default
 const EditPlanPage = (await import('../src/app/plans/[id]/page.tsx')).default
 const MeasurementsPage = (await import('../src/app/measurements/page.tsx')).default
+const WeightTrendChart = (await import('../src/components/WeightTrendChart.tsx')).default
 const NewMeasurementPage = (await import('../src/app/measurements/new/page.tsx')).default
 const EditMeasurementPage = (await import('../src/app/measurements/[id]/page.tsx')).default
 const StepsPage = (await import('../src/app/steps/page.tsx')).default
@@ -704,6 +705,27 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
   assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
+})
+
+test('coincident weight points share one reachable marker with duplicate details', () => {
+  render(React.createElement(WeightTrendChart, {
+    series: [
+      { id: 'duplicate-1', date: '2026-01-01', timestamp: 1767225600000, weight: 81 },
+      { id: 'duplicate-2', date: '2026-01-01', timestamp: 1767225600000, weight: 81 },
+      { id: 'later', date: '2026-01-08', timestamp: 1767830400000, weight: 80 },
+    ],
+    emptyMessage: 'No trend',
+    emptyActionHref: '/measurements/new',
+    emptyActionLabel: 'Log weight',
+  }))
+
+  const markers = screen.getAllByTestId('weight-trend-dot')
+  assert.equal(markers.length, 2)
+  const duplicateMarker = screen.getByRole('img', {
+    name: '2 measurements on 2026-01-01: 81 kilograms',
+  })
+  fireEvent.mouseEnter(duplicateMarker)
+  assert.equal(screen.getByRole('tooltip').textContent, '2 measurements on 2026-01-01: 81 kg')
 })
 
 test('measurements page renders the reusable trend chart and validates custom date ranges', async () => {

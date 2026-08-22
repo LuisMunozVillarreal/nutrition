@@ -18,6 +18,13 @@ interface ActiveSelection {
   series: WeightTrendPoint[]
 }
 
+interface MarkerGroup {
+  id: string
+  x: number
+  y: number
+  points: Array<WeightTrendPoint & { x: number; y: number }>
+}
+
 export default function WeightTrendChart({
   series,
   emptyMessage,
@@ -61,7 +68,16 @@ export default function WeightTrendChart({
   const chartWidth = 720
   const chartHeight = 180
   const plot = buildTrendCoordinates(series, { width: chartWidth, height: chartHeight, padding: 20 })
-  const activePoint = plot.points.find((point) => point.id === activePointId)
+  const markerGroups = plot.points.reduce<MarkerGroup[]>((groups, point) => {
+    const existing = groups.find((group) => group.x === point.x && group.y === point.y)
+    if (existing) {
+      existing.points.push(point)
+    } else {
+      groups.push({ id: point.id, x: point.x, y: point.y, points: [point] })
+    }
+    return groups
+  }, [])
+  const activeMarker = markerGroups.find((marker) => marker.id === activePointId)
   const tooltipId = 'weight-trend-tooltip'
   const first = series[0]
   const last = series.at(-1)!
@@ -89,35 +105,44 @@ export default function WeightTrendChart({
             vectorEffect="non-scaling-stroke"
           />
         </svg>
-        {plot.points.map((point) => (
-          <span
-            key={point.id}
-            data-testid="weight-trend-dot"
-            role="img"
-            tabIndex={0}
-            aria-label={`Measurement on ${point.date}: ${point.weight} kilograms`}
-            aria-describedby={activePoint?.id === point.id ? tooltipId : undefined}
-            className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
-            style={{
-              left: `${(point.x / chartWidth) * 100}%`,
-              top: `${(point.y / chartHeight) * 100}%`,
-            }}
-            onMouseEnter={() => setPointerSelection({ pointId: point.id, series })}
-            onFocus={() => {
-              setPointerSelection(null)
-              setFocusSelection({ pointId: point.id, series })
-            }}
-          />
-        ))}
+        {markerGroups.map((marker) => {
+          const point = marker.points[0]
+          const markerLabel = marker.points.length === 1
+            ? `Measurement on ${point.date}: ${point.weight} kilograms`
+            : `${marker.points.length} measurements on ${point.date}: ${point.weight} kilograms`
+
+          return (
+            <span
+              key={marker.id}
+              data-testid="weight-trend-dot"
+              role="img"
+              tabIndex={0}
+              aria-label={markerLabel}
+              aria-describedby={activeMarker?.id === marker.id ? tooltipId : undefined}
+              className="absolute size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-help rounded-full bg-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-100"
+              style={{
+                left: `${(marker.x / chartWidth) * 100}%`,
+                top: `${(marker.y / chartHeight) * 100}%`,
+              }}
+              onMouseEnter={() => setPointerSelection({ pointId: marker.id, series })}
+              onFocus={() => {
+                setPointerSelection(null)
+                setFocusSelection({ pointId: marker.id, series })
+              }}
+            />
+          )
+        })}
       </div>
       <div className="min-h-7 w-full py-1 text-center">
-        {activePoint && (
+        {activeMarker && (
           <span
             id={tooltipId}
             role="tooltip"
             className="block w-full max-w-full rounded-md bg-slate-950 px-2 py-1 text-xs font-medium text-white shadow-lg"
           >
-            {activePoint.date}: {activePoint.weight} kg
+            {activeMarker.points.length === 1
+              ? `${activeMarker.points[0].date}: ${activeMarker.points[0].weight} kg`
+              : `${activeMarker.points.length} measurements on ${activeMarker.points[0].date}: ${activeMarker.points[0].weight} kg`}
           </span>
         )}
       </div>
