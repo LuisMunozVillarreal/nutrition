@@ -13,19 +13,25 @@ interface WeightTrendChartProps {
   emptyActionLabel: string
 }
 
+interface ActiveSelection {
+  pointId: string
+  series: WeightTrendPoint[]
+}
+
 export default function WeightTrendChart({
   series,
   emptyMessage,
   emptyActionHref,
   emptyActionLabel,
 }: WeightTrendChartProps) {
-  const [activeSelection, setActiveSelection] = useState<{
-    pointId: string
-    series: WeightTrendPoint[]
-  } | null>(null)
-  const activePointId = activeSelection?.series === series
-    ? activeSelection.pointId
-    : null
+  const [pointerSelection, setPointerSelection] = useState<ActiveSelection | null>(null)
+  const [focusSelection, setFocusSelection] = useState<ActiveSelection | null>(null)
+  const activeSelection = pointerSelection?.series === series
+    ? pointerSelection
+    : focusSelection?.series === series
+      ? focusSelection
+      : null
+  const activePointId = activeSelection?.pointId ?? null
 
   useEffect(() => {
     if (activePointId === null) return
@@ -33,7 +39,8 @@ export default function WeightTrendChart({
     const dismissOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        setActiveSelection(null)
+        setPointerSelection(null)
+        setFocusSelection(null)
       }
     }
 
@@ -64,11 +71,9 @@ export default function WeightTrendChart({
   return (
     <div
       data-testid="weight-trend-interaction"
-      onMouseLeave={(event) => {
-        if (!event.currentTarget.contains(document.activeElement)) setActiveSelection(null)
-      }}
+      onMouseLeave={() => setPointerSelection(null)}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setActiveSelection(null)
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusSelection(null)
       }}
     >
       <div className="relative h-44 w-full">
@@ -97,8 +102,8 @@ export default function WeightTrendChart({
               left: `${(point.x / chartWidth) * 100}%`,
               top: `${(point.y / chartHeight) * 100}%`,
             }}
-            onMouseEnter={() => setActiveSelection({ pointId: point.id, series })}
-            onFocus={() => setActiveSelection({ pointId: point.id, series })}
+            onMouseEnter={() => setPointerSelection({ pointId: point.id, series })}
+            onFocus={() => setFocusSelection({ pointId: point.id, series })}
           />
         ))}
       </div>
