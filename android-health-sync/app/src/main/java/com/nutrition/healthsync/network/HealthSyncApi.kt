@@ -74,9 +74,11 @@ class HealthSyncApi(
             try {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
+                        val retryable = response.code == 408 || response.code == 429 || response.code >= 500
                         throw ApiException(
                             message = "El servidor respondió con HTTP ${response.code}",
                             statusCode = response.code,
+                            retryable = retryable,
                         )
                     }
                     val body = response.body?.string().orEmpty()
@@ -85,7 +87,11 @@ class HealthSyncApi(
             } catch (error: ApiException) {
                 throw error
             } catch (error: IOException) {
-                throw ApiException("No se pudo conectar con el servidor", cause = error)
+                throw ApiException(
+                    "No se pudo conectar con el servidor",
+                    retryable = true,
+                    cause = error,
+                )
             }
         }
 }
@@ -93,5 +99,6 @@ class HealthSyncApi(
 class ApiException(
     message: String,
     val statusCode: Int? = null,
+    val retryable: Boolean = false,
     cause: Throwable? = null,
 ) : Exception(message, cause)
