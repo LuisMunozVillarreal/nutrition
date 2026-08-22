@@ -146,9 +146,9 @@ def test_generate_manifest_content():
     backend_env = backend_patch["spec"]["template"]["spec"]["containers"][0][
         "env"
     ]
-    scheduler_env = scheduler_patch["spec"]["jobTemplate"]["spec"][
-        "template"
-    ]["spec"]["containers"][0]["env"]
+    scheduler_env = scheduler_patch["spec"]["jobTemplate"]["spec"]["template"][
+        "spec"
+    ]["containers"][0]["env"]
     assert [
         entry for entry in backend_env if entry["name"].startswith("GARMIN_")
     ] == scheduler_env
@@ -169,11 +169,16 @@ def test_generate_manifest_default_domain():
 
     sanitized = sanitise_branch_name(branch)
     assert f"staging--{sanitized}.${{BASE_DOMAIN}}" in manifest
-    assert 'value: "https://staging--flux.${BASE_DOMAIN}/graphql/"' in manifest
-    assert 'value: "https://staging--flux.${BASE_DOMAIN}"' in manifest
     assert (
-        "value: \"https://staging--flux.${BASE_DOMAIN}/settings/garmin-callback\""
+        f'value: "https://staging--{sanitized}.${{BASE_DOMAIN}}/graphql/"'
         in manifest
+    )
+    assert (
+        f'value: "https://staging--{sanitized}.${{BASE_DOMAIN}}"' in manifest
+    )
+    assert (
+        f'value: "https://staging--{sanitized}.${{BASE_DOMAIN}}/'
+        'settings/garmin-callback"' in manifest
     )
 
 

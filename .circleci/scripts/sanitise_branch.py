@@ -1,5 +1,7 @@
 """Common utilities for CircleCI scripts."""
 
+# pylint: disable=cyclic-import
+
 import hashlib
 import re
 import sys

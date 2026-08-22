@@ -1,5 +1,7 @@
 """Intake models module."""
 
+# pylint: disable=missing-param-doc
+
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -193,9 +195,7 @@ class IntakeQuerySet(models.QuerySet):
                 locks.aggregate_locks.clear_markers()
 
 
-class IntakeManager(
-    models.Manager.from_queryset(IntakeQuerySet)  # type: ignore[misc]
-):
+class IntakeManager(models.Manager.from_queryset(IntakeQuerySet)):  # type: ignore[misc]
     """Manager exposing deletion-safe intake querysets."""
 
 

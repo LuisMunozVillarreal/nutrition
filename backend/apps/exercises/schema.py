@@ -1,4 +1,6 @@
-"""Exercises GraphQL schema module."""
+"""Exercise schema module."""
+
+# pylint: disable=missing-param-doc,differing-param-doc,differing-type-doc
 
 # pylint: disable=too-few-public-methods
 
@@ -391,34 +393,25 @@ class ExerciseMutation:
                 obj.day = day_locks.days_by_pk[obj.day_id]
 
                 changed_fields: list[str] = []
-                if obj.time != parsed_time and stale_obj.time != parsed_time:
+                if parsed_time not in (obj.time, stale_obj.time):
                     obj.time = parsed_time
                     changed_fields.append("time")
 
-                if (
-                    obj.type != exercise_type
-                    and stale_obj.type != exercise_type
-                ):
+                if exercise_type not in (obj.type, stale_obj.type):
                     obj.type = exercise_type
                     changed_fields.append("type")
 
-                if (
-                    obj.kcals != validated_kcals
-                    and stale_obj.kcals != validated_kcals
-                ):
+                if validated_kcals not in (obj.kcals, stale_obj.kcals):
                     obj.kcals = validated_kcals
                     changed_fields.append("kcals")
 
-                if (
-                    obj.duration != parsed_duration
-                    and stale_obj.duration != parsed_duration
-                ):
+                if parsed_duration not in (obj.duration, stale_obj.duration):
                     obj.duration = parsed_duration
                     changed_fields.append("duration")
 
-                if (
-                    obj.distance != validated_distance
-                    and stale_obj.distance != validated_distance
+                if validated_distance not in (
+                    obj.distance,
+                    stale_obj.distance,
                 ):
                     obj.distance = validated_distance
                     changed_fields.append("distance")

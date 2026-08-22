@@ -1,5 +1,7 @@
 """plans app signal handlers module."""
 
+# pylint: disable=missing-param-doc
+
 import datetime
 from decimal import Decimal
 from typing import Any
@@ -74,7 +76,7 @@ def _recalculate_intake_days(instance: Intake, using: str) -> None:
             using=using, day_ids=day_ids
         )
         setattr(instance, "_nutrition_locks", aggregate_locks)
-    assert aggregate_locks is not None
+    assert aggregate_locks is not None  # nosec B101 - internal lock invariant
 
     days_by_pk = aggregate_locks.days_by_pk
     days = [days_by_pk[day_id] for day_id in sorted(day_ids)]
@@ -167,7 +169,9 @@ def lock_day_and_intake_before_delete(
                 pk=instance.pk
             )
             setattr(instance, "_nutrition_locks", aggregate_locks)
-        assert aggregate_locks is not None
+        assert (
+            aggregate_locks is not None
+        )  # nosec B101 - internal lock invariant
         day = aggregate_locks.days_by_pk[instance.day_id]
         instance.day = day
         setattr(instance, "_nutrition_day_ids", (day.pk,))

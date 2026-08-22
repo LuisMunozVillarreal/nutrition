@@ -10,7 +10,10 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
+from django.utils import timezone as django_timezone
 
+import config.schema as schema_module
+from apps.garmin.models import GarminActivity, GarminConnection
 from apps.goals.models import FatPercGoal
 from apps.measurements.models import Measurement
 from config.schema import authenticated_session_user, schema
@@ -76,9 +79,9 @@ def test_login_exposes_staff_capability(is_staff):
 
 
 @pytest.mark.django_db
-def test_login_token_expires_after_one_week():
-    """Login issues a backend token that remains valid for one week."""
-    email = "week-token@example.com"
+def test_login_token_expires_after_one_day():
+    """Login issues a backend token that remains valid for one day."""
+    email = "day-token@example.com"
     password = secrets.token_urlsafe(24)
     User.objects.create_user(
         email=email,
@@ -105,8 +108,8 @@ def test_login_token_expires_after_one_week():
         algorithms=["HS256"],
     )
     expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
-    assert issued_after + timedelta(days=7, seconds=-1) <= expires_at
-    assert expires_at <= issued_before + timedelta(days=7)
+    assert issued_after + timedelta(days=1, seconds=-1) <= expires_at
+    assert expires_at <= issued_before + timedelta(days=1)
 
 
 @pytest.mark.django_db
@@ -177,6 +180,38 @@ def test_authenticated_session_user_helper():
     anonymous_context = SimpleNamespace(user=AnonymousUser())
     assert authenticated_session_user(anonymous_context) is None
     assert authenticated_session_user(SimpleNamespace()) is None
+
+
+@pytest.mark.django_db
+def test_provider_account_switch_helper_accepts_matching_historical_id():
+    """Schema helper should retain the sole historical account when it matches."""
+    user = User.objects.create_user(
+        email="config-garmin-historical@example.com",
+        password="password123",
+        date_of_birth="2000-01-01",
+        height=170.0,
+    )
+    connection = GarminConnection.objects.create(user=user)
+    GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="config-historical",
+        provider_activity_type="cycle",
+        provider_account_id="historic-account",
+        started_at=django_timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance="5.00",
+    )
+
+    assert (
+        schema_module._provider_account_switches_without_history(
+            connection,
+            "historic-account",
+            using="default",
+        )
+        is False
+    )
+    assert connection.provider_account_id == "historic-account"
 
 
 @pytest.mark.django_db

@@ -1,5 +1,10 @@
 """Garmin admin configuration module."""
 
+# pylint: disable=missing-param-doc,missing-type-doc
+# pylint: disable=missing-return-doc,missing-return-type-doc
+
+from typing import Any
+
 from django.contrib import admin
 
 from .models import GarminActivity, GarminConnection
@@ -37,19 +42,19 @@ class GarminConnectionAdmin(admin.ModelAdmin):
     readonly_fields = _CONNECTION_FIELDS
     actions = None
 
-    def has_add_permission(self, request):  # type: ignore[override]
+    def has_add_permission(self, request: Any) -> bool:  # type: ignore[override]
         """Disallow creating token-bearing rows in the admin."""
         return False
 
     def has_change_permission(
-        self, request, obj=None  # type: ignore[override]
-    ):
+        self, request: Any, obj: Any | None = None  # type: ignore[override]
+    ) -> bool:
         """Disallow changing token-bearing rows in the admin."""
         return False
 
     def has_delete_permission(
-        self, request, obj=None  # type: ignore[override]
-    ):
+        self, request: Any, obj: Any | None = None  # type: ignore[override]
+    ) -> bool:
         """Disallow deleting token-bearing rows in the admin."""
         return False
 
@@ -103,18 +108,18 @@ class GarminActivityAdmin(admin.ModelAdmin):
         "pending_reconciliation",
     ]
 
-    def has_add_permission(self, request):  # type: ignore[override]
+    def has_add_permission(self, request: Any) -> bool:  # type: ignore[override]
         """Disallow creating provenance records in the admin."""
         return False
 
     def has_change_permission(
-        self, request, obj=None  # type: ignore[override]
-    ):
+        self, request: Any, obj: Any | None = None  # type: ignore[override]
+    ) -> bool:
         """Disallow changing provenance records in the admin."""
         return False
 
     def has_delete_permission(
-        self, request, obj=None  # type: ignore[override]
-    ):
+        self, request: Any, obj: Any | None = None  # type: ignore[override]
+    ) -> bool:
         """Disallow deleting provenance records in the admin."""
         return False

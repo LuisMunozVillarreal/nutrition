@@ -1,9 +1,12 @@
 """GraphQL coverage for Garmin auth and isolation boundaries."""
 
+# pylint: disable=too-many-lines,protected-access
+
 from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import jwt
 import pytest
@@ -11,6 +14,7 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import config.schema as schema_module
@@ -1164,6 +1168,134 @@ def test_garmin_status_tolerates_tampered_summary(monkeypatch):
     }
 
 
+def test_garmin_query_direct_helper_covers_unauthenticated_and_no_connection(
+    monkeypatch,
+):
+    """Direct Garmin status resolution should short-circuit unauthenticated callers."""
+    _configure_garmin(monkeypatch)
+    query = schema_module.GarminQuery()
+    info = SimpleNamespace(context=SimpleNamespace(user=None))
+
+    assert query.garmin_status(info) is None
+
+    user = _create_user("garmin-status-none@example.com")
+    info = SimpleNamespace(context=SimpleNamespace(user=user))
+    status = query.garmin_status(info)
+
+    assert status is not None
+    assert status.connected is False
+    assert status.has_refresh_token is False
+
+
+def test_provider_account_switches_without_history_direct_helper(monkeypatch):
+    """Direct helper coverage for historical account switch edge cases."""
+    user = _create_user("garmin-switch-helper@example.com")
+    connection = GarminConnection.objects.create(
+        user=user,
+        provider_account_id="account-a",
+    )
+    using = "default"
+
+    GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="hist-a",
+        provider_activity_type="cycle",
+        provider_account_id="account-b",
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+    )
+    with pytest.raises(
+        ValueError, match="cannot change while historical activities exist"
+    ):
+        schema_module._provider_account_switches_without_history(
+            connection,
+            "account-a",
+            using=using,
+        )
+
+    connection.provider_account_id = ""
+    connection.activities.all().delete()
+    GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="hist-b",
+        provider_activity_type="cycle",
+        provider_account_id="account-c",
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+    )
+    assert (
+        schema_module._provider_account_switches_without_history(
+            connection,
+            None,
+            using=using,
+        )
+        is False
+    )
+    assert connection.provider_account_id == "account-c"
+
+
+def test_provider_account_switches_without_history_accepts_same_known_id():
+    """A single historical account may be reaffirmed safely."""
+    user = _create_user("garmin-switch-helper-same-id@example.com")
+    connection = GarminConnection.objects.create(user=user)
+
+    _create_historical_activity(
+        connection,
+        account="account-c",
+        activity_id="hist-same-account",
+    )
+
+    assert (
+        schema_module._provider_account_switches_without_history(
+            connection,
+            "account-c",
+            using="default",
+        )
+        is False
+    )
+    assert connection.provider_account_id == "account-c"
+
+
+def test_garmin_mutation_direct_authentication_guards(monkeypatch):
+    """Direct mutation calls should preserve Garmin auth guard messages."""
+    _configure_garmin(monkeypatch)
+    mutation = schema_module.GarminMutation()
+    info = SimpleNamespace(context=None)
+
+    with pytest.raises(PermissionError, match="Authentication required"):
+        mutation.complete_garmin_authorization(
+            info, code="code", state="state"
+        )
+    with pytest.raises(PermissionError, match="Authentication required"):
+        mutation.disconnect_garmin(info)
+
+
+def test_garmin_mutation_direct_state_and_code_validation(monkeypatch):
+    """Direct completion helper should reject blank state and code before exchange."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-direct-validation@example.com")
+    info = SimpleNamespace(context=_request_context(user, bearer=True))
+    mutation = schema_module.GarminMutation()
+
+    with pytest.raises(ValueError, match="state is required"):
+        mutation.complete_garmin_authorization(info, code="code", state="")
+    with pytest.raises(ValueError, match="code is required"):
+        mutation.complete_garmin_authorization(info, code="", state="state")
+
+
+def test_authenticated_bearer_user_rejects_non_string_header():
+    """Bearer helper should fail closed when middleware stores a non-string header."""
+    context = SimpleNamespace(
+        request=SimpleNamespace(META={"HTTP_AUTHORIZATION": object()})
+    )
+
+    assert schema_module.authenticated_bearer_user(context) is None
+
+
 def test_garmin_manual_sync_mutation_is_not_exposed():
     """Garmin sync is not executed inline from GraphQL."""
     user = _create_user("garmin-no-sync@example.com")
@@ -1256,6 +1388,214 @@ def test_disconnect_garmin_still_clears_locally_if_revoke_fails(monkeypatch):
     assert result.errors is None
     assert result.data["disconnectGarmin"] is True
 
+
+def test_complete_garmin_authorization_rejects_status_change_during_callback(
+    monkeypatch,
+):
+    """Completion must fail if the locked connection status changes mid-flight."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-status-change@example.com")
+    context = _request_context(user, bearer=True)
+    connection = GarminConnection.objects.create(
+        user=user,
+        status=GarminConnection.Status.DISCONNECTED,
+    )
+    state = _begin_state(context)
+
+    def _exchange(_code: str) -> GarminTokenPair:
+        connection.status = GarminConnection.Status.ACTIVE
+        connection.save(update_fields=["status", "updated_at"])
+        return _token_pair("provider-account-a")
+
+    monkeypatch.setattr(schema_module, "exchange_code_for_tokens", _exchange)
+
+    result = _complete_authorization(context, code="code", state=state)
+
+    assert result.errors is not None
+    assert "state changed during authorization" in result.errors[0].message
+
+
+def test_disconnect_garmin_returns_false_when_no_connection(monkeypatch):
+    """Disconnect should report the absence of a persisted connection."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-disconnect-missing@example.com")
+
+    result = _disconnect(_request_context(user, bearer=True))
+
+    assert result.errors is None
+    assert result.data["disconnectGarmin"] is False
+
+
+def test_disconnect_garmin_skips_revocation_without_refresh_token(monkeypatch):
+    """Blank refresh tokens should bypass remote revoke while still disconnecting."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-disconnect-no-refresh@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    connection.set_tokens(
+        GarminTokenPair(
+            access_token="access-only",
+            refresh_token=None,
+            expires_in=3600,
+            provider_account_id="provider-user",
+            scope="read",
+        ),
+        expires_in=3600,
+    )
+    connection.save(
+        update_fields=[
+            "access_token_encrypted",
+            "refresh_token_encrypted",
+            "access_token_expires_at",
+            "provider_account_id",
+            "provider_scopes",
+            "status",
+            "connection_generation",
+            "updated_at",
+        ]
+    )
+
+    revoke_calls: list[str] = []
+
+    def _revoke(token: str) -> None:
+        revoke_calls.append(token)
+
+    monkeypatch.setattr(
+        schema_module,
+        "revoke_refresh_token",
+        _revoke,
+    )
+
+    result = _disconnect(_request_context(user, bearer=True))
+
+    assert result.errors is None
+    assert result.data["disconnectGarmin"] is True
+    assert not revoke_calls
+
     connection = GarminConnection.objects.get(user=user)
     assert connection.access_token_encrypted == ""
     assert connection.refresh_token_encrypted == ""
+
+
+def test_provider_account_switches_rejects_unknown_id_with_blank_current():
+    """A blank current account cannot adopt a different historical identity."""
+    user = _create_user("garmin-switch-helper-unknown-id@example.com")
+    connection = GarminConnection.objects.create(user=user)
+    _create_historical_activity(
+        connection,
+        account="account-c",
+        activity_id="hist-unknown-account",
+    )
+
+    with pytest.raises(
+        ValueError, match="cannot change while historical activities exist"
+    ):
+        schema_module._provider_account_switches_without_history(
+            connection,
+            "account-d",
+            using="default",
+        )
+
+    _create_historical_activity(
+        connection,
+        account="account-e",
+        activity_id="hist-second-unknown-account",
+    )
+    with pytest.raises(
+        ValueError, match="cannot change while historical activities exist"
+    ):
+        schema_module._provider_account_switches_without_history(
+            connection,
+            None,
+            using="default",
+        )
+
+
+def test_complete_authorization_rejects_missing_locked_connection(monkeypatch):
+    """Completion should redact a connection deleted before its row lock."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-lock-missing@example.com")
+    context = _request_context(user, bearer=True)
+    state = _begin_state(context)
+    original_get = QuerySet.get
+
+    def _get(queryset, *args, **kwargs):
+        if (
+            queryset.model is GarminConnection
+            and queryset.query.select_for_update
+        ):
+            raise GarminConnection.DoesNotExist
+        return original_get(queryset, *args, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "get", _get)
+    result = _complete_authorization(context, code="code", state=state)
+
+    assert result.errors is not None
+    assert "Garmin connection is not active" in result.errors[0].message
+
+
+def test_complete_authorization_normalizes_legacy_provider(monkeypatch):
+    """Completion should normalize legacy provider values before token storage."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("garmin-legacy-provider@example.com")
+    connection = GarminConnection.objects.create(
+        user=user,
+        provider="legacy",
+        status=GarminConnection.Status.DISCONNECTED,
+    )
+    context = _request_context(user, bearer=True)
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _code: _token_pair("provider-legacy-normalized"),
+    )
+
+    result = _complete_authorization(context, code="code", state=state)
+
+    assert result.errors is None
+    connection.refresh_from_db()
+    assert connection.provider == GARMIN_PROVIDER
+
+
+@pytest.mark.parametrize("failure", ["integrity", "ownership", "zero-update"])
+def test_complete_authorization_rejects_final_persistence_failure(
+    monkeypatch, failure
+):
+    """Final callback persistence should fail closed on non-conflict failures."""
+    _configure_garmin(monkeypatch)
+    user = _create_user(f"garmin-final-{failure}@example.com")
+    context = _request_context(user, bearer=True)
+    state = _begin_state(context)
+    monkeypatch.setattr(
+        schema_module,
+        "exchange_code_for_tokens",
+        lambda _code: _token_pair(f"provider-final-{failure}"),
+    )
+    if failure == "ownership":
+        monkeypatch.setattr(
+            schema_module,
+            "is_provider_account_ownership_conflict",
+            lambda _exc: True,
+        )
+    original_update = QuerySet.update
+
+    def _update(queryset, **kwargs):
+        if (
+            queryset.model is GarminConnection
+            and "access_token_encrypted" in kwargs
+        ):
+            if failure in {"integrity", "ownership"}:
+                raise IntegrityError("unrelated integrity failure")
+            return 0
+        return original_update(queryset, **kwargs)
+
+    monkeypatch.setattr(QuerySet, "update", _update)
+    result = _complete_authorization(context, code="code", state=state)
+
+    assert result.errors is not None
+    if failure == "zero-update":
+        assert "state changed during authorization" in result.errors[0].message
+    elif failure == "ownership":
+        assert "already connected to another user" in result.errors[0].message
+    else:
+        assert "unrelated integrity failure" in result.errors[0].message

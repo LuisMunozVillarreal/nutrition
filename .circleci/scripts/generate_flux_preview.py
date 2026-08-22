@@ -178,38 +178,6 @@ spec:
                       value: "https://{preview_host}/settings/garmin-callback"
                     - name: GARMIN_CALLBACK_ALLOWED_ORIGINS
                       value: "https://{preview_host}"
-                    - name: GARMIN_SCOPES
-                      value: "read"
-                    - name: GARMIN_REQUEST_TIMEOUT_SECONDS
-                      value: "10"
-                    - name: GARMIN_ACTIVITY_MAX_PAGES
-                      value: "200"
-                    - name: GARMIN_ACTIVITY_SYNC_BATCH_SIZE
-                      value: "200"
-                    - name: GARMIN_ACTIVITIES_LIMIT
-                      value: "100"
-                    - name: GARMIN_STATE_TTL_SECONDS
-                      value: "300"
-                    - name: GARMIN_STATE_MAX_IN_FLIGHT
-                      value: "5"
-                    - name: GARMIN_TOKEN_MAX_TTL_SECONDS
-                      value: "86400"
-                    - name: GARMIN_TOKEN_ENCRYPTION_KEYS
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: token-encryption-keys
-                    - name: GARMIN_TOKEN_ENCRYPTION_KEY
-                      valueFrom:
-                        secretKeyRef:
-                          name: nutrition-garmin-config
-                          key: token-encryption-key
-                    - name: GARMIN_REVOKE_TOKEN_URL
-                      value: "https://example.com/garmin/oauth/revoke"
-                    - name: GARMIN_ACTIVITY_ENDPOINT_MAX_RESPONSE_BYTES
-                      value: "1048576"
-                    - name: GARMIN_TOKEN_ENDPOINT_MAX_RESPONSE_BYTES
-                      value: "262144"
               initContainers:
                 - name: db-restore
                   env:

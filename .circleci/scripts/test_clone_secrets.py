@@ -35,7 +35,9 @@ def _secret_names(value):
 def test_preview_generates_every_base_workload_secret():
     """Preview Secret inventory must cover every base workload reference."""
     required = set()
-    for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob("*.yaml"):
+    for manifest_path in (REPOSITORY_ROOT / "platform/k8s/base").glob(
+        "*.yaml"
+    ):
         for document in yaml.safe_load_all(manifest_path.read_text()):
             required.update(_secret_names(document))
 

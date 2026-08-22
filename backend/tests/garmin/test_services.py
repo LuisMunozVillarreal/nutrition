@@ -1,8 +1,21 @@
 """Garmin service layer tests."""
 
+# pylint: disable=too-many-lines,consider-using-from-import,protected-access
+# pylint: disable=missing-function-docstring,use-yield-from,too-many-arguments
+# pylint: disable=too-many-locals,unused-variable,unreachable,line-too-long
+
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import (
+    date,
+    datetime,
+    time,
+    timedelta,
+)
+from datetime import timezone as datetime_timezone
+from datetime import (
+    tzinfo,
+)
 from decimal import Decimal
 from typing import Any
 
@@ -11,13 +24,15 @@ import requests
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, router
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, OperationalError, router
 from django.utils import timezone
 
 import apps.garmin.services as services
 from apps.exercises.models import Exercise
 from apps.garmin.models import (
     GARMIN_PROVIDER,
+    GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT,
     GarminActivity,
     GarminConnection,
     GarminOAuthState,
@@ -43,6 +58,189 @@ User = get_user_model()
 def test_normalize_https_origin_brackets_ipv6_hosts(raw: str, expected: str):
     """IPv6 hosts are always bracket-wrapped, with or without an explicit port."""
     assert services._normalize_https_origin(raw) == expected
+
+
+def test_provider_error_message_and_required_setting_helpers(monkeypatch):
+    """Small config helpers should expose stable Garmin-specific errors."""
+    monkeypatch.setattr(
+        settings, "GARMIN_SAMPLE_SETTING", "configured", raising=False
+    )
+
+    assert (
+        services._provider_error_message("activity fetch", 401)
+        == "Garmin activity fetch unauthorized"
+    )
+    assert (
+        services._provider_error_message("token exchange", 500)
+        == "Garmin token exchange failed"
+    )
+    assert services._required_setting("GARMIN_SAMPLE_SETTING") == "configured"
+
+    monkeypatch.setattr(settings, "GARMIN_SAMPLE_SETTING", "", raising=False)
+    with pytest.raises(
+        ValueError, match="GARMIN setting GARMIN_SAMPLE_SETTING is required"
+    ):
+        services._required_setting("GARMIN_SAMPLE_SETTING")
+
+
+def test_normalize_https_origin_rejects_missing_hostname():
+    """Helper should reject malformed origins before allow-list checks."""
+    with pytest.raises(ValueError, match="invalid hostname"):
+        services._normalize_https_origin("https:///missing-host")
+
+
+@pytest.mark.parametrize(
+    ("raw_origins", "expected"),
+    [
+        (
+            "https://one.example.com, ,https://two.example.com/",
+            {"https://one.example.com", "https://two.example.com"},
+        ),
+        ([" https://three.example.com/ "], {"https://three.example.com"}),
+    ],
+)
+def test_required_origin_list_normalizes_string_and_list_inputs(
+    monkeypatch,
+    raw_origins,
+    expected,
+):
+    """Allowed-origin parsing should trim blanks and normalize hosts."""
+    monkeypatch.setattr(
+        settings, "GARMIN_ALLOWED_TEST_ORIGINS", raw_origins, raising=False
+    )
+
+    assert (
+        services._required_origin_list("GARMIN_ALLOWED_TEST_ORIGINS")
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw_origins", "message"),
+    [
+        (None, "must be configured"),
+        (["  "], "must be configured"),
+        (["http://garmin.example.com"], "must be HTTPS"),
+        (["https://user:pass@garmin.example.com"], "has credentials"),
+        (["https://garmin.example.com#frag"], "must not include fragments"),
+        (["https://garmin.example.com/path"], "must be a HTTPS origin"),
+    ],
+)
+def test_required_origin_list_rejects_invalid_values(
+    monkeypatch,
+    raw_origins,
+    message,
+):
+    """Every invalid origin shape should fail closed with a stable message."""
+    monkeypatch.setattr(
+        settings, "GARMIN_ALLOWED_TEST_ORIGINS", raw_origins, raising=False
+    )
+
+    with pytest.raises(ValueError, match=message):
+        services._required_origin_list("GARMIN_ALLOWED_TEST_ORIGINS")
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (True, "must be an integer"),
+        ("abc", "must be an integer"),
+        (0, "must be >= 1"),
+        (11, "must be <= 10"),
+    ],
+)
+def test_required_positive_int_rejects_invalid_values(
+    value, message, monkeypatch
+):
+    """Integer setting validation should reject non-integer and out-of-range values."""
+    monkeypatch.setattr(
+        settings, "GARMIN_POSITIVE_INT_TEST", value, raising=False
+    )
+
+    with pytest.raises(ValueError, match=message):
+        services._required_positive_int(
+            "GARMIN_POSITIVE_INT_TEST",
+            minimum=1,
+            maximum=10,
+        )
+
+
+def test_required_positive_int_accepts_stringified_integer(monkeypatch):
+    """Integer helper should accept stringified positive numbers."""
+    monkeypatch.setattr(
+        settings, "GARMIN_POSITIVE_INT_TEST", "7", raising=False
+    )
+
+    assert services._required_positive_int("GARMIN_POSITIVE_INT_TEST") == 7
+
+
+@pytest.mark.parametrize(
+    ("url", "message"),
+    [
+        ("http://garmin.example.com/token", "must be HTTPS"),
+        ("https://user:pass@garmin.example.com/token", "has credentials"),
+        (
+            "https://garmin.example.com/token#frag",
+            "must not include fragments",
+        ),
+        ("https:///token", "must include a hostname"),
+        ("https://other.example.com/token", "has an unapproved origin"),
+    ],
+)
+def test_required_https_url_rejects_invalid_urls(monkeypatch, url, message):
+    """HTTPS URL helper should reject malformed or unapproved endpoints."""
+    monkeypatch.setattr(settings, "GARMIN_TEST_URL", url, raising=False)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_PROVIDER_ORIGINS",
+        ["https://garmin.example.com"],
+    )
+
+    with pytest.raises(ValueError, match=message):
+        services._required_https_url(
+            "GARMIN_TEST_URL", "GARMIN_PROVIDER_ORIGINS"
+        )
+
+
+def test_optional_required_https_url_handles_blank_and_nonblank(monkeypatch):
+    """Optional HTTPS helper handles blank and present values."""
+    monkeypatch.setattr(
+        settings, "GARMIN_OPTIONAL_TEST_URL", "", raising=False
+    )
+    assert (
+        services._optional_required_https_url(
+            "GARMIN_OPTIONAL_TEST_URL",
+            "GARMIN_PROVIDER_ORIGINS",
+        )
+        == ""
+    )
+
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_OPTIONAL_TEST_URL",
+        "https://garmin.example.com/revoke",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_PROVIDER_ORIGINS",
+        ["https://garmin.example.com"],
+    )
+    assert (
+        services._optional_required_https_url(
+            "GARMIN_OPTIONAL_TEST_URL",
+            "GARMIN_PROVIDER_ORIGINS",
+        )
+        == "https://garmin.example.com/revoke"
+    )
+
+
+def test_provider_config_rejects_disabled_integration(monkeypatch):
+    """Provider config should fail fast when Garmin is disabled."""
+    monkeypatch.setattr(settings, "GARMIN_ENABLED", False)
+
+    with pytest.raises(ValueError, match="Garmin integration is disabled"):
+        services._provider_config()
 
 
 def _configure_garmin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -248,6 +446,399 @@ def test_activity_fetch_normalizes_midstream_transport_failure(monkeypatch):
     assert "bearer-secret" not in str(error.value)
     assert first_response.closed is True
     assert failed_response.closed is True
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (True, "duration must be non-negative"),
+        (object(), "duration must be non-negative"),
+        ("abc", "duration must be non-negative"),
+        (-1, "duration must be non-negative"),
+        (1.5, "duration must be non-negative"),
+    ],
+)
+def test_coerce_non_negative_int_rejects_invalid_values(value, message):
+    """Integer coercion should reject booleans, non-scalars, and fractions."""
+    with pytest.raises(ValueError, match=message):
+        services._coerce_non_negative_int(value, "duration")
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (True, "distance must be non-negative"),
+        (object(), "distance must be non-negative"),
+        ("not-a-number", "distance must be non-negative"),
+        ("NaN", "distance must be non-negative"),
+        ("Infinity", "distance must be non-negative"),
+        (-1, "distance must be non-negative"),
+    ],
+)
+def test_coerce_decimal_rejects_invalid_values(value, message):
+    """Decimal coercion should reject non-finite and negative inputs."""
+    with pytest.raises(ValueError, match=message):
+        services._coerce_decimal(value, "distance")
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, "km"),
+        (" miles ", "mile"),
+        ("metres", "m"),
+        ("kilometers", "km"),
+    ],
+)
+def test_normalize_distance_unit_accepts_supported_units(raw, expected):
+    """Distance unit normalization should collapse supported aliases."""
+    assert services._normalize_distance_unit(raw) == expected
+
+
+def test_normalize_distance_unit_rejects_unknown_unit():
+    """Unsupported distance units should fail closed."""
+    with pytest.raises(ValueError, match="unsupported"):
+        services._normalize_distance_unit("yards")
+
+
+def test_validate_distance_km_rejects_negative_and_invalid_field_values(
+    monkeypatch,
+):
+    """Distance validation should reject negative and field-level invalid values."""
+    with pytest.raises(ValueError, match="distance must be non-negative"):
+        services._validate_distance_km(-1, "km", source="distance")
+
+    distance_field = Exercise._meta.get_field("distance")
+    original_clean = distance_field.clean
+
+    def _raise(value, model_instance):  # noqa: ARG001
+        raise ValidationError("invalid distance field")
+
+    monkeypatch.setattr(distance_field, "clean", _raise)
+    try:
+        with pytest.raises(
+            ValueError, match="distance out of supported bounds"
+        ):
+            services._validate_distance_km(1, "km", source="distance")
+    finally:
+        monkeypatch.setattr(distance_field, "clean", original_clean)
+
+
+@pytest.mark.parametrize(
+    ("canonical", "local", "offset", "message"),
+    [
+        (
+            "2026-08-01T12:00:00Z",
+            "2026-08-01T08:00:00",
+            841,
+            "timezone is invalid",
+        ),
+        (
+            "2026-08-01T12:00:00Z",
+            "2026-08-01T08:00:00+00:00",
+            60,
+            "start time is inconsistent",
+        ),
+    ],
+)
+def test_parse_local_start_time_and_offsets_reject_invalid_values(
+    canonical,
+    local,
+    offset,
+    message,
+):
+    """Local-start parsing should reject inconsistent offsets and invalid bounds."""
+    with pytest.raises(ValueError, match=message):
+        services._coerce_started_at(
+            canonical,
+            local_value=local,
+            local_offset_minutes=offset,
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ([], "start time is missing"),
+        ("2026-08-01T12:00:00", "must include timezone"),
+        (float("inf"), "start time is invalid"),
+    ],
+)
+def test_parse_canonical_start_time_rejects_invalid_shapes(value, message):
+    """Canonical-start parsing should fail closed on malformed values."""
+    with pytest.raises(ValueError, match=message):
+        services._parse_canonical_start_time(
+            value,
+            matching_utc=datetime(
+                2026, 8, 1, 12, tzinfo=services.datetime.timezone.utc
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("not-a-number", "timezone is invalid"),
+        (900, "timezone is invalid"),
+    ],
+)
+def test_parse_timezone_offset_minutes_rejects_invalid_values(value, message):
+    """Timezone offset helper should reject malformed and out-of-range values."""
+    with pytest.raises(ValueError, match=message):
+        services._parse_timezone_offset_minutes(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "field_name", "message"),
+    [
+        (None, "provider_account_id", None),
+        ("", "provider_account_id", "provider_account_id is missing"),
+        ("x" * 256, "provider_account_id", "provider_account_id is too long"),
+    ],
+)
+def test_validate_provider_and_payload_id_helpers(value, field_name, message):
+    """Identifier helpers should preserve the Garmin-specific validation messages."""
+    if message is None:
+        assert services._validate_provider_id(field_name, value, 255) == ""
+        with pytest.raises(ValueError, match=f"{field_name} is missing"):
+            services._normalize_payload_id(
+                value, field_name=field_name, max_length=255
+            )
+        assert (
+            services._normalize_optional_payload_id(
+                value,
+                field_name=field_name,
+                max_length=255,
+            )
+            is None
+        )
+        return
+
+    with pytest.raises(ValueError, match=message):
+        services._validate_provider_id(field_name, value, 255)
+    with pytest.raises(ValueError, match=message):
+        services._normalize_payload_id(
+            value, field_name=field_name, max_length=255
+        )
+    optional_message = (
+        message if "too long" in message else f"{field_name} is too long"
+    )
+    if value == "":
+        assert (
+            services._normalize_optional_payload_id(
+                value,
+                field_name=field_name,
+                max_length=255,
+            )
+            is None
+        )
+    else:
+        with pytest.raises(ValueError, match=optional_message):
+            services._normalize_optional_payload_id(
+                value,
+                field_name=field_name,
+                max_length=255,
+            )
+
+
+def test_payload_extractors_cover_all_supported_aliases():
+    """Payload extractors should honor every supported Garmin alias."""
+    assert services._extract_payload_distance({"distanceMeters": 12}) == (
+        12,
+        "distanceMeters",
+    )
+    assert services._extract_payload_distance({"distanceMiles": 1}) == (
+        1,
+        "distanceMiles",
+    )
+    assert services._extract_payload_distance({"distanceKm": 3}) == (
+        3,
+        "distanceKm",
+    )
+    assert services._extract_payload_distance({"distance_km": 4}) == (
+        4,
+        "distance_km",
+    )
+    assert services._extract_payload_distance({"distance": 5}) == (
+        5,
+        "distance",
+    )
+    with pytest.raises(ValueError, match="distance is missing"):
+        services._extract_payload_distance({})
+
+    assert services._extract_payload_kcal({"activeKcal": 1}) == 1
+    assert services._extract_payload_kcal({"activeKilocalories": 2}) == 2
+    assert services._extract_payload_kcal({"calories": 3}) == 3
+
+    assert services._extract_payload_duration({"duration": 1}) == 1
+    assert services._extract_payload_duration({"durationSeconds": 2}) == 2
+    assert services._extract_payload_duration({"duration_seconds": 3}) == 3
+    with pytest.raises(ValueError, match="duration is missing"):
+        services._extract_payload_duration({})
+
+    assert services._extract_payload_activity_id({"activityId": "a"}) == "a"
+    assert services._extract_payload_activity_id({"activity_id": "b"}) == "b"
+    assert services._extract_payload_provider_account({"userId": "u"}) == "u"
+    assert (
+        services._extract_payload_activity_type({"activityType": "cycle"})
+        == "cycle"
+    )
+    assert (
+        services._extract_payload_activity_type({"activity_type": "walk"})
+        == "walk"
+    )
+    assert services._extract_payload_start({"startTime": 1}) == 1
+    assert services._extract_payload_start({"start_time": 2}) == 2
+
+
+def test_extract_payload_local_start_time_covers_aliases_and_missing_offsets():
+    """Local-start extractor should support every documented provider key."""
+    assert services._extract_payload_local_start_time(
+        {"localStartTime": "2026-08-01T08:00:00", "offsetMinutes": -240}
+    ) == ("2026-08-01T08:00:00", -240)
+    assert services._extract_payload_local_start_time(
+        {"start_timezone_offset": 0}
+    ) == (
+        None,
+        0,
+    )
+    assert services._extract_payload_local_start_time({}) == (None, None)
+
+
+def test_validate_duration_and_kcals_cover_field_validation(monkeypatch):
+    """Field-bound validators should convert ValidationError into stable messages."""
+    duration_field = Exercise._meta.get_field("duration")
+    kcals_field = Exercise._meta.get_field("kcals")
+    original_duration_clean = duration_field.clean
+    original_kcals_clean = kcals_field.clean
+
+    def _raise_duration(value, model_instance):  # noqa: ARG001
+        raise ValidationError("invalid duration")
+
+    def _raise_kcals(value, model_instance):  # noqa: ARG001
+        raise ValidationError("invalid kcal")
+
+    monkeypatch.setattr(duration_field, "clean", _raise_duration)
+    monkeypatch.setattr(kcals_field, "clean", _raise_kcals)
+    try:
+        with pytest.raises(
+            ValueError, match="duration_seconds out of supported bounds"
+        ):
+            services._validate_duration(60)
+        with pytest.raises(ValueError, match="kcal out of supported bounds"):
+            services._validate_kcals(100)
+    finally:
+        monkeypatch.setattr(duration_field, "clean", original_duration_clean)
+        monkeypatch.setattr(kcals_field, "clean", original_kcals_clean)
+
+
+def test_validate_exercise_type_defaults_and_rejects_unsupported_types():
+    """Exercise type normalization should default cycle and reject non-cycling rows."""
+    assert services._validate_exercise_type(None) == "cycle"
+    assert services._validate_exercise_type("  biking ") == "cycle"
+    assert services._validate_exercise_type("walk") == ""
+
+
+def test_extract_activity_items_accepts_nested_list_shapes():
+    """Activity item extraction should support nested dict and list payload forms."""
+    assert services._extract_activity_items({"items": [1, 2]}) == [1, 2]
+    assert services._extract_activity_items({"data": {"items": [3]}}) == [3]
+    assert services._extract_activity_items({"data": [{"row": 4}]}) == [
+        {"row": 4}
+    ]
+    with pytest.raises(ValueError, match="payload is invalid"):
+        services._extract_activity_items({"data": {"row": 5}})
+
+
+def test_extract_next_cursor_supports_top_level_and_nested_paging():
+    """Cursor extraction should support both top-level and paging envelopes."""
+    assert services._extract_next_cursor({"next": "cursor-a"}) == "cursor-a"
+    assert (
+        services._extract_next_cursor({"nextCursor": "cursor-b"}) == "cursor-b"
+    )
+    assert services._extract_next_cursor({"cursor": "cursor-c"}) == "cursor-c"
+    assert (
+        services._extract_next_cursor({"paging": {"nextCursor": "cursor-d"}})
+        == "cursor-d"
+    )
+    assert services._extract_next_cursor({}) is None
+
+
+def test_token_request_payload_and_parse_token_payload_defensive_branches(
+    monkeypatch,
+):
+    """Token helpers should preserve stable validation semantics."""
+    _configure_garmin(monkeypatch)
+    config = services._provider_config()
+    payload = {"access_token": "token", "expires_in": 60}
+    monkeypatch.setattr(services, "_request_json", lambda *_, **__: payload)
+
+    assert services._token_request_payload(
+        {"grant_type": "refresh_token"}, config
+    ) == (
+        services.GarminTokenPair(
+            access_token="token",
+            refresh_token=None,
+            expires_in=60,
+            provider_account_id=None,
+            scope=None,
+        )
+    )
+
+    with pytest.raises(ValueError, match="invalid access_token"):
+        services._parse_token_payload({"access_token": "", "expires_in": 60})
+    with pytest.raises(ValueError, match="invalid expires_in"):
+        services._parse_token_payload(
+            {"access_token": "token", "expires_in": True}
+        )
+    with pytest.raises(ValueError, match="invalid expires_in"):
+        services._parse_token_payload({"access_token": "token"})
+    with pytest.raises(ValueError, match="invalid expires_in"):
+        services._parse_token_payload(
+            {"access_token": "token", "expires_in": object()}
+        )
+    with pytest.raises(ValueError, match="invalid expires_in"):
+        services._parse_token_payload(
+            {"access_token": "token", "expires_in": -1}
+        )
+    with pytest.raises(ValueError, match="invalid refresh_token"):
+        services._parse_token_payload(
+            {"access_token": "token", "expires_in": 60},
+            require_refresh_token=True,
+        )
+
+
+def test_refresh_and_revoke_helpers_cover_missing_token_and_blank_revoke_url(
+    monkeypatch,
+):
+    """Refresh and revoke helpers should fail closed without remote state."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-and-revoke-helpers@example.com")
+    connection = GarminConnection.objects.create(user=user)
+
+    with pytest.raises(ValueError, match="refresh token is missing"):
+        services.refresh_access_token(connection)
+
+    services.revoke_refresh_token("")
+    monkeypatch.setattr(settings, "GARMIN_REVOKE_TOKEN_URL", "")
+    services.revoke_refresh_token("refresh-token")
+
+
+def test_revoke_refresh_token_swallows_provider_errors(monkeypatch):
+    """Revocation is best-effort and should swallow provider-side validation errors."""
+    _configure_garmin(monkeypatch)
+    monkeypatch.setattr(
+        settings,
+        "GARMIN_REVOKE_TOKEN_URL",
+        "https://garmin.example.com/revoke",
+    )
+    monkeypatch.setattr(
+        services,
+        "_request_json",
+        lambda *_, **__: (_ for _ in ()).throw(ValueError("boom")),
+    )
+
+    services.revoke_refresh_token("refresh-token")
 
 
 def _activity_payload(
@@ -943,7 +1534,10 @@ def test_refresh_access_token_preserves_refresh_token_if_missing(monkeypatch):
     """Token refresh must remain usable without a provider refresh token."""
     _configure_garmin(monkeypatch)
     user = _create_user("refresh-preserve@example.com")
-    connection = _connection_with_token(user)
+    connection = _connection_with_token(
+        user,
+        provider_account_id="provider-user-reconcile-state",
+    )
 
     monkeypatch.setattr(
         services,
@@ -3386,3 +3980,1630 @@ def test_token_refresh_does_not_clear_last_sync_state_on_failed_import(
         "unsupported": 1,
         "invalid": 0,
     }
+
+
+@pytest.mark.parametrize(
+    "requester_name",
+    ["_request_json", "_request_json_with_size"],
+)
+def test_request_json_handles_request_exceptions_and_non_dict_payloads(
+    monkeypatch,
+    requester_name: str,
+):
+    """Request helpers should fail closed on transport errors and list payloads."""
+    requester = getattr(services, requester_name)
+
+    def _boom(*args, **kwargs):  # noqa: ARG001
+        raise requests.RequestException("network detail")
+
+    monkeypatch.setattr(services.requests, "request", _boom)
+    with pytest.raises(ValueError, match="Garmin activity fetch failed"):
+        requester(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+
+    response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b"", b"[]"],
+        headers={},
+    )
+    monkeypatch.setattr(
+        services.requests, "request", lambda *_, **__: response
+    )
+    with pytest.raises(ValueError, match="returned invalid JSON"):
+        requester(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+    assert response.closed is True
+
+
+@pytest.mark.parametrize(
+    "requester_name",
+    ["_request_json", "_request_json_with_size"],
+)
+def test_request_json_treats_large_content_length_as_invalid_header(
+    monkeypatch,
+    requester_name: str,
+):
+    """Content-Length over the limit hits the defensive invalid-header path."""
+    requester = getattr(services, requester_name)
+    response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b'{"ok": true}'],
+        headers={"Content-Length": "1025"},
+    )
+    monkeypatch.setattr(
+        services.requests, "request", lambda *_, **__: response
+    )
+
+    with pytest.raises(ValueError, match="invalid content length"):
+        requester(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+    assert response.closed is True
+
+
+def test_distance_validation_defensive_post_conversion_branches(monkeypatch):
+    """Post-conversion distance guards should still fail closed under mocks."""
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km("1E999999", "km", source="distance")
+
+    monkeypatch.setattr(services, "_ACTIVITY_DISTANCE_MAX", Decimal("-1"))
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(1, "km", source="distance")
+
+    monkeypatch.setattr(
+        services, "_ACTIVITY_DISTANCE_MILES_TO_KM", Decimal("-1")
+    )
+    monkeypatch.setattr(services, "_ACTIVITY_DISTANCE_MAX", Decimal("1000"))
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(1, "mile", source="distance")
+
+
+def test_started_at_defensive_mocked_timezone_and_conversion_branches(
+    monkeypatch,
+):
+    """Timestamp coercion should reject malformed tzinfo and conversion failures."""
+
+    class _NoOffset(tzinfo):
+        def utcoffset(self, dt):  # noqa: ARG002
+            return None
+
+        def dst(self, dt):  # noqa: ARG002
+            return timedelta(0)
+
+        def tzname(self, dt):  # noqa: ARG002
+            return None
+
+    class _OddOffset(tzinfo):
+        def utcoffset(self, dt):  # noqa: ARG002
+            return timedelta(seconds=30)
+
+        def dst(self, dt):  # noqa: ARG002
+            return timedelta(0)
+
+        def tzname(self, dt):  # noqa: ARG002
+            return "odd"
+
+    for mocked_local, message in (
+        (datetime(2026, 8, 1, 8, 0), "must include timezone"),
+        (
+            datetime(2026, 8, 1, 8, 0, tzinfo=_NoOffset()),
+            "must include timezone",
+        ),
+        (
+            datetime(2026, 8, 1, 8, 0, tzinfo=_OddOffset()),
+            "timezone offset is invalid",
+        ),
+        (
+            datetime(
+                2026,
+                8,
+                1,
+                8,
+                0,
+                tzinfo=datetime_timezone(timedelta(hours=15)),
+            ),
+            "timezone offset is invalid",
+        ),
+    ):
+        monkeypatch.setattr(
+            services,
+            "_parse_local_start_time",
+            lambda *_, mocked_local=mocked_local, **__: mocked_local,
+        )
+        with pytest.raises(ValueError, match=message):
+            services._coerce_started_at(
+                "2026-08-01T12:00:00Z",
+                local_value="2026-08-01T08:00:00-04:00",
+                local_offset_minutes=-240,
+            )
+
+    class _BrokenCanonical:
+        tzinfo = datetime_timezone.utc
+
+        def utcoffset(self):
+            return timedelta(0)
+
+        def astimezone(self, tz):  # noqa: ARG002
+            raise ValueError("broken canonical")
+
+    monkeypatch.setattr(
+        services,
+        "_parse_local_start_time",
+        lambda *_, **__: datetime(
+            2026, 8, 1, 8, 0, tzinfo=datetime_timezone(timedelta(hours=-4))
+        ),
+    )
+    monkeypatch.setattr(
+        services,
+        "_parse_canonical_start_time",
+        lambda *_, **__: _BrokenCanonical(),
+    )
+    with pytest.raises(ValueError, match="start time is invalid"):
+        services._coerce_started_at(
+            "2026-08-01T12:00:00Z",
+            local_value="2026-08-01T08:00:00-04:00",
+            local_offset_minutes=-240,
+        )
+
+
+def test_parse_canonical_start_time_exhausts_invalid_numeric_candidates(
+    monkeypatch,
+):
+    """Invalid numeric timestamps should exhaust all candidate conversions."""
+    original_datetime_type = services.datetime.datetime
+
+    class _FakeDateTime(original_datetime_type):
+        @classmethod
+        def fromtimestamp(cls, *args, **kwargs):  # noqa: ARG003
+            raise OverflowError("too large")
+
+    monkeypatch.setattr(services.datetime, "datetime", _FakeDateTime)
+    with pytest.raises(ValueError, match="start time is invalid"):
+        services._parse_canonical_start_time(
+            946_684_800,
+            matching_utc=datetime(
+                2000, 1, 1, tzinfo=services.datetime.timezone.utc
+            ),
+        )
+
+
+def test_misc_payload_and_validation_helper_residual_branches():
+    """Small helper branches should remain directly covered."""
+    assert (
+        services._validate_provider_id("provider_account_id", "acct", 255)
+        == "acct"
+    )
+    assert services._extract_payload_local_start_time(
+        {
+            "localStartTime": None,
+            "startTimeLocal": "2026-08-01T08:00:00-04:00",
+            "offsetMinutes": None,
+            "timezoneOffsetMinutes": -240,
+        }
+    ) == ("2026-08-01T08:00:00-04:00", -240)
+    assert services._extract_activity_items({"data": []}) == []
+    assert services._extract_next_cursor({"paging": {"next": ""}}) is None
+
+
+def test_validate_duration_and_kcals_reject_values_over_supported_maximum():
+    """Field validators should reject provider values beyond configured bounds."""
+    with pytest.raises(
+        ValueError, match="duration_seconds out of supported bounds"
+    ):
+        services._validate_duration(
+            services._ACTIVITY_DURATION_MAX_SECONDS + 1
+        )
+    with pytest.raises(ValueError, match="kcal out of supported bounds"):
+        services._validate_kcals(services._ACTIVITY_CALORIES_MAX + 1)
+
+
+def test_normalize_activity_rejects_blank_activity_type():
+    """Blank provider activity types are invalid even if other fields are present."""
+    payload = _activity_payload(
+        activity_id="blank-type",
+        activity_type=" ",
+        started_at="2026-08-01T12:00:00+00:00",
+    )
+    with pytest.raises(ValueError, match="activityType is missing"):
+        services._normalize_activity(payload)
+
+
+def test_iter_activity_payloads_default_config_and_zero_pages(monkeypatch):
+    """Iterator should allow zero pages and fall back to provider defaults."""
+    _configure_garmin(monkeypatch)
+    assert not list(
+        services._iter_activity_payloads(
+            "token",
+            max_pages=0,
+            page_limit=10,
+            timeout=10,
+            activities_url="https://garmin.example.com/activities",
+            response_max_bytes=1024,
+        )
+    )
+
+    calls = {"count": 0}
+
+    def _request(*args, **kwargs):  # noqa: ARG001
+        calls["count"] += 1
+        return {"activities": []}, 0
+
+    monkeypatch.setattr(services, "_request_json_with_size", _request)
+    assert not list(
+        services._iter_activity_payloads(
+            "token",
+            max_pages=1,
+            page_limit=10,
+            timeout=10,
+            activities_url="https://garmin.example.com/activities",
+            response_max_bytes=1024,
+            activity_max_total_items=None,
+            activity_total_response_max_bytes=None,
+        )
+    )
+    assert calls["count"] == 1
+
+
+def test_token_payload_and_exchange_code_residual_validation(monkeypatch):
+    """Token parsing should honor TTL guards and blank-code rejection."""
+    monkeypatch.setattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", "not-an-int")
+    parsed = services._parse_token_payload(
+        {
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+            "userId": "provider-user",
+        }
+    )
+    assert parsed.expires_in == 3600
+
+    monkeypatch.setattr(settings, "GARMIN_TOKEN_MAX_TTL_SECONDS", 60)
+    with pytest.raises(ValueError, match="invalid expires_in"):
+        services._parse_token_payload(
+            {
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "expires_in": 61,
+                "userId": "provider-user",
+            }
+        )
+
+    with pytest.raises(ValueError, match="authorization code is required"):
+        services.exchange_code_for_tokens("")
+
+
+def test_refresh_access_token_with_retry_defensive_state_branches(monkeypatch):
+    """Refresh retry should fail closed for inactive or deleted connections."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-residual@example.com")
+    inactive = _connection_with_token(user)
+    inactive.status = GarminConnection.Status.DISCONNECTED
+    inactive.save(update_fields=["status"])
+    using = router.db_for_write(type(inactive), instance=inactive)
+
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._refresh_access_token_with_retry(inactive, using)
+
+    deleted = _connection_with_token(
+        _create_user("refresh-residual-deleted@example.com"),
+        provider_account_id="provider-user-deleted",
+    )
+    deleted_using = router.db_for_write(type(deleted), instance=deleted)
+    GarminConnection.objects.filter(pk=deleted.pk).delete()
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._refresh_access_token_with_retry(deleted, deleted_using)
+
+
+def test_refresh_access_token_with_retry_handles_second_phase_state_loss(
+    monkeypatch,
+):
+    """Deletion or deactivation after refresh should still produce stable errors."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-phase-two@example.com")
+    connection = _connection_with_token(user)
+    using = router.db_for_write(type(connection), instance=connection)
+
+    def _refresh(_connection):
+        GarminConnection.objects.filter(pk=connection.pk).delete()
+        return services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._refresh_access_token_with_retry(connection, using)
+
+    connection = _connection_with_token(
+        _create_user("refresh-phase-two-inactive@example.com")
+    )
+    using = router.db_for_write(type(connection), instance=connection)
+
+    def _refresh_inactive(_connection):
+        GarminConnection.objects.filter(pk=connection.pk).update(
+            status=GarminConnection.Status.DISCONNECTED
+        )
+        return services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh_inactive)
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._refresh_access_token_with_retry(connection, using)
+
+
+def test_refresh_access_token_with_retry_exhausts_concurrent_generation_changes(
+    monkeypatch,
+):
+    """Two concurrent generation changes should exhaust the bounded retry loop."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("refresh-concurrent@example.com")
+    connection = _connection_with_token(user)
+    using = router.db_for_write(type(connection), instance=connection)
+
+    def _refresh(_connection):
+        stale = GarminConnection.objects.get(pk=connection.pk)
+        stale.connection_generation += 1
+        stale.save(update_fields=["connection_generation"])
+        return services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user",
+        )
+
+    monkeypatch.setattr(services, "refresh_access_token", _refresh)
+    with pytest.raises(ValueError, match="Garmin access token refresh failed"):
+        services._refresh_access_token_with_retry(connection, using)
+
+
+def test_account_claim_helpers_cover_blank_deleted_inactive_and_conflict_paths(
+    monkeypatch,
+):
+    """Provider-account claim helpers should fail closed across state edges."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("claim-residual@example.com")
+    connection = _connection_with_token(user, provider_account_id="")
+    using = router.db_for_write(type(connection), instance=connection)
+
+    services._reject_external_account_claim(
+        provider=connection.provider,
+        provider_account_id="",
+        exclude_pk=connection.pk,
+        using=using,
+    )
+
+    deleted = _connection_with_token(
+        _create_user("claim-deleted@example.com"), provider_account_id=""
+    )
+    deleted_using = router.db_for_write(type(deleted), instance=deleted)
+    GarminConnection.objects.filter(pk=deleted.pk).delete()
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._claim_provider_account_id(
+            connection_pk=deleted.pk,
+            provider_account_id="provider-user",
+            expected_generation=deleted.connection_generation,
+            expected_provider_account_id="",
+            using=deleted_using,
+        )
+
+    inactive = _connection_with_token(
+        _create_user("claim-inactive@example.com"), provider_account_id=""
+    )
+    inactive.status = GarminConnection.Status.DISCONNECTED
+    inactive.save(update_fields=["status"])
+    inactive_using = router.db_for_write(type(inactive), instance=inactive)
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services._claim_provider_account_id(
+            connection_pk=inactive.pk,
+            provider_account_id="provider-user",
+            expected_generation=inactive.connection_generation,
+            expected_provider_account_id="",
+            using=inactive_using,
+        )
+
+    claimed = _connection_with_token(
+        _create_user("claim-existing@example.com")
+    )
+    same_generation, same_account = services._claim_provider_account_id(
+        connection_pk=claimed.pk,
+        provider_account_id=claimed.provider_account_id,
+        expected_generation=claimed.connection_generation - 1,
+        expected_provider_account_id="",
+        using=router.db_for_write(type(claimed), instance=claimed),
+    )
+    assert same_generation == claimed.connection_generation
+    assert same_account == claimed.provider_account_id
+
+    with pytest.raises(ValueError, match="state changed during sync"):
+        services._claim_provider_account_id(
+            connection_pk=claimed.pk,
+            provider_account_id="different-account",
+            expected_generation=claimed.connection_generation,
+            expected_provider_account_id="",
+            using=router.db_for_write(type(claimed), instance=claimed),
+        )
+
+    original_save = GarminConnection.save
+
+    def _integrity_save(instance, *args, **kwargs):
+        if instance.pk == connection.pk and kwargs.get("update_fields") == [
+            "provider_account_id",
+            "connection_generation",
+            "updated_at",
+        ]:
+            raise IntegrityError("other constraint")
+        return original_save(instance, *args, **kwargs)
+
+    monkeypatch.setattr(GarminConnection, "save", _integrity_save)
+    with pytest.raises(IntegrityError, match="other constraint"):
+        services._claim_provider_account_id(
+            connection_pk=connection.pk,
+            provider_account_id="provider-user-new",
+            expected_generation=connection.connection_generation,
+            expected_provider_account_id="",
+            using=using,
+        )
+
+
+def test_direct_helper_branches_for_day_resolution_and_exercises(monkeypatch):
+    """Small day/exercise helper branches should be covered directly."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("helper-residual@example.com")
+    connection = _connection_with_token(user)
+    using = router.db_for_write(services.GarminConnection, instance=connection)
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="helper-1",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        day=day,
+        started_at=timezone.now(),
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+    )
+    normalized = services.NormalizedActivity(
+        provider_activity_id="helper-1",
+        provider_activity_type="cycle",
+        started_at=activity.started_at,
+        started_at_local_date=day.day,
+        started_at_local_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        provider_account_id="provider-user",
+    )
+
+    assert (
+        services._resolve_day_for_activity(connection, None, using=using)
+        is None
+    )
+    assert (
+        services._determine_pending_reason(None, normalized, "")
+        == "day_not_found"
+    )
+    normalized_missing_local = services.NormalizedActivity(
+        provider_activity_id="helper-2",
+        provider_activity_type="cycle",
+        started_at=activity.started_at,
+        started_at_local_date=None,
+        started_at_local_time=None,
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        provider_account_id="provider-user",
+    )
+    assert (
+        services._determine_pending_reason(None, normalized_missing_local, "")
+        == "missing_local_start"
+    )
+
+    services._recompute_days_from_locked_rows({}, {day.pk}, using=using)
+
+    assert (
+        services._retire_garmin_derived_exercise(
+            garmin_activity=activity,
+            activity=normalized,
+            linked_day_id=day.pk,
+            using=using,
+        )
+        is None
+    )
+
+    orphan_exercise = Exercise.objects.create(
+        day=day,
+        time=time(8, 0),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=120,
+        duration=timedelta(seconds=1800),
+        distance=Decimal("5.0"),
+    )
+    activity.exercise = orphan_exercise
+    activity.save(update_fields=["exercise"])
+    orphan_exercise.delete()
+    services._ensure_exercise(
+        activity,
+        day=day,
+        activity=normalized,
+        previous_activity=normalized,
+        previous_day_id=day.pk,
+        using=using,
+    )
+    activity.refresh_from_db()
+    assert activity.exercise is not None
+
+    manual_exercise = activity.exercise
+    assert manual_exercise is not None
+    manual_exercise.type = Exercise.EXERCISE_WALK
+    manual_exercise.save(update_fields=["type"])
+    services._ensure_exercise(
+        activity,
+        day=day,
+        activity=normalized,
+        previous_activity=normalized,
+        previous_day_id=day.pk,
+        using=using,
+    )
+    manual_exercise.refresh_from_db()
+    assert manual_exercise.type == Exercise.EXERCISE_WALK
+
+    unchanged = Exercise.objects.create(
+        day=day,
+        time=time(8, 0),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=120,
+        duration=timedelta(seconds=1800),
+        distance=Decimal("5.0"),
+    )
+    activity.exercise = unchanged
+    activity.save(update_fields=["exercise"])
+    services._ensure_exercise(
+        activity,
+        day=day,
+        activity=normalized,
+        previous_activity=normalized,
+        previous_day_id=day.pk,
+        using=using,
+    )
+    unchanged.refresh_from_db()
+    assert unchanged.day_id == day.pk
+
+
+def test_sync_connection_and_reconcile_residual_defensive_branches(
+    monkeypatch,
+):
+    """Residual sync and reconcile state checks should remain stable."""
+    _configure_garmin(monkeypatch)
+
+    with pytest.raises(TypeError, match="connection must be GarminConnection"):
+        services.sync_connection(object())
+
+    missing_user = GarminConnection()
+    with pytest.raises(ValueError, match="missing user"):
+        services.sync_connection(missing_user)
+
+    user, day = _create_user_with_day("sync-residual@example.com")
+    connection = _connection_with_token(user)
+    config = services._provider_config()
+    config["activity_batch_size"] = 0
+    monkeypatch.setattr(services, "_provider_config", lambda: config)
+    payloads = [
+        _activity_payload(
+            activity_id="sync-residual-1",
+            activity_type="cycle",
+            started_at=timezone.make_aware(
+                datetime.combine(day.day, time(8, 0))
+            ).isoformat(),
+        )
+    ]
+    monkeypatch.setattr(
+        services, "_iter_activity_payloads", lambda *_, **__: payloads
+    )
+    summary = services.sync_connection(connection)
+    assert summary.imported == 1
+
+    connection.refresh_from_db()
+    GarminConnection.objects.filter(pk=connection.pk).delete()
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(connection)
+
+    inactive_connection = _connection_with_token(
+        _create_user("reconcile-inactive@example.com")
+    )
+    inactive_connection.status = GarminConnection.Status.DISCONNECTED
+    inactive_connection.save(update_fields=["status"])
+    with pytest.raises(ValueError, match="Garmin connection is not active"):
+        services.reconcile_pending_garmin_activities(inactive_connection)
+
+
+def test_reconcile_pending_covers_skips_and_dayless_pending_flow(monkeypatch):
+    """Reconcile should skip disappeared rows and preserve dayless pending rows."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("reconcile-residual@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(8, 0)))
+
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-1",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day + timedelta(days=30),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    disappeared = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-missing",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="ambiguous_day",
+    )
+    disappeared_pk = disappeared.pk
+    disappeared.delete()
+
+    assert services.reconcile_pending_garmin_activities(connection) == 1
+    activity.refresh_from_db()
+    assert activity.day is None
+    assert activity.pending_reconciliation is True
+    assert activity.exercise is None
+    assert not GarminActivity.objects.filter(pk=disappeared_pk).exists()
+
+
+def test_sync_all_connections_disabled_and_error_tolerant(monkeypatch):
+    """Sync-all should short-circuit when disabled and continue on DB errors."""
+    monkeypatch.setattr(settings, "GARMIN_ENABLED", False)
+    assert not services.sync_all_connections()
+
+    _configure_garmin(monkeypatch)
+    first = _connection_with_token(
+        _create_user("sync-all-error-a@example.com")
+    )
+    second = _connection_with_token(
+        _create_user("sync-all-error-b@example.com"),
+        provider_account_id="provider-user-2",
+    )
+
+    def _sync(connection_obj):
+        if connection_obj.pk == first.pk:
+            raise OperationalError("db busy")
+        return GarminSyncSummary(1, 0, 0, 0)
+
+    monkeypatch.setattr(services, "sync_connection", _sync)
+    assert services.sync_all_connections() == {
+        second.pk: GarminSyncSummary(1, 0, 0, 0)
+    }
+
+
+def test_request_json_with_size_redirect_and_chunk_limit_branches(monkeypatch):
+    """Size-tracking requests should reject redirects and chunk overflows."""
+    redirect_response = _FakeStreamingResponse(
+        status_code=302,
+        chunks=[b'{"ok": true}'],
+        headers={"Location": "https://garmin.example.com/login"},
+    )
+    monkeypatch.setattr(
+        services.requests, "request", lambda *_, **__: redirect_response
+    )
+    with pytest.raises(ValueError, match="Garmin activity fetch failed"):
+        services._request_json_with_size(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=1024,
+        )
+
+    overflow_response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b"12", b"34"],
+        headers={},
+    )
+    monkeypatch.setattr(
+        services.requests, "request", lambda *_, **__: overflow_response
+    )
+    with pytest.raises(ValueError, match="exceeded limit"):
+        services._request_json_with_size(
+            "GET",
+            "https://garmin.example.com/activities",
+            "activity fetch",
+            timeout=10.0,
+            max_response_bytes=3,
+        )
+
+
+def test_helper_residual_small_branch_cases(monkeypatch):
+    """Miscellaneous direct helper branches should remain covered."""
+    with pytest.raises(ValueError, match="start time is invalid"):
+        services._parse_local_start_time(object(), 0)
+
+    assert services._extract_payload_local_start_time(
+        {"localStartTime": "2026-08-01T08:00:00-04:00", "offsetMinutes": -240}
+    ) == ("2026-08-01T08:00:00-04:00", -240)
+
+    class _OddDataDict(dict):
+        def __contains__(self, key):
+            if key == "data":
+                return True
+            return super().__contains__(key)
+
+        def get(self, key, default=None):
+            if key == "data":
+                return None
+            return super().get(key, default)
+
+        def __getitem__(self, key):
+            if key == "data":
+                return [{"row": 1}]
+            return super().__getitem__(key)
+
+    assert services._extract_activity_items(_OddDataDict()) == [{"row": 1}]
+
+    _configure_garmin(monkeypatch)
+    user = _create_user("state-max@example.com")
+    now = timezone.now()
+    for idx in range(services._provider_config()["state_max_in_flight"]):
+        GarminOAuthState.create_for_user(
+            user=user,
+            raw_state=f"state-{idx}",
+            provider=GARMIN_PROVIDER,
+            expires_at=now + timedelta(minutes=5),
+        )
+    with pytest.raises(ValueError, match="Too many Garmin OAuth sessions"):
+        services.begin_authorization(user)
+
+
+def test_retire_and_access_token_direct_residual_branches(monkeypatch):
+    """Retirement and access-token helpers should cover direct edge branches."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("retire-residual@example.com")
+    connection = _connection_with_token(user, provider_account_id="")
+    using = router.db_for_write(type(connection), instance=connection)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(8, 0)))
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="retire-1",
+        provider_activity_type="cycle",
+        provider_account_id="",
+        started_at=started_at,
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+    )
+    normalized = services.NormalizedActivity(
+        provider_activity_id="retire-1",
+        provider_activity_type="cycle",
+        started_at=started_at,
+        started_at_local_date=day.day,
+        started_at_local_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        provider_account_id="",
+    )
+    assert (
+        services._retire_garmin_derived_exercise(
+            garmin_activity=activity,
+            activity=normalized,
+            linked_day_id=day.pk,
+            using=using,
+        )
+        is None
+    )
+
+    exercise = Exercise.objects.create(
+        day=day,
+        time=time(8, 0),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=120,
+        duration=timedelta(seconds=1800),
+        distance=Decimal("5.0"),
+    )
+    activity.exercise = exercise
+    activity.save(update_fields=["exercise"])
+    activity.connection.user = _create_user("retire-other-owner@example.com")
+    assert (
+        services._retire_garmin_derived_exercise(
+            garmin_activity=activity,
+            activity=normalized,
+            linked_day_id=day.pk,
+            using=using,
+        )
+        is None
+    )
+
+    connection = _connection_with_token(
+        _create_user("access-not-connected@example.com"),
+        provider_account_id="",
+    )
+    connection.access_token_expires_at = None
+    connection.access_token_encrypted = ""
+    connection.refresh_token_encrypted = ""
+    with pytest.raises(ValueError, match="not connected"):
+        services._ensure_access_token(connection)
+
+    connection = _connection_with_token(
+        _create_user("access-refresh-missing@example.com"),
+        provider_account_id="",
+    )
+    connection.refresh_token_encrypted = ""
+    connection.access_token_encrypted = ""
+    connection.save(
+        update_fields=["refresh_token_encrypted", "access_token_encrypted"]
+    )
+    with pytest.raises(ValueError, match="refresh token is missing"):
+        services._refresh_access_token_with_retry(
+            connection,
+            router.db_for_write(type(connection), instance=connection),
+        )
+
+
+def test_refresh_and_claim_residual_direct_state_branches(monkeypatch):
+    """Direct refresh/claim paths should cover remaining deterministic edges."""
+    _configure_garmin(monkeypatch)
+    claimed = _connection_with_token(
+        _create_user("claim-current-owner@example.com"),
+        provider_account_id="provider-user-current",
+    )
+    generation, account = services._claim_provider_account_id(
+        connection_pk=claimed.pk,
+        provider_account_id="provider-user-current",
+        expected_generation=claimed.connection_generation,
+        expected_provider_account_id="provider-user-current",
+        using=router.db_for_write(type(claimed), instance=claimed),
+    )
+    assert (generation, account) == (
+        claimed.connection_generation,
+        "provider-user-current",
+    )
+
+    connection = _connection_with_token(
+        _create_user("refresh-save-integrity@example.com"),
+        provider_account_id="provider-user-save",
+    )
+    using = router.db_for_write(type(connection), instance=connection)
+    monkeypatch.setattr(
+        services,
+        "refresh_access_token",
+        lambda _connection: services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user-save",
+        ),
+    )
+    original_save = GarminConnection.save
+
+    def _boom_save(instance, *args, **kwargs):
+        if instance.pk == connection.pk and kwargs.get("update_fields"):
+            raise IntegrityError("plain integrity")
+        return original_save(instance, *args, **kwargs)
+
+    monkeypatch.setattr(GarminConnection, "save", _boom_save)
+    with pytest.raises(IntegrityError, match="plain integrity"):
+        services._refresh_access_token_with_retry(connection, using)
+
+
+def test_sync_and_reconcile_residual_state_change_branches(monkeypatch):
+    """Sync/reconcile should fail closed on replay and state-change edges."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-state-change@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(
+        datetime.combine(day.day, time(8, 0))
+    ).isoformat()
+    first = _activity_payload(
+        activity_id="replay-1",
+        activity_type="cycle",
+        started_at=started_at,
+    )
+    changed = _activity_payload(
+        activity_id="replay-2",
+        activity_type="cycle",
+        started_at=started_at,
+    )
+    attempts = {"count": 0}
+
+    def _iter(*args, **kwargs):  # noqa: ARG001
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            yield first
+            raise ValueError("Garmin activity fetch unauthorized")
+        yield changed
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+    monkeypatch.setattr(
+        services,
+        "refresh_access_token",
+        lambda _connection: services.GarminTokenPair(
+            access_token="refreshed-access",
+            refresh_token="refresh-token",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        ),
+    )
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(connection)
+
+    connection = _connection_with_token(
+        _create_user("sync-final-deleted@example.com"),
+        provider_account_id="provider-user-final-delete",
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [
+            _activity_payload(
+                activity_id="final-delete",
+                activity_type="cycle",
+                started_at=started_at,
+                user_id="provider-user-final-delete",
+            )
+        ],
+    )
+
+    original_now = timezone.now
+
+    def _now_and_delete():
+        GarminConnection.objects.filter(pk=connection.pk).delete()
+        return original_now()
+
+    monkeypatch.setattr(services.timezone, "now", _now_and_delete)
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(connection)
+    monkeypatch.setattr(services.timezone, "now", original_now)
+
+    user, day = _create_user_with_day("reconcile-state-change@example.com")
+    connection = _connection_with_token(
+        user,
+        provider_account_id="provider-user-reconcile-state",
+    )
+    started = timezone.make_aware(datetime.combine(day.day, time(8, 0)))
+    GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-state-change",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user-reconcile-state",
+        started_at=started,
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="ambiguous_day",
+    )
+    assert services.reconcile_pending_garmin_activities(connection) == 1
+
+
+def test_request_and_distance_helper_direct_residual_paths(monkeypatch):
+    """Direct helpers should cover valid content-length and distance edges."""
+    response = _FakeStreamingResponse(
+        status_code=200,
+        chunks=[b'{"ok": true}'],
+        headers={"Content-Length": "12"},
+    )
+    monkeypatch.setattr(
+        services.requests, "request", lambda *_, **__: response
+    )
+    payload, size = services._request_json_with_size(
+        "GET",
+        "https://garmin.example.com/activities",
+        "activity fetch",
+        timeout=10.0,
+        max_response_bytes=1024,
+    )
+    assert payload == {"ok": True}
+    assert size == 12
+
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(
+            services._ACTIVITY_DISTANCE_MAX + Decimal("0.01"),
+            "km",
+            source="distance",
+        )
+
+    class _QuantizeFailure:
+        def __gt__(self, other):  # noqa: ARG002
+            return False
+
+        def __truediv__(self, other):  # noqa: ARG002
+            return self
+
+        def __mul__(self, other):  # noqa: ARG002
+            return self
+
+        def quantize(self, *args, **kwargs):  # noqa: ARG002
+            raise services.InvalidOperation("boom")
+
+    monkeypatch.setattr(
+        services, "_coerce_decimal", lambda *_, **__: _QuantizeFailure()
+    )
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(1, "km", source="distance")
+
+    class _QuantizeOverflow(_QuantizeFailure):
+        def quantize(self, *args, **kwargs):  # noqa: ARG002
+            return services._ACTIVITY_DISTANCE_MAX + Decimal("0.01")
+
+    monkeypatch.setattr(
+        services,
+        "_coerce_decimal",
+        lambda *_, **__: _QuantizeOverflow(),
+    )
+    with pytest.raises(ValueError, match="distance out of supported bounds"):
+        services._validate_distance_km(1, "km", source="distance")
+
+
+def test_local_start_and_retire_helper_direct_residual_paths(monkeypatch):
+    """Extraction and retirement helpers should cover remaining direct branches."""
+    assert services._extract_payload_local_start_time(
+        {
+            "startTimeLocal": None,
+            "startLocalTime": "2026-08-01T08:00:00",
+            "timezoneOffsetMinutes": None,
+            "offsetMinutes": -240,
+        }
+    ) == ("2026-08-01T08:00:00", -240)
+
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("retire-direct@example.com")
+    connection = _connection_with_token(user)
+    using = router.db_for_write(type(connection), instance=connection)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(8, 0)))
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="retire-direct-1",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+    )
+    normalized = services.NormalizedActivity(
+        provider_activity_id="retire-direct-1",
+        provider_activity_type="cycle",
+        started_at=started_at,
+        started_at_local_date=day.day,
+        started_at_local_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        provider_account_id="provider-user",
+    )
+
+    activity.exercise_id = 999999
+    assert (
+        services._retire_garmin_derived_exercise(
+            garmin_activity=activity,
+            activity=normalized,
+            linked_day_id=day.pk,
+            using=using,
+        )
+        is None
+    )
+
+    manual = Exercise.objects.create(
+        day=day,
+        time=time(8, 0),
+        type=Exercise.EXERCISE_WALK,
+        kcals=120,
+        duration=timedelta(seconds=1800),
+        distance=Decimal("5.0"),
+    )
+    activity.exercise = manual
+    activity.exercise_id = manual.pk
+    assert (
+        services._retire_garmin_derived_exercise(
+            garmin_activity=activity,
+            activity=normalized,
+            linked_day_id=day.pk,
+            using=using,
+        )
+        is None
+    )
+
+
+def test_refresh_claim_and_access_token_direct_residual_paths(monkeypatch):
+    """Refresh and claim helpers should cover remaining deterministic edges."""
+    _configure_garmin(monkeypatch)
+    user = _create_user("access-fallback@example.com")
+    connection = _connection_with_token(
+        user, provider_account_id="provider-user-a"
+    )
+    connection.access_token_encrypted = ""
+    connection.save(update_fields=["access_token_encrypted"])
+
+    refresh_calls: list[bool] = []
+    original_refresh_with_retry = services._refresh_access_token_with_retry
+    monkeypatch.setattr(
+        services,
+        "_refresh_access_token_with_retry",
+        lambda *args, **kwargs: (  # noqa: ARG005
+            refresh_calls.append(True) or "refreshed-access",
+            connection.connection_generation + 1,
+            "provider-user-a",
+        ),
+    )
+    assert services._ensure_access_token(connection) == (
+        "refreshed-access",
+        connection.connection_generation + 1,
+        "provider-user-a",
+    )
+    assert refresh_calls == [True]
+    monkeypatch.setattr(
+        services,
+        "_refresh_access_token_with_retry",
+        original_refresh_with_retry,
+    )
+
+    fallback = _connection_with_token(
+        _create_user("access-unreadable-unexpired@example.com"),
+        provider_account_id="provider-user-fallback",
+    )
+    monkeypatch.setattr(
+        GarminConnection,
+        "has_unexpired_access_token",
+        property(lambda instance: True),
+    )
+    monkeypatch.setattr(
+        GarminConnection,
+        "access_token",
+        property(lambda instance: None),
+    )
+    monkeypatch.setattr(
+        services,
+        "_refresh_access_token_with_retry",
+        lambda *args, **kwargs: (  # noqa: ARG005
+            "fallback-access",
+            fallback.connection_generation + 1,
+            "provider-user-fallback",
+        ),
+    )
+    assert services._ensure_access_token(fallback) == (
+        "fallback-access",
+        fallback.connection_generation + 1,
+        "provider-user-fallback",
+    )
+    monkeypatch.setattr(
+        services,
+        "_refresh_access_token_with_retry",
+        original_refresh_with_retry,
+    )
+
+    refreshed = _connection_with_token(
+        _create_user("refresh-missing-access@example.com"),
+        provider_account_id="provider-user-b",
+    )
+    using = router.db_for_write(type(refreshed), instance=refreshed)
+    monkeypatch.setattr(
+        services,
+        "refresh_access_token",
+        lambda _connection: services.GarminTokenPair(
+            access_token="rotated-access",
+            refresh_token="rotated-refresh",
+            expires_in=1800,
+            scope="read write",
+            provider_account_id="provider-user-b",
+        ),
+    )
+    monkeypatch.setattr(
+        GarminConnection,
+        "access_token",
+        property(lambda instance: None),
+    )
+    with pytest.raises(ValueError, match="Garmin access token is unavailable"):
+        services._refresh_access_token_with_retry(refreshed, using)
+
+    claimed = _connection_with_token(
+        _create_user("claim-mismatch-current@example.com"),
+        provider_account_id="provider-user-current",
+    )
+    with pytest.raises(ValueError, match="state changed during sync"):
+        services._claim_provider_account_id(
+            connection_pk=claimed.pk,
+            provider_account_id="provider-user-other",
+            expected_generation=claimed.connection_generation,
+            expected_provider_account_id="provider-user-current",
+            using=router.db_for_write(type(claimed), instance=claimed),
+        )
+
+
+def test_sync_connection_direct_residual_paths(monkeypatch):
+    """Sync should cover retry-shortening and final state-edge failures."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("sync-short-retry@example.com")
+    connection = _connection_with_token(user)
+    started_at = timezone.make_aware(
+        datetime.combine(day.day, time(8, 0))
+    ).isoformat()
+    first = _activity_payload(
+        activity_id="retry-short-1",
+        activity_type="cycle",
+        started_at=started_at,
+    )
+    attempts = {"count": 0}
+
+    def _retry_short(*args, **kwargs):  # noqa: ARG001
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            yield first
+            raise ValueError("Garmin activity fetch unauthorized")
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _retry_short)
+    monkeypatch.setattr(
+        services,
+        "refresh_access_token",
+        lambda _connection: services.GarminTokenPair(
+            access_token="retry-short-access",
+            refresh_token="retry-short-refresh",
+            expires_in=3600,
+            scope="read write",
+            provider_account_id="provider-user",
+        ),
+    )
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(connection)
+
+    inactive_user, inactive_day = _create_user_with_day(
+        "sync-flush-inactive@example.com"
+    )
+    inactive_connection = _connection_with_token(
+        inactive_user,
+        provider_account_id="provider-user-inactive",
+    )
+    monkeypatch.setattr(
+        services,
+        "_ensure_access_token",
+        lambda _connection, force_refresh=False: (  # noqa: ARG001
+            "access-token",
+            inactive_connection.connection_generation,
+            "provider-user-inactive",
+        ),
+    )
+    monkeypatch.setattr(
+        GarminConnection,
+        "is_active",
+        property(lambda self: False),
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [
+            _activity_payload(
+                activity_id="inactive-flush-1",
+                activity_type="cycle",
+                started_at=timezone.make_aware(
+                    datetime.combine(inactive_day.day, time(8, 0))
+                ).isoformat(),
+                user_id="provider-user-inactive",
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="Garmin activity import failed"):
+        services.sync_connection(inactive_connection)
+
+    update_user, update_day = _create_user_with_day(
+        "sync-existing-no-day@example.com"
+    )
+    update_connection = _connection_with_token(
+        update_user,
+        provider_account_id="provider-user-update",
+    )
+    GarminActivity.objects.create(
+        connection=update_connection,
+        provider_activity_id="existing-no-day-1",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user-update",
+        started_at=timezone.make_aware(
+            datetime.combine(update_day.day, time(8, 0))
+        ),
+        provider_local_started_date=update_day.day + timedelta(days=20),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=100,
+        duration_seconds=1200,
+        distance=Decimal("3.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    monkeypatch.setattr(
+        GarminConnection,
+        "is_active",
+        property(lambda self: True),
+    )
+    monkeypatch.setattr(
+        services,
+        "_ensure_access_token",
+        lambda _connection, force_refresh=False: (  # noqa: ARG001
+            "access-token",
+            update_connection.connection_generation,
+            "provider-user-update",
+        ),
+    )
+    monkeypatch.setattr(
+        services,
+        "_iter_activity_payloads",
+        lambda *_, **__: [
+            _activity_payload(
+                activity_id="existing-no-day-1",
+                activity_type="cycle",
+                started_at=timezone.make_aware(
+                    datetime.combine(update_day.day, time(8, 0))
+                ).isoformat(),
+                user_id="provider-user-update",
+            )
+        ],
+    )
+    summary = services.sync_connection(update_connection)
+    assert summary == GarminSyncSummary(
+        imported=0,
+        duplicates=1,
+        unsupported=0,
+        invalid=0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        ("deleted", "Garmin activity import failed"),
+        ("inactive", "Garmin activity import failed"),
+        ("state-changed", "Garmin connection state changed during sync"),
+        ("ownership-conflict", GARMIN_PROVIDER_ACCOUNT_OWNERSHIP_CONFLICT),
+    ],
+)
+def test_sync_connection_final_state_direct_residual_paths(
+    monkeypatch,
+    mode: str,
+    message: str,
+):
+    """Final sync persistence should fail closed for residual state edges."""
+    _configure_garmin(monkeypatch)
+    connection = _connection_with_token(
+        _create_user(f"sync-final-{mode}@example.com"),
+        provider_account_id=f"provider-user-final-{mode}",
+    )
+    original_save = GarminConnection.save
+
+    def _iter(*args, **kwargs):  # noqa: ARG001
+        if mode == "deleted":
+            GarminConnection.objects.filter(pk=connection.pk).delete()
+        elif mode == "inactive":
+            GarminConnection.objects.filter(pk=connection.pk).update(
+                status=GarminConnection.Status.DISCONNECTED
+            )
+        elif mode == "state-changed":
+            GarminConnection.objects.filter(pk=connection.pk).update(
+                connection_generation=connection.connection_generation + 1
+            )
+        yield from ()
+
+    monkeypatch.setattr(services, "_iter_activity_payloads", _iter)
+    if mode == "ownership-conflict":
+        monkeypatch.setattr(
+            services,
+            "is_provider_account_ownership_conflict",
+            lambda exc: True,
+        )
+
+        def _conflict_save(instance, *args, **kwargs):
+            if instance.pk == connection.pk and kwargs.get(
+                "update_fields"
+            ) == [
+                "last_synced_at",
+                "last_sync_summary",
+                "access_token_expires_at",
+                "updated_at",
+            ]:
+                raise IntegrityError("simulated ownership conflict")
+            return original_save(instance, *args, **kwargs)
+
+        monkeypatch.setattr(GarminConnection, "save", _conflict_save)
+
+    with pytest.raises(ValueError, match=message):
+        services.sync_connection(connection)
+
+
+def test_reconcile_pending_direct_residual_paths(monkeypatch):
+    """Reconcile should cover stale, skipped, ambiguous, and retired pending rows."""
+    _configure_garmin(monkeypatch)
+    user, day = _create_user_with_day("reconcile-direct@example.com")
+    connection = _connection_with_token(user)
+    using = router.db_for_write(type(connection), instance=connection)
+    started_at = timezone.make_aware(datetime.combine(day.day, time(8, 0)))
+
+    stale = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-stale",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day,
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    skipped = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-skip",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day + timedelta(days=1),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    ambiguous = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-ambiguous",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        provider_local_started_date=day.day + timedelta(days=2),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    derived = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-retire",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        day=day,
+        provider_local_started_date=day.day + timedelta(days=30),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    derived_exercise = Exercise.objects.create(
+        day=day,
+        time=time(8, 0),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=120,
+        duration=timedelta(seconds=1800),
+        distance=Decimal("5.0"),
+    )
+    derived.exercise = derived_exercise
+    derived.save(update_fields=["exercise"])
+    retained = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="reconcile-retain",
+        provider_activity_type="cycle",
+        provider_account_id="provider-user",
+        started_at=started_at,
+        day=day,
+        provider_local_started_date=day.day + timedelta(days=31),
+        provider_local_started_time=time(8, 0),
+        provider_timezone_offset_minutes=0,
+        kcals=120,
+        duration_seconds=1800,
+        distance=Decimal("5.0"),
+        pending_reconciliation=True,
+        pending_reconciliation_reason="day_not_found",
+    )
+    retained_exercise = Exercise.objects.create(
+        day=day,
+        time=time(9, 0),
+        type=Exercise.EXERCISE_WALK,
+        kcals=100,
+        duration=timedelta(seconds=1200),
+        distance=Decimal("2.0"),
+    )
+    retained.exercise = retained_exercise
+    retained.save(update_fields=["exercise"])
+
+    queryset_type = type(
+        GarminActivity.objects.using(using).select_for_update(of=("self",))
+    )
+    original_get = queryset_type.get
+    original_resolve = services._resolve_day_for_activity
+
+    def _patched_get(queryset, *args, **kwargs):
+        pk = kwargs.get("pk")
+        if queryset.model is not GarminActivity:
+            return original_get(queryset, *args, **kwargs)
+        if pk == stale.pk:
+            raise GarminActivity.DoesNotExist
+        result = original_get(queryset, *args, **kwargs)
+        if pk == skipped.pk:
+            result.pending_reconciliation = False
+        return result
+
+    def _patched_resolve(
+        current_connection, started_at_local_date, *, using
+    ):  # noqa: ARG001
+        if started_at_local_date == ambiguous.provider_local_started_date:
+            raise ValueError("ambiguous")
+        return original_resolve(
+            current_connection,
+            started_at_local_date,
+            using=using,
+        )
+
+    monkeypatch.setattr(queryset_type, "get", _patched_get)
+    monkeypatch.setattr(
+        services, "_resolve_day_for_activity", _patched_resolve
+    )
+
+    assert services.reconcile_pending_garmin_activities(connection) == 3
+
+    ambiguous.refresh_from_db()
+    assert ambiguous.pending_reconciliation_reason == "ambiguous_day"
+    derived.refresh_from_db()
+    assert derived.day is None
+    assert derived.exercise is None
+    retained.refresh_from_db()
+    assert retained.exercise_id == retained_exercise.pk

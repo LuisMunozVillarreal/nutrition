@@ -1,5 +1,7 @@
 """Garmin admin immutability tests."""
 
+# pylint: disable=protected-access
+
 import pytest
 from django.contrib import admin
 from django.contrib.auth import get_user_model

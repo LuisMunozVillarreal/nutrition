@@ -1,9 +1,14 @@
 """Transactional intake aggregate regression tests."""
 
+# pylint: disable=too-many-locals,import-outside-toplevel
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+
 # pylint: disable=missing-any-param-doc,missing-return-doc
 # pylint: disable=missing-return-type-doc,protected-access
 
+from contextlib import nullcontext
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from django.contrib import admin
@@ -502,3 +507,126 @@ def test_intake_write_rolls_back_when_aggregate_recalculation_fails(
         list(Intake.objects.filter(day=day).values_list("pk", "energy_kcal"))
         == original_intakes
     )
+
+
+def test_cascade_queryset_without_rows_uses_normal_delete(mocker):
+    """Cascade roots skip locking when the intake query resolves empty rows."""
+    from apps.plans.models.intake import IntakeCascadeQuerySet
+
+    queryset = IntakeCascadeQuerySet(model=Day, using="default")
+    targets = mocker.Mock()
+    targets.exists.return_value = True
+    targets.order_by.return_value.values_list.return_value.distinct.return_value = ()
+    mocker.patch(
+        "apps.plans.models.intake.intake_targets_for_cascade",
+        return_value=targets,
+    )
+    normal_delete = mocker.patch.object(
+        QuerySet, "delete", return_value=(1, {"plans.Day": 1})
+    )
+
+    assert queryset.delete() == (1, {"plans.Day": 1})
+    normal_delete.assert_called_once_with()
+
+
+def test_cascade_queryset_reuses_covering_locks_without_recompute_bundle(
+    mocker,
+):
+    """Existing deletion locks may cover rows without aggregate recompute."""
+    from apps.plans.models.intake import IntakeCascadeQuerySet
+
+    queryset = IntakeCascadeQuerySet(model=Day, using="default")
+    targets = mocker.Mock()
+    targets.exists.return_value = True
+    targets.order_by.return_value.values_list.return_value.distinct.return_value = (
+        (8, 3),
+    )
+    mocker.patch(
+        "apps.plans.models.intake.intake_targets_for_cascade",
+        return_value=targets,
+    )
+    mocker.patch(
+        "apps.plans.models.intake.get_intake_deletion_locks",
+        return_value=SimpleNamespace(
+            covers=lambda *_args, **_kwargs: True,
+            aggregate_locks=None,
+        ),
+    )
+    normal_delete = mocker.patch.object(
+        QuerySet, "delete", return_value=(1, {"plans.Day": 1})
+    )
+
+    assert queryset.delete() == (1, {"plans.Day": 1})
+    normal_delete.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    ("intake_exists", "exercise_exists", "intake_locked", "exercise_locked"),
+    [
+        (True, True, True, True),
+        (False, False, False, False),
+        (True, False, False, False),
+    ],
+)
+def test_day_instance_cascade_delete_handles_combined_and_empty_lock_sets(
+    mocker,
+    day,
+    intake_exists,
+    exercise_exists,
+    intake_locked,
+    exercise_locked,
+):
+    """Direct root deletion supports both dual-lock and lock-free cascades."""
+    target_qs = SimpleNamespace(
+        delete=mocker.Mock(return_value=(1, {"plans.Day": 1}))
+    )
+    manager = SimpleNamespace(
+        using=lambda _using: SimpleNamespace(
+            filter=lambda **_kwargs: target_qs
+        )
+    )
+    mocker.patch.object(Day, "objects", manager)
+    intake_targets = mocker.Mock()
+    intake_targets.exists.return_value = intake_exists
+    intake_targets.order_by.return_value.values_list.return_value = [day.pk]
+    exercise_targets = mocker.Mock()
+    exercise_targets.exists.return_value = exercise_exists
+    exercise_targets.order_by.return_value.values_list.return_value = [day.pk]
+    mocker.patch(
+        "apps.plans.models.intake.intake_targets_for_cascade",
+        return_value=intake_targets,
+    )
+    mocker.patch(
+        "apps.exercises.models.exercise_targets_for_cascade",
+        return_value=exercise_targets,
+    )
+    aggregate_locks = SimpleNamespace(clear_markers=mocker.Mock())
+    lock_plan = mocker.patch(
+        "apps.plans.models.intake.lock_plan_aggregate_rows",
+        return_value=aggregate_locks,
+    )
+    mocker.patch(
+        "apps.plans.models.intake.lock_intake_deletion_rows",
+        return_value=object() if intake_locked else None,
+    )
+    mocker.patch(
+        "apps.exercises.models.lock_exercise_deletion_rows",
+        return_value=object() if exercise_locked else None,
+    )
+    mocker.patch(
+        "apps.plans.models.intake.activate_intake_deletion_locks",
+        side_effect=lambda _locks: nullcontext(),
+    )
+    mocker.patch(
+        "apps.exercises.models.activate_exercise_deletion_locks",
+        side_effect=lambda _locks: nullcontext(),
+    )
+
+    result = day.delete()
+
+    assert result == (1, {"plans.Day": 1})
+    if intake_exists or exercise_exists:
+        lock_plan.assert_called_once_with(using="default", day_ids=(day.pk,))
+        aggregate_locks.clear_markers.assert_called_once_with()
+    else:
+        lock_plan.assert_not_called()

@@ -1,8 +1,11 @@
 """Management command for Garmin activity synchronization."""
 
+# pylint: disable=missing-param-doc,missing-type-doc,missing-raises-doc
+
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -23,7 +26,7 @@ class Command(BaseCommand):
 
     help = "Synchronize Garmin activities for one or all connected users."
 
-    def add_arguments(self, parser):  # type: ignore[override]
+    def add_arguments(self, parser: Any) -> None:  # type: ignore[override]
         """Register the optional user filter."""
         parser.add_argument(
             "--user-id",
@@ -33,7 +36,7 @@ class Command(BaseCommand):
             help="Optional user id to sync only one Garmin connection.",
         )
 
-    def handle(self, *args, **options):  # type: ignore[override]
+    def handle(self, *args: Any, **options: Any) -> None:  # type: ignore[override]
         """Synchronize selected connections and emit a redacted summary."""
         if not bool(getattr(settings, "GARMIN_ENABLED", False)):
             self.stdout.write("Garmin integration is disabled; skipping sync.")

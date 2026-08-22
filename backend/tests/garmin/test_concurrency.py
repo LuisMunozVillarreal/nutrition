@@ -1,5 +1,8 @@
 """PostgreSQL concurrency regressions for Garmin activity imports."""
 
+# pylint: disable=consider-using-from-import,protected-access,too-many-locals
+# pylint: disable=unnecessary-lambda
+
 from __future__ import annotations
 
 import threading

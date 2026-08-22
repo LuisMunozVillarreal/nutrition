@@ -1,13 +1,16 @@
 """Garmin model persistence and crypto/state tests."""
 
+# pylint: disable=protected-access
+
 from datetime import date, time, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
@@ -16,6 +19,7 @@ from apps.garmin.models import (
     GarminActivity,
     GarminConnection,
     GarminOAuthState,
+    is_provider_account_ownership_conflict,
 )
 from apps.garmin.services import GarminTokenPair
 from apps.measurements.models import Measurement
@@ -233,6 +237,37 @@ def test_clear_tokens_preserves_provider_identity_but_erases_secrets(
     assert connection.is_connected is False
 
 
+def test_clear_tokens_resets_expiry_placeholder_and_sync_metadata(monkeypatch):
+    """Clearing tokens must drop derived sync state and placeholder flags."""
+    _set_encryption_key(monkeypatch)
+    user = _create_user("connection-clear-derived-state@example.com")
+    connection = GarminConnection.objects.create(
+        user=user,
+        authorization_placeholder=True,
+        last_synced_at=timezone.now(),
+        last_sync_summary={"imported": 3},
+    )
+    connection.set_tokens(
+        GarminTokenPair(
+            access_token="access-plain",
+            refresh_token="refresh-plain",
+            expires_in=3600,
+            scope="read",
+            provider_account_id="provider-account-a",
+        ),
+        expires_in=3600,
+    )
+    initial_generation = connection.connection_generation
+
+    connection.clear_tokens()
+
+    assert connection.access_token_expires_at is None
+    assert connection.authorization_placeholder is False
+    assert connection.last_synced_at is None
+    assert connection.last_sync_summary == {}
+    assert connection.connection_generation == initial_generation + 1
+
+
 def test_connection_tokens_fail_gracefully_on_wrong_encryption_key(
     monkeypatch,
 ):
@@ -267,6 +302,83 @@ def test_connection_token_access_blocked_when_key_is_missing(monkeypatch):
         ImproperlyConfigured, match="GARMIN_TOKEN_ENCRYPTION_KEY is required"
     ):
         _ = connection.access_token
+
+
+def test_connection_helper_properties_cover_empty_and_expired_tokens(
+    monkeypatch,
+):
+    """Connection sync flags should fail closed for empty or expired secrets."""
+    _set_encryption_key(monkeypatch)
+    user = _create_user("connection-helper-properties@example.com")
+    connection = GarminConnection.objects.create(user=user)
+
+    assert connection.has_refresh_token is False
+    assert connection.has_unexpired_access_token is False
+    assert connection.can_sync is False
+    assert connection.is_connected is False
+
+    connection.access_token_encrypted = "ciphertext"
+    connection.access_token_expires_at = None
+    assert connection.has_unexpired_access_token is True
+
+    connection.access_token_expires_at = timezone.now() - timedelta(minutes=1)
+    assert connection.has_unexpired_access_token is False
+
+
+def test_connection_helper_properties_tolerate_encrypted_field_access_failure(
+    monkeypatch,
+):
+    """Refresh-token presence should fail closed on field access errors."""
+    user = _create_user("connection-helper-field-error@example.com")
+    connection = GarminConnection(user=user)
+
+    def _raise(_self):
+        raise ImproperlyConfigured("missing encryption config")
+
+    monkeypatch.setattr(
+        GarminConnection,
+        "refresh_token_encrypted",
+        property(_raise),
+        raising=False,
+    )
+
+    assert connection.has_refresh_token is False
+
+
+def test_connection_encrypt_and_decrypt_empty_values(monkeypatch):
+    """Blank token payloads round-trip to empty sentinels."""
+    _set_encryption_key(monkeypatch)
+
+    assert GarminConnection._encrypt_value("") == ""
+    assert GarminConnection._encrypt_value(None) == ""
+    assert GarminConnection._decrypt_value("") == ""
+    assert GarminConnection._decrypt_value(None) == ""
+    assert GarminConnection.access_token.fget(GarminConnection()) is None
+    assert GarminConnection.refresh_token.fget(GarminConnection()) is None
+
+
+def test_set_tokens_preserves_blank_scope_and_missing_provider_identity(
+    monkeypatch,
+):
+    """Optional token fields should not invent provider metadata."""
+    _set_encryption_key(monkeypatch)
+    user = _create_user("connection-blank-scope@example.com")
+    connection = GarminConnection.objects.create(user=user)
+
+    connection.set_tokens(
+        GarminTokenPair(
+            access_token="access-plain",
+            refresh_token=None,
+            expires_in=3600,
+            scope="   ",
+            provider_account_id=None,
+        ),
+        expires_in=3600,
+    )
+
+    assert connection.provider_account_id == ""
+    assert connection.provider_scopes == []
+    assert connection.refresh_token is None
 
 
 def test_connection_primary_keyring_key_is_used_for_new_writes(monkeypatch):
@@ -382,3 +494,282 @@ def test_connection_keyring_and_legacy_decrypt_old_ciphertext(monkeypatch):
         Fernet(legacy_key.encode()).decrypt(legacy_ciphertext.encode())
         == b"legacy-access"
     )
+
+
+def test_connection_clean_skips_unsaved_rows():
+    """Unsaved connection validation should no-op before reverse relations exist."""
+    user = _create_user("connection-clean-unsaved@example.com")
+
+    GarminConnection(user=user).clean()
+
+
+def test_connection_clean_rejects_cross_user_day_and_exercise_links(
+    monkeypatch,
+):
+    """Persisted connection validation must reject mismatched owner links."""
+    _set_encryption_key(monkeypatch)
+    owner, owner_day = _create_user_with_day(
+        "connection-clean-owner@example.com"
+    )
+    _other, other_day = _create_user_with_day(
+        "connection-clean-other@example.com"
+    )
+    connection = GarminConnection.objects.create(user=owner)
+    day_activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="day-mismatch",
+        provider_activity_type="cycle",
+        day=other_day,
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+    )
+    with pytest.raises(
+        ValidationError,
+        match="Garmin activity day must belong to the same user",
+    ):
+        connection.clean()
+
+    owner_exercise = Exercise.objects.create(
+        day=other_day,
+        time=time(9),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=100,
+        duration=timedelta(minutes=20),
+        distance=Decimal("5.00"),
+    )
+    day_activity.day = owner_day
+    day_activity.exercise = owner_exercise
+    day_activity.save(update_fields=["day", "exercise"])
+    with pytest.raises(
+        ValidationError,
+        match="Garmin exercise must belong to the same user",
+    ):
+        connection.clean()
+
+
+def test_oauth_state_validity_and_hash_helpers():
+    """State validity and hashing helpers should expose simple direct semantics."""
+    user = _create_user("state-validity@example.com")
+    state = GarminOAuthState.objects.create(
+        user=user,
+        provider="garmin",
+        state_hash=GarminOAuthState.hash_state("raw"),
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+
+    assert state.is_valid is True
+    state.consumed_at = timezone.now()
+    assert state.is_valid is False
+
+
+def test_garmin_activity_clean_rejects_cross_user_day_and_exercise():
+    """Activity validation must reject linked plan rows from another user."""
+    owner, owner_day = _create_user_with_day(
+        "activity-clean-owner@example.com"
+    )
+    _other, other_day = _create_user_with_day(
+        "activity-clean-other@example.com"
+    )
+    connection = GarminConnection.objects.create(user=owner)
+    _, owner_exercise = _create_provider_activity(connection, owner_day)
+
+    activity = GarminActivity(
+        connection=connection,
+        provider_activity_id="activity-clean",
+        provider_activity_type="cycle",
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+        day=other_day,
+    )
+    with pytest.raises(
+        ValidationError,
+        match="Garmin activity day must belong to the same user",
+    ):
+        activity.clean()
+
+    activity.day = owner_day
+    owner_exercise.day = other_day
+    activity.exercise = owner_exercise
+    with pytest.raises(
+        ValidationError,
+        match="Garmin activity exercise must belong to the same user",
+    ):
+        activity.clean()
+
+
+def test_ownership_conflict_detector_recognizes_constraint_name_from_cause():
+    """Postgres-style constraint metadata should be recognized directly."""
+    cause = Exception("driver")
+    cause.diag = SimpleNamespace(
+        constraint_name="garmin_connection_blank_provider_account_uniq"
+    )
+    exc = Exception("wrapper")
+    exc.__cause__ = cause
+
+    assert GarminConnection
+    assert is_provider_account_ownership_conflict(exc) is True
+
+
+def test_ownership_conflict_detector_uses_driver_and_wrapper_messages():
+    """Constraint detection should inspect both chained and wrapper messages."""
+    driver = Exception("unrelated driver error")
+    chained = Exception("wrapper")
+    chained.__cause__ = driver
+    assert is_provider_account_ownership_conflict(chained) is False
+
+    sqlite_error = Exception(
+        "UNIQUE constraint failed: "
+        "garmin_garminconnection.provider, "
+        "garmin_garminconnection.provider_account_id"
+    )
+    assert is_provider_account_ownership_conflict(sqlite_error) is True
+
+
+def test_connection_and_activity_clean_accept_valid_empty_links(monkeypatch):
+    """Owner validation should accept empty and same-owner relationship paths."""
+    _set_encryption_key(monkeypatch)
+    user, day = _create_user_with_day("clean-valid-links@example.com")
+    connection = GarminConnection.objects.create(user=user)
+
+    connection.clean()
+    activity = GarminActivity.objects.create(
+        connection=connection,
+        provider_activity_id="clean-valid-empty",
+        provider_activity_type="cycle",
+        started_at=timezone.now(),
+        kcals=100,
+        duration_seconds=600,
+        distance=Decimal("5.00"),
+    )
+    connection.clean()
+    activity.clean()
+
+    exercise = Exercise.objects.create(
+        day=day,
+        time=time(9),
+        type=Exercise.EXERCISE_CYCLE,
+        kcals=100,
+        duration=timedelta(minutes=20),
+        distance=Decimal("5.00"),
+    )
+    activity.day = day
+    activity.exercise = exercise
+    activity.clean()
+
+    GarminActivity(
+        provider_activity_id="clean-unsaved",
+        provider_activity_type="cycle",
+        started_at=timezone.now(),
+        kcals=1,
+        duration_seconds=1,
+        distance=Decimal("0"),
+    ).clean()
+
+
+def test_oauth_state_consume_rejects_failed_compare_and_set(monkeypatch):
+    """A zero-row consume update should be treated as a stale OAuth state."""
+    user = _create_user("state-cas-zero@example.com")
+    GarminOAuthState.create_for_user(
+        user=user,
+        raw_state="cas-zero",
+        provider="garmin",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    queryset_type = type(GarminOAuthState.objects.all())
+    monkeypatch.setattr(queryset_type, "update", lambda *_args, **_kwargs: 0)
+
+    with pytest.raises(ValueError, match="OAuth state is invalid or expired"):
+        GarminOAuthState.consume_for_user(
+            user=user,
+            raw_state="cas-zero",
+            provider="garmin",
+        )
+
+
+def test_encryption_keys_deduplicate_keyring_entries(monkeypatch):
+    """Duplicate configured keys should only be returned once."""
+    key = Fernet.generate_key().decode()
+    monkeypatch.setattr(
+        settings, "GARMIN_TOKEN_ENCRYPTION_KEYS", f"{key}, {key}"
+    )
+    monkeypatch.setattr(settings, "GARMIN_TOKEN_ENCRYPTION_KEY", key)
+
+    keys = GarminConnection._encrypt_value.__globals__["_encryption_keys"]()
+    assert keys == [key.encode()]
+
+
+def test_oauth_state_helpers_use_router_alias_when_using_is_omitted(
+    monkeypatch,
+):
+    """State helpers should fall back to the write router when no alias is passed."""
+    user = _create_user("state-router-alias@example.com")
+    captured = []
+
+    def _db_for_write(model, instance=None):
+        captured.append((model.__name__, instance))
+        return "default"
+
+    monkeypatch.setattr(
+        GarminOAuthState.create_for_user.__globals__["router"],
+        "db_for_write",
+        _db_for_write,
+    )
+
+    state = GarminOAuthState.create_for_user(
+        user=user,
+        raw_state="router-state",
+        provider="garmin",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    GarminOAuthState.count_active(
+        user=user,
+        provider="garmin",
+        now=timezone.now(),
+    )
+    GarminOAuthState.prune_expired(
+        user=user,
+        provider="garmin",
+        now=timezone.now(),
+    )
+
+    assert state.user_id == user.id
+    assert captured
+
+
+def test_oauth_state_helpers_accept_explicit_database_alias():
+    """State helpers should preserve a caller-supplied database alias."""
+    user = _create_user("state-explicit-alias@example.com")
+    expires_at = timezone.now() + timedelta(minutes=5)
+    state = GarminOAuthState.create_for_user(
+        user=user,
+        raw_state="explicit-state",
+        provider="garmin",
+        expires_at=expires_at,
+        using="default",
+    )
+    assert (
+        GarminOAuthState.count_active(
+            user=user,
+            provider="garmin",
+            now=timezone.now(),
+            using="default",
+        )
+        == 1
+    )
+    GarminOAuthState.prune_expired(
+        user=user,
+        provider="garmin",
+        now=timezone.now(),
+        using="default",
+    )
+    consumed = GarminOAuthState.consume_for_user(
+        user=user,
+        raw_state="explicit-state",
+        provider="garmin",
+        using="default",
+    )
+    assert consumed.pk == state.pk

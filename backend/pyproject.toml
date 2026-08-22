@@ -75,6 +75,7 @@ exclude_dirs = [
     "../.circleci/scripts/test_cleanup_preview.py",
     "../.circleci/scripts/test_clone_secrets.py",
     "../.circleci/scripts/test_kustomize_garmin.py",
+    "../.circleci/scripts/test_helm_garmin.py",
 ]
 
 [tool.black]
@@ -138,6 +139,7 @@ ignore-paths = [
     "../.circleci/scripts/test_cleanup_preview.py",
     "../.circleci/scripts/test_clone_secrets.py",
     "../.circleci/scripts/test_kustomize_garmin.py",
+    "../.circleci/scripts/test_helm_garmin.py",
 ]
 [tool.pylint.MASTER]
 load-plugins = [

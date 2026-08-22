@@ -1,8 +1,11 @@
 """Canonical row locking for plan aggregate mutations."""
 
+# pylint: disable=missing-param-doc,missing-return-doc
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterable, cast
 
+from django.apps import apps
 from django.contrib.auth import get_user_model
 
 if TYPE_CHECKING:
@@ -109,17 +112,16 @@ def lock_plan_aggregate_rows(
     Returns:
         PlanAggregateLocks: Locked plans and days in deterministic order.
     """
-    from apps.plans.models.day import Day
-    from apps.plans.models.week import WeekPlan
-
-    day_manager = cast(Any, Day).objects
-    plan_manager = cast(Any, WeekPlan).objects
+    day_model = apps.get_model("plans", "Day")
+    week_plan_model = apps.get_model("plans", "WeekPlan")
+    day_manager = cast(Any, day_model).objects
+    plan_manager = cast(Any, week_plan_model).objects
 
     normalized_day_ids = tuple(sorted(set(day_ids)))
     normalized_plan_ids = set(plan_ids)
     if normalized_day_ids:
         normalized_plan_ids.update(
-            Day.objects.using(using)
+            day_manager.using(using)
             .filter(pk__in=normalized_day_ids)
             .values_list("plan_id", flat=True)
         )

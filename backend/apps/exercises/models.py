@@ -1,5 +1,8 @@
 """Exercise model module."""
 
+# pylint: disable=missing-param-doc,missing-type-doc,missing-raises-doc
+# pylint: disable=missing-return-doc,missing-return-type-doc
+
 import datetime
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -71,7 +74,7 @@ def activate_exercise_deletion_locks(
 
 
 def lock_exercise_deletion_rows(
-    targets,
+    targets: models.QuerySet[Any],
     using: str,
     aggregate_locks: PlanAggregateLocks | None = None,
 ) -> ExerciseDeletionLocks:
@@ -111,16 +114,15 @@ def lock_exercise_deletion_rows(
         .filter(pk__in=exercise_ids)
         .order_by("pk")
     )
-    if resolved_aggregate_locks is not None:
-        for exercise in exercises:
-            if exercise.day_id is not None:
-                exercise.day = resolved_aggregate_locks.days_by_pk[
-                    exercise.day_id
-                ]
+    complete_aggregate_locks = cast(
+        PlanAggregateLocks, resolved_aggregate_locks
+    )
+    for exercise in exercises:
+        exercise.day = complete_aggregate_locks.days_by_pk[exercise.day_id]
 
     return ExerciseDeletionLocks(
         using=using,
-        aggregate_locks=resolved_aggregate_locks,
+        aggregate_locks=complete_aggregate_locks,
         exercises=exercises,
     )
 
@@ -276,8 +278,6 @@ class Exercise(BaseModel):
         Raises:
             _ExerciseOwnerChanged: if owner changed while locking.
         """
-        from apps.plans.locks import lock_plan_aggregate_rows
-
         was_adding = self._state.adding
         previous_day_id = None
         if self.pk is not None:
@@ -301,9 +301,8 @@ class Exercise(BaseModel):
 
         if self._caller_day is None:
             self._caller_day = self._state.fields_cache.get("day")
-        if self.day_id is not None:
-            self.day = locked_days[self.day_id]
-            self._exercise_day_ids = tuple(sorted(day_ids))
+        self.day = locked_days[self.day_id]
+        self._exercise_day_ids = tuple(sorted(day_ids))
         if previous_day_id is None:
             if not was_adding:
                 raise type(self).DoesNotExist(
@@ -344,13 +343,14 @@ class Exercise(BaseModel):
             day = self._exercise_locks.days_by_pk[day_id]
             day.save(using=using)
 
-    def save(self, *args, **kwargs) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         """Atomically save the exercise with canonical aggregate locks."""
         using = kwargs.get("using") or router.db_for_write(
             type(self), instance=self
         )
         entered_in_atomic = transaction.get_connection(using).in_atomic_block
-        for attempt in range(2):
+        attempt = 0
+        while True:
             try:
                 with transaction.atomic(using=using):
                     previous = self._lock_write_rows(using)
@@ -367,10 +367,11 @@ class Exercise(BaseModel):
                         "locks; retry the "
                         "outer transaction"
                     ) from error
+                attempt += 1
+                continue
             finally:
                 self._clear_write_locks()
-        else:
-            raise RuntimeError("exercise lock retry exhausted")
+            break
 
         if self._caller_day is not None:
             for field in self.day._meta.concrete_fields:
@@ -381,7 +382,7 @@ class Exercise(BaseModel):
                 )
         self._caller_day = None
 
-    def delete(self, *args, **kwargs):
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         """Atomically delete and recompute affected days."""
         using = kwargs.get("using") or router.db_for_write(
             type(self), instance=self

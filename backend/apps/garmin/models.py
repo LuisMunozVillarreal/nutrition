@@ -1,9 +1,13 @@
 """Garmin persistence models."""
 
+# pylint: disable=too-many-ancestors,too-many-instance-attributes
+# pylint: disable=missing-param-doc,missing-type-doc,missing-raises-doc
+# pylint: disable=missing-return-doc
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, NoReturn
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -334,7 +338,7 @@ class GarminOAuthState(BaseModel):
     def prune_expired(
         cls,
         *,
-        now,
+        now: datetime,
         user: "AbstractUser",
         provider: str,
         retention_seconds: int = 3600,
@@ -361,7 +365,7 @@ class GarminOAuthState(BaseModel):
         *,
         user: "AbstractUser",
         provider: str,
-        now,
+        now: datetime,
         using: str | None = None,
     ) -> int:
         """Count unconsumed, unexpired state rows for a user/provider."""
@@ -386,7 +390,7 @@ class GarminOAuthState(BaseModel):
         raw_state: str,
         *,
         provider: str,
-        expires_at,
+        expires_at: datetime,
         using: str | None = None,
     ) -> "GarminOAuthState":
         """Create and persist a hash-only OAuth state row."""

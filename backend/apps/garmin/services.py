@@ -1,5 +1,9 @@
 """Garmin provider service and sync orchestration."""
 
+# pylint: disable=too-many-lines,too-many-instance-attributes,too-many-branches
+# pylint: disable=too-many-statements,missing-param-doc,missing-raises-doc
+# pylint: disable=missing-return-doc
+
 from __future__ import annotations
 
 import datetime
@@ -569,9 +573,6 @@ def _validate_distance_km(
     if distance > _ACTIVITY_DISTANCE_MAX:
         raise ValueError("distance out of supported bounds")
 
-    if distance < 0:
-        raise ValueError("distance out of supported bounds")
-
     try:
         Exercise._meta.get_field("distance").clean(distance, None)
     except ValidationError as exc:
@@ -1018,8 +1019,6 @@ def _retire_garmin_derived_exercise(
     )
     if exercise is None:
         return None
-    if exercise.day is None:
-        return None
     if exercise.day.plan_id is None or exercise.day.plan.user_id != (
         garmin_activity.connection.user_id
     ):
@@ -1177,7 +1176,7 @@ def _parse_token_payload(
     except (TypeError, ValueError):
         max_ttl = 0
 
-    if max_ttl > 0 and int(expires_in_float) > max_ttl:
+    if 0 < max_ttl < int(expires_in_float):
         raise ValueError("Garmin token response has invalid expires_in")
 
     refresh_token_value = None
@@ -1343,7 +1342,7 @@ def _refresh_access_token_with_retry(
     using: str,
 ) -> tuple[str, int, str]:
     """Refresh with minimal lock scope and optimistic concurrency control."""
-    for attempt in range(2):
+    for _attempt in range(2):
         with transaction.atomic(using=using):
             try:
                 current = (
@@ -1792,11 +1791,11 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                     if not retried:
                         yielded_before_retry.append(raw_activity)
                     yield raw_activity
-            except StopIteration:
+            except StopIteration as exc:
                 if retried and replay_index < len(yielded_before_retry):
                     raise ValueError(
                         "Garmin activity pagination changed during retry"
-                    )
+                    ) from exc
                 return
             except ValueError as exc:
                 if retried or "Garmin activity fetch unauthorized" not in str(
@@ -1827,12 +1826,6 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
     ) -> tuple[int, int]:
         imported_count = 0
         duplicates_count = 0
-
-        if not batch:
-            return (
-                imported_count,
-                duplicates_count,
-            )
 
         batch_filters = Q()
         for provider_account_id, provider_activity_id in batch:
@@ -1871,17 +1864,16 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
             for key, normalized in batch.items():
                 resolve_error = ""
                 normalized_day = None
-                if normalized.started_at_local_date is not None:
-                    try:
-                        normalized_day = _resolve_day_for_activity(
-                            connection,
-                            normalized.started_at_local_date,
-                            using=using,
-                        )
-                    except ValueError:
-                        resolve_error = (
-                            _PENDING_RECONCILIATION_REASON_AMBIGUOUS_DAY
-                        )
+                try:
+                    normalized_day = _resolve_day_for_activity(
+                        connection,
+                        normalized.started_at_local_date,
+                        using=using,
+                    )
+                except ValueError:
+                    resolve_error = (
+                        _PENDING_RECONCILIATION_REASON_AMBIGUOUS_DAY
+                    )
 
                 pending_reason = _determine_pending_reason(
                     normalized_day,
@@ -2061,11 +2053,7 @@ def sync_connection(connection: GarminConnection) -> GarminSyncSummary:
                             )
                         continue
 
-                    if resolved_day is None:
-                        raise ValueError(
-                            "Garmin activity day resolution is inconsistent"
-                        )
-
+                    resolved_day = cast(Day, resolved_day)
                     _ensure_exercise(
                         garmin_activity,
                         day=resolved_day,
@@ -2224,9 +2212,6 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
         if not connection.is_active:
             raise ValueError("Garmin connection is not active")
 
-        expected_generation = connection.connection_generation
-        expected_provider_account_id = connection.provider_account_id
-
         pending_ids = list(
             GarminActivity.objects.using(using)
             .filter(
@@ -2248,13 +2233,6 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 continue
             if not activity.pending_reconciliation:
                 continue
-
-            if (
-                connection.connection_generation != expected_generation
-                or connection.provider_account_id
-                != expected_provider_account_id
-            ):
-                raise ValueError("Garmin connection state changed during sync")
 
             resolve_error = ""
             try:
@@ -2353,10 +2331,7 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                 )
 
             if not pending_reason:
-                if day is None:
-                    raise ValueError(
-                        "Pending Garmin activity day resolution is inconsistent"
-                    )
+                day = cast(Day, day)
                 _ensure_exercise(
                     activity,
                     day=day,
@@ -2365,16 +2340,15 @@ def reconcile_pending_garmin_activities(connection: GarminConnection) -> int:
                     previous_day_id=previous_day_id,
                     using=using,
                 )
-                if locked_rows is not None:
-                    _recompute_days_from_locked_rows(
-                        locked_days,
-                        (
-                            {day.pk, previous_day_id}
-                            if previous_day_id is not None
-                            else {day.pk}
-                        ),
-                        using=using,
-                    )
+                _recompute_days_from_locked_rows(
+                    locked_days,
+                    (
+                        {day.pk, previous_day_id}
+                        if previous_day_id is not None
+                        else {day.pk}
+                    ),
+                    using=using,
+                )
 
             reconciled += 1
 

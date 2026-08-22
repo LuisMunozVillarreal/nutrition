@@ -1,14 +1,20 @@
 """Command tests for Garmin activity sync."""
 
+# pylint: disable=consider-using-from-import,protected-access
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=use-implicit-booleaness-not-comparison
+
 from __future__ import annotations
 
 import io
 import json
+from argparse import ArgumentParser
 
 import pytest
 import requests
 from django.contrib.auth import get_user_model
 from django.core.management.base import CommandError
+from django.db import OperationalError
 
 import apps.garmin.services as services
 from apps.garmin.management.commands.sync_garmin import Command
@@ -227,6 +233,35 @@ def test_sync_command_continues_to_reconcile_when_sync_fails(monkeypatch):
     assert captured["connection_id"] == connection.pk
 
 
+def test_sync_command_preserves_sync_error_when_reconcile_also_fails(
+    monkeypatch,
+):
+    """A reconcile failure must not overwrite an earlier sync failure."""
+    user = _create_user("command-sync-and-reconcile-fail@example.com")
+    _usable_connection(user)
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        lambda _connection: (_ for _ in ()).throw(ValueError("sync failed")),
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        lambda _connection: (_ for _ in ()).throw(
+            ValueError("reconcile failed")
+        ),
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert len(rows) == 1
+    assert rows[0]["error"] == "sync_failed"
+    assert rows[0]["reconciled"] == "error"
+
+
 def test_sync_command_noop_when_garmin_disabled(settings):
     """The command must no-op cleanly when the integration is disabled."""
     settings.GARMIN_ENABLED = False
@@ -252,6 +287,73 @@ def test_sync_command_with_no_active_connections_succeeds():
 
     rows = json.loads(output.getvalue())
     assert rows == []
+
+
+def test_sync_command_registers_optional_user_id_argument():
+    """The management command should expose the documented user filter."""
+    parser = ArgumentParser()
+
+    Command().add_arguments(parser)
+
+    options = parser.parse_args(["--user-id", "7"])
+    assert options.user_id == 7
+
+
+def test_sync_command_marks_database_errors_for_sync_and_reconcile(
+    monkeypatch,
+):
+    """Database failures should surface the stable database error code."""
+    user = _create_user("command-db-error@example.com")
+    _usable_connection(user)
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        lambda _connection: (_ for _ in ()).throw(OperationalError("db down")),
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        lambda _connection: (_ for _ in ()).throw(OperationalError("db down")),
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert rows == [
+        {
+            "connection_id": GarminConnection.objects.get(user=user).pk,
+            "error": "database_error",
+            "reconciled": "error",
+            "user_id": user.id,
+        }
+    ]
+
+
+def test_sync_command_marks_reconcile_database_error_after_successful_sync(
+    monkeypatch,
+):
+    """A reconcile database error should set the final row error code."""
+    user = _create_user("command-reconcile-db-error@example.com")
+    _usable_connection(user)
+
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin.sync_connection",
+        lambda _connection: GarminSyncSummary(1, 0, 0, 0),
+    )
+    monkeypatch.setattr(
+        "apps.garmin.management.commands.sync_garmin."
+        "reconcile_pending_garmin_activities",
+        lambda _connection: (_ for _ in ()).throw(OperationalError("db down")),
+    )
+
+    output = io.StringIO()
+    with pytest.raises(CommandError):
+        Command(stdout=output).handle(user_id=user.id)
+
+    rows = json.loads(output.getvalue())
+    assert rows[0]["error"] == "database_error"
 
 
 def test_sync_command_raises_on_mixed_success_and_failure(monkeypatch):

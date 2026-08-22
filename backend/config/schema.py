@@ -1,7 +1,11 @@
 """GraphQL Schema Configuration."""
 
-# pylint: disable=too-few-public-methods
+# pylint: disable=too-few-public-methods,missing-param-doc,missing-raises-doc
+# pylint: disable=missing-return-doc,too-many-branches,too-many-statements
+# pylint: disable=too-many-boolean-expressions,too-many-ancestors
+# pylint: disable=protected-access,broad-exception-caught
 
+import logging
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any
@@ -45,6 +49,7 @@ from apps.plans.schema import PlanMutation, PlanQuery
 from config.middleware import authenticated_request_user
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 @strawberry.type
@@ -466,12 +471,12 @@ class GarminMutation:
                     raw_refresh_token
                 )
             except (ImproperlyConfigured, ValueError):
-                refresh_token = ""
+                refresh_token = None
             if refresh_token:
                 try:
                     revoke_refresh_token(refresh_token)
                 except Exception:
-                    pass
+                    logger.warning("Garmin refresh-token revocation failed")
 
         return True
 

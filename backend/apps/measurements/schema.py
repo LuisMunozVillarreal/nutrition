@@ -24,10 +24,10 @@ class MeasurementType:
     """GraphQL Measurement Type."""
 
     id: strawberry.ID
-    body_fat_perc: float
+    body_fat_perc: float | None
     weight: float
-    bmr: float
-    fat_kg: float
+    bmr: float | None
+    fat_kg: float | None
     created_at: str
 
     @staticmethod
@@ -40,12 +40,19 @@ class MeasurementType:
         Returns:
             MeasurementType: the GraphQL type.
         """
+        calculation_body_fat_perc = obj.calculation_body_fat_perc
+        bmr = obj.bmr if calculation_body_fat_perc is not None else None
+        fat_kg = obj.fat_kg if calculation_body_fat_perc is not None else None
         return MeasurementType(
             id=strawberry.ID(str(obj.id)),
-            body_fat_perc=float(obj.body_fat_perc),
+            body_fat_perc=(
+                float(obj.body_fat_perc)
+                if obj.body_fat_perc is not None
+                else None
+            ),
             weight=float(obj.weight),
-            bmr=float(obj.bmr),
-            fat_kg=float(obj.fat_kg),
+            bmr=float(bmr) if bmr is not None else None,
+            fat_kg=float(fat_kg) if fat_kg is not None else None,
             created_at=obj.created_at.isoformat(),
         )
 
@@ -129,14 +136,14 @@ class MeasurementMutation:
     def create_measurement(
         self,
         info: Info,
-        body_fat_perc: float,
         weight: float,
+        body_fat_perc: float | None = None,
     ) -> MeasurementType:
         """Create a new measurement.
 
         Args:
             info (Info): GraphQL execution info.
-            body_fat_perc (float): body fat percentage.
+            body_fat_perc (float | None): optional body fat percentage.
             weight (float): weight in kg.
 
         Returns:
@@ -151,10 +158,14 @@ class MeasurementMutation:
 
         obj = Measurement.objects.create(
             user=user,
-            body_fat_perc=validated_percentage_decimal(
-                body_fat_perc,
-                "bodyFatPerc",
-                Measurement._meta.get_field("body_fat_perc"),
+            body_fat_perc=(
+                validated_percentage_decimal(
+                    body_fat_perc,
+                    "bodyFatPerc",
+                    Measurement._meta.get_field("body_fat_perc"),
+                )
+                if body_fat_perc is not None
+                else None
             ),
             weight=validated_positive_decimal(
                 weight, "weight", Measurement._meta.get_field("weight")
@@ -167,15 +178,15 @@ class MeasurementMutation:
         self,
         info: Info,
         id: strawberry.ID,
-        body_fat_perc: float,
         weight: float,
+        body_fat_perc: float | None = None,
     ) -> MeasurementType:
         """Update an existing measurement.
 
         Args:
             info (Info): GraphQL execution info.
             id (strawberry.ID): measurement ID.
-            body_fat_perc (float): body fat percentage.
+            body_fat_perc (float | None): optional body fat percentage.
             weight (float): weight in kg.
 
         Returns:
@@ -237,7 +248,9 @@ class MeasurementMutation:
                 if obj.body_fat_perc is None:
                     calculation_body_fat_perc = obj.body_fat_calculation_perc
                 else:
-                    calculation_body_fat_perc = obj.body_fat_snapshot_candidate()
+                    calculation_body_fat_perc = (
+                        obj.body_fat_snapshot_candidate()
+                    )
 
             proposed_measurement = Measurement(
                 user=user,
