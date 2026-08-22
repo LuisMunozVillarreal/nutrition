@@ -55,13 +55,20 @@ export default function WeightTrendChart({
         {plot.points.map((point, index) => {
           const pointLabel = `${point.date}: ${point.weight} kg`
           const descriptionId = `${chartId}-point-${index}`
+          const tooltipPosition = index === 0
+            ? 'left-0'
+            : index === plot.points.length - 1
+              ? 'right-0'
+              : 'left-1/2 -translate-x-1/2'
 
           return (
-            <button
+            <span
               key={point.id}
-              type="button"
+              role="img"
+              tabIndex={0}
               aria-label={pointLabel}
               aria-describedby={descriptionId}
+              onPointerDown={(event) => event.currentTarget.focus()}
               className="group absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-purple-300 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-100 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
               style={{
                 left: `${(point.x / 720) * 100}%`,
@@ -70,11 +77,11 @@ export default function WeightTrendChart({
             >
               <span
                 id={descriptionId}
-                className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950 px-2 py-1 text-xs text-white opacity-0 shadow transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                className={`pointer-events-none absolute bottom-full z-10 mb-2 whitespace-nowrap rounded bg-slate-950 px-2 py-1 text-xs text-white opacity-0 shadow transition-opacity group-hover:opacity-100 group-focus:opacity-100 ${tooltipPosition}`}
               >
                 {pointLabel}
               </span>
-            </button>
+            </span>
           )
         })}
       </div>
