@@ -24,6 +24,7 @@ PAIRING_CODE_TTL = timedelta(minutes=10)
 PAIRING_CODE_EMISSION_INTERVAL = timedelta(seconds=30)
 PAIRING_CODE_DIGITS = 12
 DEVICE_TOKEN_TTL = timedelta(days=180)
+MAX_ACTIVE_DEVICES_PER_USER = 10
 # Public format prefix, not a credential.
 TOKEN_PREFIX = "nhs_"  # nosec B105
 
@@ -119,13 +120,26 @@ class HealthSyncDevice(BaseModel):
     @classmethod
     def issue(cls, user: "User", name: str) -> tuple[str, "HealthSyncDevice"]:
         """Create a high-entropy token and return its plaintext exactly once."""
-        raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
-        device = cls.objects.create(
-            user=user,
-            name=name,
-            token_prefix=raw_token[:12],
-            token_hash=_token_digest(raw_token),
-        )
+        with transaction.atomic():
+            locked_user = (
+                type(user).objects.select_for_update().get(pk=user.pk)
+            )
+            now = timezone.now()
+            cls.objects.filter(user=locked_user, expires_at__lte=now).delete()
+            active_count = cls.objects.filter(
+                user=locked_user,
+                revoked_at=None,
+                expires_at__gt=now,
+            ).count()
+            if active_count >= MAX_ACTIVE_DEVICES_PER_USER:
+                raise ValueError("Too many active health-sync devices")
+            raw_token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+            device = cls.objects.create(
+                user=locked_user,
+                name=name,
+                token_prefix=raw_token[:12],
+                token_hash=_token_digest(raw_token),
+            )
         return raw_token, device
 
     @classmethod
@@ -200,3 +214,23 @@ class StepImport(BaseModel):
 
     class Meta:
         indexes = [models.Index(fields=["source", "observed_at"])]
+
+
+class StepSyncWatermark(BaseModel):
+    """Latest accepted device observation retained across manual deletion."""
+
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.CASCADE,
+        related_name="step_sync_watermarks",
+    )
+    date = models.DateField()
+    observed_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "date"],
+                name="unique_step_sync_watermark_per_user_date",
+            )
+        ]

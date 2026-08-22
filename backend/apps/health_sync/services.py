@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,7 +16,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.exercises.models import DaySteps
-from apps.health_sync.models import HealthSyncDevice, StepImport
+from apps.health_sync.models import (
+    HealthSyncDevice,
+    StepImport,
+    StepSyncWatermark,
+)
 from apps.plans.locks import lock_plan_aggregate_rows, lock_plan_owner
 from apps.plans.models import Day
 
@@ -23,6 +28,7 @@ MAX_RECORDS = 31
 MAX_STEPS_PER_DAY = 1_000_000
 MAX_DATE_LOOKBACK_DAYS = 30
 MAX_DATE_AHEAD_DAYS = 1
+CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
 
 @dataclass(frozen=True)
@@ -32,6 +38,17 @@ class DailyStepRecord:
     date: datetime.date
     steps: int
     observed_at: datetime.datetime
+
+
+def _parse_local_date(raw: dict[str, Any]) -> datetime.date:
+    """Parse only the canonical public ``YYYY-MM-DD`` representation."""
+    raw_date = raw.get("date")
+    if not isinstance(raw_date, str) or not CANONICAL_DATE.fullmatch(raw_date):
+        raise ValueError("date must use YYYY-MM-DD")
+    try:
+        return datetime.date.fromisoformat(raw_date)
+    except ValueError as exc:
+        raise ValueError("date must use YYYY-MM-DD") from exc
 
 
 def parse_records(payload: Any) -> list[DailyStepRecord]:
@@ -49,10 +66,7 @@ def parse_records(payload: Any) -> list[DailyStepRecord]:
     for raw in raw_records:
         if not isinstance(raw, dict):
             raise ValueError("each record must be an object")
-        try:
-            local_date = datetime.date.fromisoformat(raw["date"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("date must use YYYY-MM-DD") from exc
+        local_date = _parse_local_date(raw)
         if local_date in seen_dates:
             raise ValueError("records must contain unique dates")
         seen_dates.add(local_date)
@@ -137,17 +151,15 @@ def sync_records(
                 if day_steps is not None:
                     # Preserve the locked Day instance for post-save signals.
                     day_steps.day = day
-                existing_import = (
-                    StepImport.objects.select_for_update()
+                watermark = (
+                    StepSyncWatermark.objects.select_for_update()
                     .using(using)
-                    .filter(day_steps=day_steps)
+                    .filter(user_id=device.user_id, date=record.date)
                     .first()
-                    if day_steps is not None
-                    else None
                 )
                 if (
-                    existing_import is not None
-                    and record.observed_at <= existing_import.observed_at
+                    watermark is not None
+                    and record.observed_at <= watermark.observed_at
                 ):
                     summary["unchanged"] += 1
                     results.append(
@@ -178,6 +190,11 @@ def sync_records(
                         "is_active": True,
                     },
                 )
+                StepSyncWatermark.objects.using(using).update_or_create(
+                    user_id=device.user_id,
+                    date=record.date,
+                    defaults={"observed_at": record.observed_at},
+                )
                 status = "created" if created else "updated"
                 summary[status] += 1
                 results.append(
@@ -193,16 +210,24 @@ def create_manual_day_steps(user: Any, day_id: int, steps: int) -> DaySteps:
     """Create manual steps under the same canonical locks used by sync."""
     using = router.db_for_write(DaySteps)
     with transaction.atomic(using=using):
+        locked_user = lock_plan_owner(using=using, user_id=user.pk)
         day_ids = list(
             Day.objects.using(using)
-            .filter(pk=day_id, plan__user=user)
+            .filter(pk=day_id, plan__user=locked_user)
             .values_list("pk", flat=True)[:1]
         )
         if not day_ids:
             raise ValueError("Day not found")
         locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
-        day = locks.days_by_pk[day_ids[0]]
+        day = locks.days_by_pk.get(day_ids[0])
         try:
+            still_owned = (
+                Day.objects.using(using)
+                .filter(pk=day_id, plan__user=locked_user)
+                .exists()
+            )
+            if day is None or not still_owned:
+                raise ValueError("Day not found")
             if (
                 DaySteps.objects.select_for_update()
                 .using(using)

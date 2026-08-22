@@ -14,6 +14,7 @@ from django.utils import timezone
 from strawberry.types import Info
 
 from apps.health_sync.models import (
+    MAX_ACTIVE_DEVICES_PER_USER,
     PAIRING_CODE_EMISSION_INTERVAL,
     HealthSyncDevice,
     HealthSyncPairingCode,
@@ -85,7 +86,7 @@ class HealthSyncQuery:
                 user=user,
                 revoked_at=None,
                 expires_at__gt=timezone.now(),
-            ).order_by("-created_at")
+            ).order_by("-created_at")[:MAX_ACTIVE_DEVICES_PER_USER]
         ]
 
 
