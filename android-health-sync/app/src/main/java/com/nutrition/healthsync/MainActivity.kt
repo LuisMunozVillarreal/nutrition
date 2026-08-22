@@ -272,6 +272,7 @@ class MainActivity : ComponentActivity() {
         syncButton.isEnabled = !busy
         stepsPermissionButton.isEnabled = !busy
         backgroundPermissionButton.isEnabled = !busy
+        unpairButton.isEnabled = !busy && coordinator.pairing() != null
     }
 
     private fun section(value: String): TextView = text(value, 20f, bold = true).apply {
