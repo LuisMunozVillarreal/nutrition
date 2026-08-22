@@ -753,9 +753,12 @@ test('measurements page renders the reusable trend chart and validates custom da
   assert.ok(chart)
   assert.equal(chart.querySelectorAll('circle').length, 0)
 
-  const markers = screen.getAllByRole('button', { name: /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/ })
+  const markers = screen.getAllByRole('img', { name: /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/ })
   assert.equal(markers.length, 20)
+  const descriptions = []
   for (const marker of markers) {
+    assert.equal(marker.tagName, 'SPAN')
+    assert.equal(marker.getAttribute('tabindex'), '0')
     assert.equal(marker.classList.contains('size-3'), true)
     assert.equal(marker.classList.contains('rounded-full'), true)
     assert.equal(marker.classList.contains('focus-visible:ring-2'), true)
@@ -765,10 +768,19 @@ test('measurements page renders the reusable trend chart and validates custom da
     assert.ok(descriptionId)
     const description = document.getElementById(descriptionId)
     assert.ok(description)
+    descriptions.push(description)
     assert.match(description.textContent, /^2026-01-\d{2}: \d+(?:\.\d+)? kg$/)
     assert.equal(description.classList.contains('group-hover:opacity-100'), true)
-    assert.equal(description.classList.contains('group-focus-visible:opacity-100'), true)
+    assert.equal(description.classList.contains('group-focus:opacity-100'), true)
   }
+  assert.equal(descriptions[0].classList.contains('left-0'), true)
+  assert.equal(descriptions[0].classList.contains('-translate-x-1/2'), false)
+  assert.equal(descriptions.at(-1).classList.contains('right-0'), true)
+  assert.equal(descriptions.at(-1).classList.contains('-translate-x-1/2'), false)
+  assert.equal(descriptions[1].classList.contains('left-1/2'), true)
+  assert.equal(descriptions[1].classList.contains('-translate-x-1/2'), true)
+  fireEvent.pointerDown(markers[0])
+  assert.equal(document.activeElement, markers[0])
   assert.equal(requests.length, 1)
 })
 
