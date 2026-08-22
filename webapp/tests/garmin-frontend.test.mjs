@@ -218,6 +218,22 @@ test('captureGarminCallbackHandoff stores success and provider errors', () => {
     { kind: 'success', code: 'c1', state: 's1' },
   )
 
+  // Next's trailing-slash route variant must be scrubbed and handed off too.
+  assert.equal(
+    handoff.captureGarminCallbackHandoff(
+      `${handoff.GARMIN_CALLBACK_PATH}/`,
+      paramsOf({ code: ['slash-code'], state: ['slash-state'] }),
+      dom.window.sessionStorage,
+      storingHistory(),
+      now,
+    ),
+    true,
+  )
+  assert.deepEqual(
+    handoff.consumeGarminCallbackHandoff(dom.window.sessionStorage, now),
+    { kind: 'success', code: 'slash-code', state: 'slash-state' },
+  )
+
   assert.equal(
     handoff.captureGarminCallbackHandoff(
       handoff.GARMIN_CALLBACK_PATH,

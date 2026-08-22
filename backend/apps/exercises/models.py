@@ -403,8 +403,8 @@ class Exercise(BaseModel):
                 return targets.delete()
 
         with transaction.atomic(using=using):
+            locks = lock_exercise_deletion_rows(targets, using)
             try:
-                locks = lock_exercise_deletion_rows(targets, using)
                 with activate_exercise_deletion_locks(locks):
                     return targets.delete()
             finally:

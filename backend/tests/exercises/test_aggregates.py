@@ -563,3 +563,26 @@ def test_delete_reuses_covering_deletion_locks(mocker, day):
 
     assert exercise.delete() == (1, {"exercises.Exercise": 1})
     relock.assert_not_called()
+
+
+def test_delete_preserves_lock_acquisition_error(mocker, day):
+    """A lock acquisition failure must not be masked by cleanup."""
+    exercise = _create_custom_exercise(day)
+    targets = SimpleNamespace(exists=lambda: True)
+    manager = SimpleNamespace(
+        using=lambda _using: SimpleNamespace(
+            filter=lambda **_kwargs: targets,
+        )
+    )
+    mocker.patch.object(Exercise, "objects", manager)
+    mocker.patch(
+        "apps.exercises.models.get_exercise_deletion_locks",
+        return_value=None,
+    )
+    mocker.patch(
+        "apps.exercises.models.lock_exercise_deletion_rows",
+        side_effect=RuntimeError("lock acquisition failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="lock acquisition failed"):
+        exercise.delete(using="default")

@@ -95,7 +95,7 @@ export function captureGarminCallbackHandoff(
   now = Date.now(),
 ): boolean {
   if (
-    pathname !== GARMIN_CALLBACK_PATH ||
+    !/^\/settings\/garmin-callback\/?$/.test(pathname) ||
     !SENSITIVE_CALLBACK_KEYS.some((key) => params.getAll(key).length > 0)
   ) {
     return false
