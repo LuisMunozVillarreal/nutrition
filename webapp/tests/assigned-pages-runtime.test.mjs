@@ -93,6 +93,7 @@ const PlansPage = (await import('../src/app/plans/page.tsx')).default
 const NewPlanPage = (await import('../src/app/plans/new/page.tsx')).default
 const EditPlanPage = (await import('../src/app/plans/[id]/page.tsx')).default
 const MeasurementsPage = (await import('../src/app/measurements/page.tsx')).default
+const WeightTrendChart = (await import('../src/components/WeightTrendChart.tsx')).default
 const NewMeasurementPage = (await import('../src/app/measurements/new/page.tsx')).default
 const EditMeasurementPage = (await import('../src/app/measurements/[id]/page.tsx')).default
 const StepsPage = (await import('../src/app/steps/page.tsx')).default
@@ -106,6 +107,7 @@ afterEach(() => {
   params = { id: '42' }
   searchParams = new URLSearchParams()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const deferred = () => {
@@ -703,6 +705,150 @@ test('measurements list loads rows and handles delete and fetch errors', async (
   render(React.createElement(MeasurementsPage))
   await waitForTableLoaded()
   assert.deepEqual(consoleError.mock.calls[1], ['Failed to fetch measurements', error])
+})
+
+test('coincident weight points share one reachable marker with duplicate details', () => {
+  render(React.createElement(WeightTrendChart, {
+    series: [
+      { id: 'duplicate-1', date: '2026-01-01', timestamp: 1767225600000, weight: 81 },
+      { id: 'duplicate-2', date: '2026-01-01', timestamp: 1767225600000, weight: 81 },
+      { id: 'later', date: '2026-01-08', timestamp: 1767830400000, weight: 80 },
+    ],
+    emptyMessage: 'No trend',
+    emptyActionHref: '/measurements/new',
+    emptyActionLabel: 'Log weight',
+  }))
+
+  const markers = screen.getAllByTestId('weight-trend-dot')
+  assert.equal(markers.length, 2)
+  const duplicateMarker = screen.getByRole('img', {
+    name: '2 measurements on 2026-01-01: 81 kilograms',
+  })
+  fireEvent.mouseEnter(duplicateMarker)
+  assert.equal(screen.getByRole('tooltip').textContent, '2 measurements on 2026-01-01: 81 kg')
+})
+
+test('measurements page renders the reusable trend chart and validates custom date ranges', async () => {
+  const measurements = Array.from({ length: 20 }, (_, index) => ({
+    id: `m${index + 1}`,
+    bodyFatPerc: 20 - index / 10,
+    weight: 81 - index / 10,
+    bmr: 1600 + index,
+    createdAt: new Date(2026, 0, index + 1, 12).toISOString(),
+  }))
+  responses = [{ measurements }]
+  render(React.createElement(MeasurementsPage))
+  await waitForTableLoaded()
+  assert.equal(requests.length, 1)
+  assert.match(document.body.textContent, /Showing measurements for:/)
+  assert.match(document.body.textContent, /No measurements found for this date range/)
+
+  const rangeSelect = screen.getByLabelText('Trend range')
+  fireEvent.change(rangeSelect, { target: { value: 'lastQuarter' } })
+  assert.match(document.body.textContent, /Showing measurements for: Last quarter/)
+  fireEvent.change(rangeSelect, { target: { value: 'lastYear' } })
+  assert.match(document.body.textContent, /Showing measurements for: Last year/)
+  fireEvent.change(rangeSelect, { target: { value: 'custom' } })
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '' } })
+  assert.equal(
+    (await screen.findByRole('alert')).textContent,
+    'Pick both a start and end date to use a custom range.',
+  )
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-20' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-01' } })
+
+  const rangeError = await screen.findByRole('alert')
+  assert.equal(rangeError.textContent, 'Start date must be on or before end date.')
+  assert.equal(screen.getAllByText('Start date must be on or before end date.').length, 1)
+  assert.equal(screen.queryByRole('link', { name: 'Log weight →' }), null)
+  assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'true')
+  assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'true')
+
+  fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-01-01' } })
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-20' } })
+  assert.equal(screen.getByLabelText('Start date').getAttribute('aria-invalid'), 'false')
+  assert.equal(screen.getByLabelText('End date').getAttribute('aria-invalid'), 'false')
+  await screen.findByText('Weight trend')
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 81 kilograms to 79.1 kilograms/ }))
+  const trendDots = screen.getAllByTestId('weight-trend-dot')
+  const accessibleTrendDots = screen.getAllByRole('img', { name: /Measurement on .*: .* kilograms/ })
+  assert.equal(trendDots.length, 20)
+  assert.equal(accessibleTrendDots.length, 20)
+  assert.equal(document.querySelectorAll('svg circle').length, 0)
+  assert.ok(trendDots.every((dot) => dot.classList.contains('rounded-full')))
+  assert.ok(trendDots.every((dot) => dot.classList.contains('size-2.5')))
+  assert.ok(trendDots.every((dot) => dot.classList.contains('cursor-help')))
+  assert.ok(trendDots.every((dot) => dot.tabIndex === 0))
+  assert.ok(trendDots.every((dot) => dot.style.left.endsWith('%') && dot.style.top.endsWith('%')))
+  assert.equal(screen.queryByRole('tooltip'), null)
+  const interactionRegion = screen.getByTestId('weight-trend-interaction')
+
+  fireEvent.mouseEnter(trendDots[0])
+  const hoveredTooltip = screen.getByRole('tooltip')
+  assert.equal(hoveredTooltip.textContent, '2026-01-01: 81 kg')
+  assert.equal(trendDots[0].getAttribute('aria-describedby'), hoveredTooltip.id)
+  assert.ok(hoveredTooltip.classList.contains('w-full'))
+  assert.equal(hoveredTooltip.classList.contains('absolute'), false)
+  fireEvent.mouseEnter(hoveredTooltip)
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  fireEvent.keyDown(window, { key: 'ArrowRight' })
+  assert.ok(screen.getByRole('tooltip'))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  assert.equal(screen.queryByRole('tooltip'), null)
+
+  fireEvent.mouseEnter(trendDots[0])
+  fireEvent.mouseLeave(interactionRegion)
+  assert.equal(screen.queryByRole('tooltip'), null)
+
+  act(() => trendDots[0].focus())
+  assert.equal(document.activeElement, trendDots[0])
+  fireEvent.mouseEnter(trendDots.at(-1))
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-20: 79.1 kg')
+  fireEvent.mouseLeave(interactionRegion)
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  fireEvent.blur(trendDots[0], { relatedTarget: trendDots.at(-1) })
+  act(() => trendDots.at(-1).focus())
+  const focusedTooltip = screen.getByRole('tooltip')
+  assert.equal(focusedTooltip.textContent, '2026-01-20: 79.1 kg')
+  assert.equal(trendDots.at(-1).getAttribute('aria-describedby'), focusedTooltip.id)
+  fireEvent.mouseEnter(trendDots[0])
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-01: 81 kg')
+  act(() => trendDots[1].focus())
+  assert.equal(screen.getByRole('tooltip').textContent, '2026-01-02: 80.9 kg')
+  assert.equal(trendDots[1].getAttribute('aria-describedby'), focusedTooltip.id)
+  fireEvent.blur(trendDots[1], { relatedTarget: document.body })
+  assert.equal(screen.queryByRole('tooltip'), null)
+
+  fireEvent.mouseEnter(trendDots.at(-1))
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-19' } })
+  assert.equal(screen.queryByRole('tooltip'), null)
+  fireEvent.change(screen.getByLabelText('End date'), { target: { value: '2026-01-20' } })
+  assert.equal(screen.queryByRole('tooltip'), null)
+  assert.equal(requests.length, 1)
+})
+
+test('measurements preset ranges roll forward at local midnight', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date(2026, 0, 31, 23, 59, 59, 900))
+  responses = [{ measurements: [
+    { id: 'jan-2', bodyFatPerc: 20, weight: 70, bmr: 1600, createdAt: new Date(2026, 0, 2, 12).toISOString() },
+    { id: 'jan-31', bodyFatPerc: 19.8, weight: 69, bmr: 1605, createdAt: new Date(2026, 0, 31, 12).toISOString() },
+    { id: 'feb-1', bodyFatPerc: 19.6, weight: 68, bmr: 1598, createdAt: new Date(2026, 1, 1, 0).toISOString() },
+  ] }]
+
+  render(React.createElement(MeasurementsPage))
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 70 kilograms to 69 kilograms/ }))
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  assert.ok(screen.getByRole('img', { name: /Weight trend from 69 kilograms to 68 kilograms/ }))
 })
 
 test('new measurement submits optional body fat without preloading it', async () => {

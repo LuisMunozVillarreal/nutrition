@@ -13,10 +13,10 @@ import {
 
 test('trend helpers sort weights by date and trim to recent points', () => {
   const measurements = [
-    { id: '1', createdAt: '2026-02-01T10:00:00Z', weight: 80, bodyFatPerc: 21 },
-    { id: '2', createdAt: '2026-02-03T10:00:00Z', weight: 79.2, bodyFatPerc: 20.6 },
-    { id: '3', createdAt: '2026-01-30T10:00:00Z', weight: 81, bodyFatPerc: 21.3 },
-    { id: '4', createdAt: '2026-02-02T10:00:00Z', weight: 79.8, bodyFatPerc: 20.9 },
+    { id: '1', createdAt: '2026-02-01', weight: 80, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-03', weight: 79.2, bodyFatPerc: 20.6 },
+    { id: '3', createdAt: '2026-01-30', weight: 81, bodyFatPerc: 21.3 },
+    { id: '4', createdAt: '2026-02-02', weight: 79.8, bodyFatPerc: 20.9 },
   ]
 
   const trend = buildWeightTrendSeries(measurements, 3)
@@ -47,6 +47,75 @@ test('trend coordinate mapping is bounded and stable for flat series', () => {
   assert.equal(plot.points[0].y, plot.points[2].y)
   assert.equal(plot.path.startsWith('M 20 '), true)
   assert.equal(typeof plot.viewBox, 'string')
+})
+
+test('trend coordinate mapping spaces measurements by elapsed time', () => {
+  const trendPoints = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01T00:00:00Z', weight: 70, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-02T00:00:00Z', weight: 69.8, bodyFatPerc: 20.5 },
+    { id: '3', createdAt: '2026-02-09T00:00:00Z', weight: 69.5, bodyFatPerc: 20 },
+  ], 3)
+
+  const plot = buildTrendCoordinates(trendPoints, {
+    width: 100,
+    height: 80,
+    padding: 10,
+  })
+
+  assert.deepEqual(plot.points.map((point) => point.x), [10, 20, 90])
+})
+
+test('trend coordinate mapping reflects elapsed time even within the same day', () => {
+  const trendPoints = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01T08:00:00Z', weight: 70, bodyFatPerc: 21 },
+    { id: '2', createdAt: '2026-02-01T20:00:00Z', weight: 69.8, bodyFatPerc: 20.5 },
+  ])
+
+  const plot = buildTrendCoordinates(trendPoints, {
+    width: 100,
+    height: 80,
+    padding: 10,
+  })
+
+  assert.deepEqual(plot.points.map((point) => point.x), [10, 90])
+})
+
+test('trend helpers filter inclusive ranges without timezone assumptions or default truncation', () => {
+  const measurements = Array.from({ length: 20 }, (_, index) => ({
+    id: String(index + 1),
+    createdAt: `2026-02-${String(index + 1).padStart(2, '0')}`,
+    weight: 70 - index / 10,
+    bodyFatPerc: 21 - index / 20,
+  }))
+
+  const points = buildWeightTrendSeries(
+    measurements,
+    undefined,
+    { startDate: '2026-02-01', endDate: '2026-02-20' },
+  )
+
+  assert.equal(points.length, 20)
+  assert.equal(points[0].id, '1')
+  assert.equal(points.at(-1).id, '20')
+  assert.equal(points[0].date, '2026-02-01')
+  assert.equal(points.at(-1).date, '2026-02-20')
+})
+
+test('trend helpers discard malformed timestamps before building finite SVG geometry', () => {
+  const points = buildWeightTrendSeries([
+    { id: '1', createdAt: '2026-02-01', weight: 70.2, bodyFatPerc: 21 },
+    { id: 'bad-date', createdAt: '2026-02-02-not-a-time', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'non-iso-date', createdAt: 'February 2, 2026', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'non-leap-day', createdAt: '2026-02-29T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'february-30', createdAt: '2026-02-30T00:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: 'april-31', createdAt: '2026-04-31T12:00:00Z', weight: 70.1, bodyFatPerc: 20.5 },
+    { id: '3', createdAt: '2026-02-03', weight: 70, bodyFatPerc: 20.4 },
+  ])
+
+  assert.deepEqual(points.map((point) => point.id), ['1', '3'])
+  const plot = buildTrendCoordinates(points, { width: 100, height: 80, padding: 10 })
+  assert.equal(plot.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)), true)
+  assert.doesNotMatch(plot.path, /NaN|Infinity/)
 })
 
 test('trend series filters non-finite weights and handles a single point', () => {
@@ -106,6 +175,10 @@ test('dashboard query and actions include required data shape and remove hydrati
     new URL('../src/components/Dashboard.tsx', import.meta.url),
     'utf8',
   )
+  const trendChartSource = await readFile(
+    new URL('../src/components/WeightTrendChart.tsx', import.meta.url),
+    'utf8',
+  )
 
   assert.match(dashboardSource, /DASHBOARD_QUERY/)
   assert.match(dashboardSource, /latestWeight/)
@@ -121,8 +194,8 @@ test('dashboard query and actions include required data shape and remove hydrati
   assert.match(dashboardSource, /Log a meal/i)
   assert.match(dashboardSource, /role="progressbar"/)
   assert.match(dashboardSource, /aria-valuetext=/)
-  assert.match(dashboardSource, /key=\{point\.id\}/)
-  assert.match(dashboardSource, /flex justify-between text-xs text-slate-400/)
+  assert.match(trendChartSource, /key=\{marker\.id\}/)
+  assert.match(trendChartSource, /flex justify-between text-xs text-slate-400/)
   assert.match(dashboardSource, /millisecondsUntilNextLocalDay/)
   assert.match(dashboardSource, /visibilitychange/)
   assert.match(dashboardSource, /requestSequence/)
