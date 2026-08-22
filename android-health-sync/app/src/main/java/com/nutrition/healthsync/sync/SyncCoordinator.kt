@@ -15,15 +15,20 @@ class SyncCoordinator(context: Context) {
     private val pairingStore = SecurePairingStore(applicationContext)
     private val health = HealthConnectDataSource(applicationContext)
     private val api = HealthSyncApi()
+    private val pairingGuard = PairingOperationGuard()
     private val statusStore = applicationContext.getSharedPreferences(STATUS_PREFERENCES, Context.MODE_PRIVATE)
 
     suspend fun pair(baseUrlInput: String, code: String, deviceName: String): Pairing {
+        val operation = pairingGuard.snapshot()
         val baseUrl = EndpointConfig.normalize(baseUrlInput)
         require(code.trim().matches(Regex("\\d{12}"))) {
             "El código de vinculación debe tener 12 dígitos"
         }
         require(deviceName.isNotBlank()) { "Introduce el nombre del dispositivo" }
         val response = api.pair(baseUrl, code.trim(), deviceName.trim())
+        if (!pairingGuard.isCurrent(operation)) {
+            throw SyncException("La vinculación se canceló antes de completarse")
+        }
         return Pairing(baseUrl, response.token).also(pairingStore::save)
     }
 
@@ -64,6 +69,7 @@ class SyncCoordinator(context: Context) {
     fun pairing(): Pairing? = pairingStore.load()
 
     fun clearPairing() {
+        pairingGuard.invalidate()
         pairingStore.clear()
         statusStore.edit { clear() }
     }
@@ -81,6 +87,21 @@ class SyncCoordinator(context: Context) {
         const val KEY_LAST_SYNC = "last_sync"
         const val KEY_LAST_COUNT = "last_count"
     }
+}
+
+internal class PairingOperationGuard {
+    private var generation: Long = 0
+
+    @Synchronized
+    fun snapshot(): Long = generation
+
+    @Synchronized
+    fun invalidate() {
+        generation += 1
+    }
+
+    @Synchronized
+    fun isCurrent(operation: Long): Boolean = operation == generation
 }
 
 class SyncException(message: String, cause: Throwable? = null) : Exception(message, cause)
