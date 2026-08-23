@@ -308,6 +308,59 @@ def test_parse_records_allows_one_day_timezone_skew_but_not_two():
 
 
 @pytest.mark.django_db
+def test_sync_skips_noop_writes_when_steps_unchanged(
+    client, user_factory, day_factory
+):
+    """A same-value upload advances the watermark without a no-op write."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    token, _device = HealthSyncDevice.issue(user, "Phone")
+    first = client.post(
+        "/api/health-sync/steps/",
+        data=json.dumps(
+            {
+                "records": [
+                    {
+                        "date": day.day.isoformat(),
+                        "steps": 9000,
+                        "observed_at": timezone.now().isoformat(),
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+    assert first.status_code == 200
+    day_steps = DaySteps.objects.get(day=day)
+    updated_at_before = day_steps.updated_at
+
+    replay = client.post(
+        "/api/health-sync/steps/",
+        data=json.dumps(
+            {
+                "records": [
+                    {
+                        "date": day.day.isoformat(),
+                        "steps": 9000,
+                        "observed_at": timezone.now().isoformat(),
+                    }
+                ]
+            }
+        ),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+
+    assert replay.status_code == 200
+    assert replay.json()["summary"]["unchanged"] == 1
+    day_steps.refresh_from_db()
+    assert day_steps.steps == 9000
+    assert day_steps.updated_at == updated_at_before
+    assert StepSyncWatermark.objects.filter(user=user, date=day.day).exists()
+
+
+@pytest.mark.django_db
 def test_device_query_and_revoke_are_owner_scoped(user_factory):
     """Users see and revoke only their own companion credentials."""
     owner = user_factory()
