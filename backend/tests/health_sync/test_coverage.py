@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from django.core.exceptions import RequestDataTooBig
 from django.test import override_settings
 from django.utils import timezone
 
@@ -215,36 +214,32 @@ def test_client_address_ignores_invalid_peer_and_forwarded_values():
     assert views._client_address(invalid_forwarded) == "10.0.0.5"
 
 
-@pytest.mark.parametrize(
-    "http_request",
-    [
-        SimpleNamespace(META={"CONTENT_LENGTH": "invalid"}, body=b"{}"),
-        SimpleNamespace(
-            META={"CONTENT_LENGTH": "1"}, body=b"x" * (64 * 1024 + 1)
-        ),
-    ],
-)
-def test_json_body_handles_invalid_or_deceptive_content_lengths(http_request):
-    """Body parsing safely handles malformed and understated lengths."""
-    if http_request.body == b"{}":
-        assert views._json_body(http_request) == {}
-    else:
-        with pytest.raises(ValueError, match="too large"):
-            views._json_body(http_request)
+def test_json_body_accepts_body_with_malformed_content_length():
+    """A malformed Content-Length falls back to the bounded read."""
+    request = SimpleNamespace(
+        META={"CONTENT_LENGTH": "invalid"}, read=lambda size: b"{}"
+    )
+    assert views._json_body(request) == {}
 
 
-def test_json_body_normalizes_django_memory_limit_errors():
-    """Framework body limits retain the endpoint's stable validation error."""
+def test_json_body_rejects_declared_oversized_content_length():
+    """A declared body larger than the contract is rejected before reading."""
+    request = SimpleNamespace(
+        META={"CONTENT_LENGTH": str(64 * 1024 + 1)},
+        read=lambda size: b"{}",
+    )
+    with pytest.raises(ValueError, match="too large"):
+        views._json_body(request)
 
-    class OversizedRequest:
-        META = {"CONTENT_LENGTH": "0"}
 
-        @property
-        def body(self):
-            raise RequestDataTooBig
-
-    with pytest.raises(ValueError, match="Request body is too large"):
-        views._json_body(OversizedRequest())
+def test_json_body_rejects_oversized_body_with_understated_content_length():
+    """A bounded read rejects oversized bodies even when length is understated."""
+    request = SimpleNamespace(
+        META={"CONTENT_LENGTH": "1"},
+        read=lambda size: b"x" * (64 * 1024 + 1),
+    )
+    with pytest.raises(ValueError, match="too large"):
+        views._json_body(request)
 
 
 @pytest.mark.django_db
