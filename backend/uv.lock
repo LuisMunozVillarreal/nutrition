@@ -410,14 +410,14 @@ wheels = [
 
 [[package]]
 name = "django-dbbackup"
-version = "5.1.0"
+version = "5.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1c/97/0504a820ea4a3550386fdfb73d7808d3458e4882d33f0b7cef23439d3b4a/django_dbbackup-5.1.0.tar.gz", hash = "sha256:66c236bbfa0c9bda33a61d30be8c5961d70fa73fed2fe7f829559ac216354130", size = 26361, upload-time = "2025-12-17T13:23:12.072Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2b/8b/6a963f6e3d13eb689a842c8d942a22bd0f477f328c1ce98e40334ac0031b/django_dbbackup-5.3.0.tar.gz", hash = "sha256:2c880dba7650539e8a724174fedb5213062c4fcda3aa09e1c5f3f573192106cb", size = 27843, upload-time = "2026-04-10T01:49:43.02Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/a3/62fc9ecb4222fffdb1a56f187888c4e237edb763dbafc64677115d0788d7/django_dbbackup-5.1.0-py3-none-any.whl", hash = "sha256:611291606bf6a80903733a99235963e65236c23bca26c2edca453b928b504c67", size = 34612, upload-time = "2025-12-17T13:23:10.538Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/fa/24891c73c6fc76e6005389a496fa1752a69d6ff8c609692f86513ab373ad/django_dbbackup-5.3.0-py3-none-any.whl", hash = "sha256:ff80b5facd524e3f6479235aeb330b094a1c982f8b0b9503c24ba0dc613162ed", size = 36170, upload-time = "2026-04-10T01:49:41.534Z" },
 ]
 
 [[package]]
@@ -1208,7 +1208,7 @@ requires-dist = [
     { name = "django-allow-cidr", specifier = ">=0.7.1,<0.9.0" },
     { name = "django-compressor", specifier = ">=4.5.1" },
     { name = "django-cors-headers", specifier = ">=4.7.0" },
-    { name = "django-dbbackup", specifier = ">=4.2.1,<6.0.0" },
+    { name = "django-dbbackup", specifier = ">=5.1.1,<6.0.0" },
     { name = "django-dotenv", specifier = ">=1.4.2" },
     { name = "django-environ", specifier = ">=0.11.2,<0.15.0" },
     { name = "django-extensions", specifier = ">=3.2.3,<5.0.0" },

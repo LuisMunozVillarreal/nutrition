@@ -28,6 +28,16 @@ spec:
                   secretKeyRef:
                     key: postgresql-password
                     name: nutrition-postgresql
+              - name: SECRET_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: secret-key
+                    name: nutrition-django-secret-key
+              - name: GEMINI_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: gemini-api-key
+                    name: nutrition-gemini-api-key
             volumeMounts:
               - mountPath: "/mnt/secret/"
                 name: nutrition-gcp-db-backup-credentials
@@ -43,10 +53,11 @@ spec:
               - /bin/bash
               - -c
             args:
-              - echo "Backing up DB..." &&
-                [ $ENVIRONMENT == production ] &&
-                source $SRC_DIR/.venv/bin/activate &&
-                python manage.py dbbackup -v 3 &&
-                echo "Completed" ||
-                echo "DB backup runs only in production"
+              - |
+                set -Eeuo pipefail
+                echo "Backing up DB..."
+                [ "$ENVIRONMENT" = "production" ]
+                source "$SRC_DIR/.venv/bin/activate"
+                python manage.py dbbackup -v 3
+                echo "Completed"
           restartPolicy: OnFailure
