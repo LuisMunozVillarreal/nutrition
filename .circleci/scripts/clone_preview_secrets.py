@@ -9,7 +9,7 @@ import time
 import click
 from sanitise_branch import sanitise_branch_name
 
-SECRET_SCHEMA = {
+GENERATED_SECRET_SCHEMA = {
     "nutrition-webapp-nextauth-secret": {
         "nextauth-secret": lambda: secrets.token_urlsafe(32),
     },
@@ -22,10 +22,15 @@ SECRET_SCHEMA = {
     "nutrition-gemini-api-key": {
         "gemini-api-key": lambda: secrets.token_urlsafe(32),
     },
-    "nutrition-gcp-db-backup-credentials": {
-        "nutrition-gcp-db-backup-credentials.json": lambda: "{}",
-    },
 }
+
+# The db-restore init container pulls a production database snapshot into every
+# preview, so it needs the real GCP backup credentials. Unlike the other preview
+# secrets (which are generated fresh, least-privilege values), this one must be
+# copied from staging or the restore cannot authenticate.
+COPIED_SECRETS = ["nutrition-gcp-db-backup-credentials"]
+SOURCE_NAMESPACE = "nutrition-staging"
+
 NAMESPACE_PREFIX = "nutrition-staging--"
 
 TARGET_SECRET_PREFIX = "nutrition-preview"  # nosec: B105
@@ -59,47 +64,128 @@ def wait_for_namespace(namespace: str, timeout_seconds: int = 300) -> None:
     sys.exit(1)
 
 
+def _secret_exists(secret_name: str, namespace: str) -> bool:
+    """Return True when the secret already exists in the namespace."""
+    res = subprocess.run(
+        ["kubectl", "get", "secret", secret_name, "-n", namespace],
+        capture_output=True,
+        check=False,
+    )  # nosec: B603, B607
+    return res.returncode == 0
+
+
+def _create_generated_secret(
+    secret_name: str,
+    fields: dict,
+    target_namespace: str,
+) -> None:
+    """Apply a freshly generated secret into the target namespace."""
+    secret_data = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": secret_name,
+            "namespace": target_namespace,
+            "labels": {
+                "app.kubernetes.io/managed-by": TARGET_SECRET_PREFIX,
+            },
+        },
+        "type": "Opaque",
+        "stringData": {key: generator() for key, generator in fields.items()},
+    }
+
+    subprocess.run(
+        ["kubectl", "apply", "-n", target_namespace, "-f", "-"],
+        input=json.dumps(secret_data).encode("utf-8"),
+        check=True,
+    )  # nosec: B603, B607
+
+
+def _copy_secret_from_source(secret_name: str, target_namespace: str) -> None:
+    """Copy an existing secret's payload from the source namespace.
+
+    The copy keeps only the secret's data payload and re-labels it as preview
+    managed, discarding source metadata such as resourceVersion, owner
+    references, and last-applied annotations.
+    """
+    res = subprocess.run(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            secret_name,
+            "-n",
+            SOURCE_NAMESPACE,
+            "-o",
+            "json",
+        ],
+        capture_output=True,
+        check=True,
+    )  # nosec: B603, B607
+    source = json.loads(res.stdout)
+
+    secret_data = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": secret_name,
+            "namespace": target_namespace,
+            "labels": {
+                "app.kubernetes.io/managed-by": TARGET_SECRET_PREFIX,
+            },
+        },
+        "type": source.get("type", "Opaque"),
+        "data": source.get("data", {}),
+    }
+
+    subprocess.run(
+        ["kubectl", "apply", "-n", target_namespace, "-f", "-"],
+        input=json.dumps(secret_data).encode("utf-8"),
+        check=True,
+    )  # nosec: B603, B607
+
+
 def clone_secrets(target_namespace: str) -> None:
-    """Create the required preview secrets directly in the target namespace.
+    """Create preview secrets directly in the target namespace.
+
+    Generated secrets are created with fresh random values; backup-credential
+    secrets are copied from the source namespace. Both are create-if-absent so a
+    re-deploy never rotates values under a running workload.
 
     Args:
         target_namespace (str): The namespace to clone secrets to.
     """
-    for secret_name, fields in SECRET_SCHEMA.items():
-        exists = subprocess.run(
-            ["kubectl", "get", "secret", secret_name, "-n", target_namespace],
-            capture_output=True,
-            check=False,
-        )  # nosec: B603, B607
-        if exists.returncode == 0:
+    for secret_name, fields in GENERATED_SECRET_SCHEMA.items():
+        if _secret_exists(secret_name, target_namespace):
             click.echo(f"Secret {secret_name} already exists. Skipping.")
             continue
         click.echo(f"Creating least-privilege preview secret {secret_name}...")
         try:
-            secret_data = {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": secret_name,
-                    "namespace": target_namespace,
-                    "labels": {
-                        "app.kubernetes.io/managed-by": TARGET_SECRET_PREFIX,
-                    },
-                },
-                "type": "Opaque",
-                "stringData": {
-                    key: generator() for key, generator in fields.items()
-                },
-            }
-
-            subprocess.run(
-                ["kubectl", "apply", "-n", target_namespace, "-f", "-"],
-                input=json.dumps(secret_data).encode("utf-8"),
-                check=True,
-            )  # nosec: B603, B607
+            _create_generated_secret(secret_name, fields, target_namespace)
         except (OSError, subprocess.CalledProcessError) as e:
             click.echo(
                 f"Error creating secret {secret_name}: {e}",
+                err=True,
+            )
+            sys.exit(1)
+
+    for secret_name in COPIED_SECRETS:
+        if _secret_exists(secret_name, target_namespace):
+            click.echo(f"Secret {secret_name} already exists. Skipping.")
+            continue
+        click.echo(
+            f"Copying {secret_name} from {SOURCE_NAMESPACE} "
+            f"to {target_namespace}..."
+        )
+        try:
+            _copy_secret_from_source(secret_name, target_namespace)
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            json.JSONDecodeError,
+        ) as e:
+            click.echo(
+                f"Error copying secret {secret_name}: {e}",
                 err=True,
             )
             sys.exit(1)
