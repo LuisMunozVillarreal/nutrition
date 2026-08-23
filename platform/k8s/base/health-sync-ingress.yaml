@@ -24,6 +24,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
     traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
     traefik.ingress.kubernetes.io/router.tls.domains.0.main: nutrition.localhost
+    traefik.ingress.kubernetes.io/router.middlewares: health-sync-body-limit@kubernetescrd
 spec:
   rules:
     - host: nutrition.localhost
