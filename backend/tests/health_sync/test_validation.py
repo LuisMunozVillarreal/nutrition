@@ -68,6 +68,15 @@ def test_kubernetes_routes_and_runtime_dependencies_are_declared():
 
     assert "path: /api/health-sync" in health_ingress_manifest
     assert "maxRequestBodyBytes: 65536" in health_ingress_manifest
+    assert "health-sync-body-limit@kubernetescrd" in health_ingress_manifest
+    assert (
+        "nutrition-staging-health-sync-body-limit"
+        not in health_ingress_manifest
+    )
+    assert (
+        "nutrition-production-health-sync-body-limit"
+        not in health_ingress_manifest
+    )
     assert "name: CACHE_URL" in backend_manifest
     assert "name: HEALTH_SYNC_TOKEN_PEPPER" in backend_manifest
     assert "name: HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS" in backend_manifest
@@ -153,6 +162,54 @@ def test_kubernetes_routes_and_runtime_dependencies_are_declared():
                         "date": timezone.localdate().isoformat(),
                         "steps": 1,
                         "observed_at": "2026-07-31T12:00:00",
+                    }
+                ]
+            },
+            "observed_at must be an ISO-8601 timestamp with timezone",
+        ),
+        (
+            {
+                "records": [
+                    {
+                        "date": timezone.localdate().isoformat(),
+                        "steps": 1,
+                        "observed_at": 123456,
+                    }
+                ]
+            },
+            "observed_at must be an ISO-8601 timestamp with timezone",
+        ),
+        (
+            {
+                "records": [
+                    {
+                        "date": timezone.localdate().isoformat(),
+                        "steps": 1,
+                        "observed_at": None,
+                    }
+                ]
+            },
+            "observed_at must be an ISO-8601 timestamp with timezone",
+        ),
+        (
+            {
+                "records": [
+                    {
+                        "date": timezone.localdate().isoformat(),
+                        "steps": 1,
+                        "observed_at": True,
+                    }
+                ]
+            },
+            "observed_at must be an ISO-8601 timestamp with timezone",
+        ),
+        (
+            {
+                "records": [
+                    {
+                        "date": timezone.localdate().isoformat(),
+                        "steps": 1,
+                        "observed_at": ["2026-07-31T12:00:00Z"],
                     }
                 ]
             },
