@@ -88,7 +88,12 @@ def parse_records(payload: Any) -> list[DailyStepRecord]:
                 f"steps must be between 0 and {MAX_STEPS_PER_DAY}"
             )
 
-        observed_at = parse_datetime(raw.get("observed_at", ""))
+        raw_observed = raw.get("observed_at", "")
+        if not isinstance(raw_observed, str):
+            raise ValueError(
+                "observed_at must be an ISO-8601 timestamp with timezone"
+            )
+        observed_at = parse_datetime(raw_observed)
         if observed_at is None or timezone.is_naive(observed_at):
             raise ValueError(
                 "observed_at must be an ISO-8601 timestamp with timezone"
@@ -254,6 +259,7 @@ def update_manual_day_steps(
     if day_id is None:
         raise ValueError("Day steps not found")
     with transaction.atomic(using=using):
+        lock_plan_owner(using=using, user_id=user.pk)
         locks = lock_plan_aggregate_rows(using=using, day_ids=(day_id,))
         day = locks.days_by_pk.get(day_id)
         try:
@@ -294,6 +300,7 @@ def delete_manual_day_steps(user: Any, day_steps_id: int) -> None:
     if day_id is None:
         raise ValueError("Day steps not found")
     with transaction.atomic(using=using):
+        lock_plan_owner(using=using, user_id=user.pk)
         locks = lock_plan_aggregate_rows(using=using, day_ids=(day_id,))
         day = locks.days_by_pk.get(day_id)
         try:

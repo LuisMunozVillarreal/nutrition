@@ -12,4 +12,3 @@ patches:
   - path: ingress-patch.yaml
     target:
       kind: Ingress
-  - path: health-sync-middleware-patch.yaml
