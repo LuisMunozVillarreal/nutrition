@@ -1,6 +1,0 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: nutrition-health-sync
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: nutrition-production-health-sync-body-limit@kubernetescrd

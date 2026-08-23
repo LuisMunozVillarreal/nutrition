@@ -11,4 +11,3 @@ patches:
     target:
       kind: Ingress
   - path: staging-domain-patch.yaml
-  - path: health-sync-middleware-patch.yaml
