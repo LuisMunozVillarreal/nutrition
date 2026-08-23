@@ -120,13 +120,9 @@ def test_generate_manifest_content():
     assert f"targetNamespace: nutrition-staging--{sanitized}" in manifest
     assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in manifest
     assert f"name: source-{sanitized}" in manifest
-    assert "name: SKIP_DB_RESTORE" in manifest
-    assert 'value: "true"' in manifest
+    assert "name: SKIP_DB_RESTORE" not in manifest
+    assert "initContainers:" not in manifest
     assert 'value: "https://custom.example.com"' in manifest
-    assert re.search(
-        r"initContainers:\n\s*- name: db-restore\n\s*env:\n\s*- name: SKIP_DB_RESTORE",
-        manifest,
-    )
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
 
@@ -186,7 +182,7 @@ def test_main_dry_run(mock_check_output):
         f"serviceAccountName: nutrition-preview-sa-{sanitized}"
         in result.output
     )
-    assert "SKIP_DB_RESTORE" in result.output
+    assert "SKIP_DB_RESTORE" not in result.output
     assert "kind: ServiceAccount" in result.output
     assert "kind: Role" in result.output
     assert "kind: RoleBinding" in result.output
