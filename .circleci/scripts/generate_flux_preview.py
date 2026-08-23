@@ -172,11 +172,6 @@ spec:
                       value: "{preview_host}"
                     - name: CSRF_TRUSTED_ORIGINS
                       value: "https://{preview_host}"
-              initContainers:
-                - name: db-restore
-                  env:
-                    - name: SKIP_DB_RESTORE
-                      value: "true"
       target:
         kind: Deployment
         name: nutrition-backend
