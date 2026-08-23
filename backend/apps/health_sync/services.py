@@ -175,6 +175,22 @@ def sync_records(
                     )
                     continue
 
+                if day_steps is not None and day_steps.steps == record.steps:
+                    # Advance the idempotency watermark without a no-op write.
+                    StepSyncWatermark.objects.using(using).update_or_create(
+                        user_id=device.user_id,
+                        date=record.date,
+                        defaults={"observed_at": record.observed_at},
+                    )
+                    summary["unchanged"] += 1
+                    results.append(
+                        {
+                            "date": record.date.isoformat(),
+                            "status": "unchanged",
+                        }
+                    )
+                    continue
+
                 created = day_steps is None
                 if day_steps is None:
                     day_steps = DaySteps.objects.using(using).create(

@@ -19,7 +19,6 @@ if ENV_FILE.exists():  # pragma: no cover
 ENV = environ.Env()
 
 NUTRITION = "nutrition"
-DATA_UPLOAD_MAX_MEMORY_SIZE = 64 * 1024
 
 SECRET_KEY = ENV("SECRET_KEY")
 HEALTH_SYNC_TOKEN_PEPPER = ENV("HEALTH_SYNC_TOKEN_PEPPER", default=SECRET_KEY)

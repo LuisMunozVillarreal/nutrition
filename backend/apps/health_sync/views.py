@@ -13,7 +13,6 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import RequestDataTooBig
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -133,10 +132,7 @@ def _json_body(request: HttpRequest) -> Any:
         declared_size = 0
     if declared_size > MAX_JSON_BODY_BYTES:
         raise ValueError("Request body is too large")
-    try:
-        body = request.body
-    except RequestDataTooBig as exc:
-        raise ValueError("Request body is too large") from exc
+    body = request.read(MAX_JSON_BODY_BYTES + 1)
     if len(body) > MAX_JSON_BODY_BYTES:
         raise ValueError("Request body is too large")
     try:
