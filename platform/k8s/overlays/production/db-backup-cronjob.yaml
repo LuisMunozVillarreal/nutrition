@@ -56,7 +56,10 @@ spec:
               - |
                 set -Eeuo pipefail
                 echo "Backing up DB..."
-                [ "$ENVIRONMENT" = "production" ]
+                if [ "$ENVIRONMENT" != "production" ]; then
+                  echo "DB backup runs only in production"
+                  exit 0
+                fi
                 source "$SRC_DIR/.venv/bin/activate"
                 python manage.py dbbackup -v 3
                 echo "Completed"
