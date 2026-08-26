@@ -250,6 +250,7 @@ export default function Sidebar() {
                   key={item.href}
                   href={item.href}
                   className={`sidebar-link ${isActive ? 'active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
                   data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                   onClick={closeMenu}
                 >
