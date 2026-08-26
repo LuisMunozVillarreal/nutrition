@@ -445,12 +445,22 @@ test('Sidebar hides without a session and renders active links, drawer, and logo
   view.rerender(React.createElement(Sidebar))
   assert.match(screen.getByTestId('nav-products').className, /active/)
   assert.doesNotMatch(screen.getByTestId('nav-dashboard').className, /active/)
-  assert.equal(screen.getAllByRole('link').length, 14)
+  assert.equal(screen.getAllByRole('link').length, 15)
   assert.ok(screen.getByLabelText('Open navigation menu'))
   assert.equal(screen.getAllByLabelText('Close navigation menu').length, 2)
   assert.ok(screen.getByLabelText('Go to dashboard'))
   fireEvent.click(screen.getByTestId('nav-logout'))
   assert.equal(state.signOut.mock.calls.length, 1)
+})
+
+test('Sidebar shows Scan products link and marks it active on /scan', () => {
+  state.session = { user: { name: 'A' } }
+  state.pathname = '/scan'
+  render(React.createElement(Sidebar))
+  const scanNavLink = screen.getByTestId('nav-scan-products')
+  assert.equal(scanNavLink.getAttribute('href'), '/scan')
+  assert.ok(scanNavLink.textContent.includes('Scan products'))
+  assert.match(scanNavLink.className, /active/)
 })
 
 test('Sidebar mobile drawer traps focus, closes on Escape, toggles inert, and restores on breakpoint change', async () => {
