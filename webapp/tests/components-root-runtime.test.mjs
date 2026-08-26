@@ -458,7 +458,10 @@ test('Sidebar shows Scan products link and marks it active on /scan', () => {
   state.pathname = '/scan'
   render(React.createElement(Sidebar))
   const scanNavLink = screen.getByTestId('nav-scan-products')
+  const productsNavLink = screen.getByTestId('nav-products')
   assert.equal(scanNavLink.getAttribute('href'), '/scan')
+  assert.equal(scanNavLink.getAttribute('aria-current'), 'page')
+  assert.equal(productsNavLink.getAttribute('aria-current'), null)
   assert.ok(scanNavLink.textContent.includes('Scan products'))
   assert.match(scanNavLink.className, /active/)
 })
