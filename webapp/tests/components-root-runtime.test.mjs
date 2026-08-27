@@ -466,6 +466,21 @@ test('Sidebar shows Scan products link and marks it active on /scan', () => {
   assert.match(scanNavLink.className, /active/)
 })
 
+test('Sidebar matches active links only at path-segment boundaries', () => {
+  state.session = { user: { name: 'A' } }
+  state.pathname = '/scanner'
+  const view = render(React.createElement(Sidebar))
+  let scanNavLink = screen.getByTestId('nav-scan-products')
+  assert.doesNotMatch(scanNavLink.className, /active/)
+  assert.equal(scanNavLink.getAttribute('aria-current'), null)
+
+  state.pathname = '/scan/history'
+  view.rerender(React.createElement(Sidebar))
+  scanNavLink = screen.getByTestId('nav-scan-products')
+  assert.match(scanNavLink.className, /active/)
+  assert.equal(scanNavLink.getAttribute('aria-current'), 'page')
+})
+
 test('Sidebar mobile drawer traps focus, closes on Escape, toggles inert, and restores on breakpoint change', async () => {
   document.body.innerHTML = '<main class="main-content"></main><header class="mobile-header"></header>'
   matchMediaMatches = true
