@@ -306,6 +306,70 @@ test('scan page ignores a pending intake lookup after unmount', async () => {
   assert.equal(push.mock.calls.length, 0)
 })
 
+test('scan page resets draft and pending manual state when intake context changes', async () => {
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', '7'],
+  ])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Old draft', url: '',
+        size: 100, sizeUnit: 'g', numServings: 1,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 1, proteinG: 2, fatG: 3, carbsG: 4,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Old draft/))
+
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', '8'],
+  ])
+  supported = false
+  const { default: Page } = await import('../src/app/scan/page.tsx')
+  await act(async () => { mountedView.rerender(React.createElement(Page)) })
+  await settle(() => assert.match(container.textContent, /Camera barcode scanning is not available/))
+  assert.doesNotMatch(container.textContent, /Old draft/)
+
+  await act(async () => {
+    buttonByText(container, 'Enter a barcode manually').click()
+  })
+  let resolveGraphql
+  graphqlImpl = async () => new Promise((resolve) => { resolveGraphql = resolve })
+  await act(async () => {
+    fireEvent.change(container.querySelector('#barcode-input'), { target: { value: '123' } })
+    fireEvent.submit(container.querySelector('form'))
+  })
+  await settle(() => assert.match(container.textContent, /Looking up/))
+
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', '9'],
+  ])
+  await act(async () => { mountedView.rerender(React.createElement(Page)) })
+  await settle(() => assert.match(container.textContent, /Camera barcode scanning is not available/))
+  assert.doesNotMatch(container.textContent, /Looking up/)
+  await act(async () => {
+    resolveGraphql({
+      foodProductByBarcode: {
+        product: { id: 'p1', name: 'Oats', brand: null, size: 100, sizeUnit: 'g' },
+        openFoodFacts: null,
+      },
+    })
+    await new Promise(setImmediate)
+  })
+  assert.equal(push.mock.calls.length, 0)
+})
+
 test('scan page prefills the new product page from an OFF draft', async () => {
   supported = true
   detector = {}
