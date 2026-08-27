@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import {
@@ -95,6 +95,11 @@ const REQUIRED_NUTRIENTS: Array<
 
 export default function ScanPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const requestedDayId = searchParams.get('dayId')?.trim()
+  const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
+    ? requestedDayId
+    : null
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -118,7 +123,16 @@ export default function ScanPage() {
       const res = await graphqlRequest<BarcodeLookupResult>(LOOKUP_QUERY, {
         barcode,
       })
-      setLookup({ barcode, result: res.foodProductByBarcode })
+      const result = res.foodProductByBarcode
+      if (intakeDayId && result.product) {
+        const params = new URLSearchParams({
+          dayId: intakeDayId,
+          foodId: result.product.id,
+        })
+        router.push(`/intakes/new?${params.toString()}`)
+        return
+      }
+      setLookup({ barcode, result })
     } catch (err) {
       setLookup(null)
       setError(
@@ -127,7 +141,7 @@ export default function ScanPage() {
     } finally {
       setSearching(false)
     }
-  }, [])
+  }, [intakeDayId, router])
 
   useEffect(() => {
     if (manual) return
@@ -206,9 +220,10 @@ export default function ScanPage() {
         }
       }
       params.set('fromBarcodeScan', '1')
+      if (intakeDayId) params.set('intakeDayId', intakeDayId)
       router.push(`/products/new?${params.toString()}`)
     },
-    [router],
+    [intakeDayId, router],
   )
 
   const restart = () => {
