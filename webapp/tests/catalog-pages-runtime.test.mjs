@@ -366,7 +366,7 @@ test('new product returns scanned intake context after creation', async () => {
   })
   assert.equal(
     destination,
-    '/intakes/new?dayId=day+7&foodId=product%2F1',
+    '/intakes/new?dayId=day+7&productId=product%2F1',
   )
   assert.doesNotMatch(destination, /returnTo|attacker/)
 })

@@ -130,7 +130,7 @@ export default function ScanPage() {
       if (intakeDayId && result.product) {
         const params = new URLSearchParams({
           dayId: intakeDayId,
-          foodId: result.product.id,
+          productId: result.product.id,
         })
         router.push(`/intakes/new?${params.toString()}`)
         return

@@ -580,7 +580,7 @@ test('new intake submits parsed custom macro fields', async () => {
 test('new intake loads a scanned product and submits a food-backed intake', async () => {
   searchParams = new URLSearchParams([
     ['dayId', '7'],
-    ['foodId', 'product/1'],
+    ['productId', 'product/1'],
   ])
   const pending = deferred()
   responses = [
@@ -590,21 +590,30 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
   render(React.createElement(NewIntakePage))
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   pending.resolve({
-    foodProduct: { id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g' },
+    foodProduct: {
+      id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g',
+      servings: [
+        { id: 's-base', servingSize: 100, servingUnit: 'g' },
+        { id: 's-serving', servingSize: 1, servingUnit: 'serving' },
+        { id: 's-container', servingSize: 1, servingUnit: 'container' },
+      ],
+    },
   })
   await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Farm Oats (500 g)'))
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false)
+  assert.equal(screen.getByLabelText('Serving').value, 's-serving')
   assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
   assert.equal(screen.queryByLabelText('Protein (g)'), null)
   fireEvent.change(screen.getByLabelText('Meal'), { target: { value: 'lunch' } })
   fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
+  fireEvent.change(screen.getByLabelText('Serving'), { target: { value: 's-container' } })
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(requests.length, 2))
-  assert.match(requests[0].operation, /foodProduct\(id: \$foodId\)/)
-  assert.deepEqual(requests[0].variables, { foodId: 'product/1' })
+  assert.match(requests[0].operation, /foodProduct\(id: \$productId\)/)
+  assert.deepEqual(requests[0].variables, { productId: 'product/1' })
   assert.deepEqual(requests[1].variables, {
     dayId: 7,
-    foodId: 'product/1',
+    foodId: 's-container',
     meal: 'lunch',
     numServings: 2.5,
   })
@@ -613,7 +622,7 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
 test('new intake reports a scanned product lookup failure without showing custom macros', async () => {
   searchParams = new URLSearchParams([
     ['dayId', '7'],
-    ['foodId', 'missing'],
+    ['productId', 'missing'],
   ])
   const failure = new Error('product lookup failed')
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -632,7 +641,7 @@ test('new intake reports a scanned product lookup failure without showing custom
 test('new intake handles missing and unbranded scanned products', async () => {
   searchParams = new URLSearchParams([
     ['dayId', '7'],
-    ['foodId', 'missing'],
+    ['productId', 'missing'],
   ])
   responses = [{ foodProduct: null }]
   render(React.createElement(NewIntakePage))
@@ -642,7 +651,21 @@ test('new intake handles missing and unbranded scanned products', async () => {
   cleanup()
   requests.length = 0
   responses = [{
-    foodProduct: { id: 'p2', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+    foodProduct: {
+      id: 'p-empty', name: 'No serving', brand: null, size: 1, sizeUnit: 'container',
+      servings: [],
+    },
+  }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.ok(screen.getByRole('alert')))
+
+  cleanup()
+  requests.length = 0
+  responses = [{
+    foodProduct: {
+      id: 'p2', name: 'Oats', brand: null, size: 500, sizeUnit: 'g',
+      servings: [{ id: 's-container', servingSize: 1, servingUnit: 'container' }],
+    },
   }]
   render(React.createElement(NewIntakePage))
   await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Oats (500 g)'))
@@ -651,7 +674,7 @@ test('new intake handles missing and unbranded scanned products', async () => {
 test('new intake ignores late scanned-product completion after unmount', async () => {
   searchParams = new URLSearchParams([
     ['dayId', '7'],
-    ['foodId', 'p1'],
+    ['productId', 'p1'],
   ])
   const pendingSuccess = deferred()
   responses = [() => pendingSuccess.promise]
@@ -659,7 +682,10 @@ test('new intake ignores late scanned-product completion after unmount', async (
   assert.ok(screen.getByRole('status'))
   successView.unmount()
   pendingSuccess.resolve({
-    foodProduct: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+    foodProduct: {
+      id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g',
+      servings: [{ id: 's1', servingSize: 100, servingUnit: 'g' }],
+    },
   })
   await new Promise(setImmediate)
 

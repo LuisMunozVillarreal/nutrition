@@ -191,7 +191,7 @@ test('intake scan routes a local product directly to the intake form', async () 
   await settle(() => assert.equal(push.mock.calls.length, 1))
   assert.equal(
     push.mock.calls[0][0],
-    '/intakes/new?dayId=day+7&foodId=product%2F1',
+    '/intakes/new?dayId=day+7&productId=product%2F1',
   )
 })
 
