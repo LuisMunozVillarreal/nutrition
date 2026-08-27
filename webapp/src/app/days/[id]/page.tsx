@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
@@ -135,12 +136,18 @@ export default function EditDayPage() {
       <div>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Intakes</h2>
+          <Link
+            href={`/scan?mode=intake&dayId=${encodeURIComponent(id)}`}
+            className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
+          >
+            Scan Product
+          </Link>
         </div>
         <DataTable
           columns={intakeColumns}
           data={intakes}
           rowHref={(r) => `/intakes/${r.id}`}
-          addHref="/intakes/new"
+          addHref={`/intakes/new?dayId=${encodeURIComponent(id)}`}
           addLabel="Log Intake"
           emptyMessage="No intakes logged for this day."
         />

@@ -53,7 +53,7 @@ export default function ProductsPage() {
           Food Products
         </h1>
         <Link
-          href="/scan"
+          href="/scan?mode=product"
           data-testid="scan-link"
           className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-700"
         >

@@ -16,6 +16,7 @@ const requests = []
 let responses = []
 let params = { id: '42' }
 let searchParams = new URLSearchParams()
+let entityProps
 const graphqlRequest = async (operation, variables) => {
   requests.push({ operation, variables })
   if (!responses.length) throw new Error('No mocked GraphQL response')
@@ -27,6 +28,9 @@ const gql = (parts, ...values) => parts.reduce((text, part, index) => text + par
 
 vi.doMock('@/lib/graphql', () => ({ graphqlRequest, gql }))
 vi.doMock('next/navigation', () => ({ useParams: () => params, useSearchParams: () => searchParams }))
+vi.doMock('next/link', () => ({
+  default: ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children),
+}))
 vi.doMock('@/components/DataTable', () => ({
   default: ({ columns, data, loading, rowHref, addHref, addLabel, onDelete, emptyMessage }) => React.createElement(
     'section',
@@ -46,15 +50,19 @@ vi.doMock('@/components/DataTable', () => ({
   ),
 }))
 vi.doMock('@/components/EntityForm', () => ({
-  default: ({ title, backHref, onSave, onDelete, saving, fieldsets }) => React.createElement(
-    'form',
-    { onSubmit: (event) => { event.preventDefault(); void onSave() }, 'data-saving': String(Boolean(saving)) },
-    React.createElement('h1', null, title),
-    React.createElement('a', { href: backHref }, 'Back'),
-    fieldsets.map((fieldset) => React.createElement('fieldset', { key: fieldset.title }, React.createElement('legend', null, fieldset.title), fieldset.content)),
-    React.createElement('button', { type: 'submit' }, 'Save'),
-    onDelete && React.createElement('button', { type: 'button', onClick: () => void onDelete() }, 'Delete'),
-  ),
+  default: (props) => {
+    entityProps = props
+    const { title, backHref, onSave, onDelete, saving, fieldsets } = props
+    return React.createElement(
+      'form',
+      { onSubmit: (event) => { event.preventDefault(); void onSave() }, 'data-saving': String(Boolean(saving)) },
+      React.createElement('h1', null, title),
+      React.createElement('a', { href: backHref }, 'Back'),
+      fieldsets.map((fieldset) => React.createElement('fieldset', { key: fieldset.title }, React.createElement('legend', null, fieldset.title), fieldset.content)),
+      React.createElement('button', { type: 'submit' }, 'Save'),
+      onDelete && React.createElement('button', { type: 'button', onClick: () => void onDelete() }, 'Delete'),
+    )
+  },
 }))
 const input = (type = 'text') => {
   function MockInput({ label, name, value, checked, onChange, options = [], helpText, ...props }) {
@@ -106,6 +114,7 @@ afterEach(() => {
   responses = []
   params = { id: '42' }
   searchParams = new URLSearchParams()
+  entityProps = undefined
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
@@ -299,6 +308,8 @@ test('day edit updates tracked flag, handles missing day, and logs fetch failure
   await waitFor(() => assert.equal(requests[1].variables.id, '42'))
   assert.deepEqual(requests[1].variables, { id: '42', tracked: true })
   assert.equal(screen.getByTestId('row-i1').dataset.href, '/intakes/i1')
+  assert.equal(screen.getByRole('link', { name: 'Scan Product' }).getAttribute('href'), '/scan?mode=intake&dayId=42')
+  assert.equal(screen.getByRole('link', { name: 'Log Intake' }).getAttribute('href'), '/intakes/new?dayId=42')
   cleanup()
   requests.length = 0
   responses = [{ day: null }, { updateDay: { id: '1' } }]
@@ -564,6 +575,96 @@ test('new intake submits parsed custom macro fields', async () => {
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(requests.length, 1))
   assert.equal(requests[0].variables.dayId, 7)
+})
+
+test('new intake loads a scanned product and submits a food-backed intake', async () => {
+  searchParams = new URLSearchParams([
+    ['dayId', '7'],
+    ['foodId', 'product/1'],
+  ])
+  responses = [
+    { foodProduct: { id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g' } },
+    { createIntake: { id: 'i12' } },
+  ]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Farm Oats (500 g)'))
+  assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
+  assert.equal(screen.queryByLabelText('Protein (g)'), null)
+  fireEvent.change(screen.getByLabelText('Meal'), { target: { value: 'lunch' } })
+  fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
+  fireEvent.submit(document.querySelector('form'))
+  await waitFor(() => assert.equal(requests.length, 2))
+  assert.match(requests[0].operation, /foodProduct\(id: \$foodId\)/)
+  assert.deepEqual(requests[0].variables, { foodId: 'product/1' })
+  assert.deepEqual(requests[1].variables, {
+    dayId: 7,
+    foodId: 'product/1',
+    meal: 'lunch',
+    numServings: 2.5,
+  })
+})
+
+test('new intake reports a scanned product lookup failure without showing custom macros', async () => {
+  searchParams = new URLSearchParams([
+    ['dayId', '7'],
+    ['foodId', 'missing'],
+  ])
+  const failure = new Error('product lookup failed')
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  responses = [failure]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.ok(screen.getByRole('alert')))
+  assert.match(screen.getByRole('alert').textContent, /Unable to load the scanned product/)
+  assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake product', failure])
+  assert.equal(requests.length, 1)
+  await assert.rejects(entityProps.onSave(), /scanned product is not available/)
+  assert.equal(requests.length, 1)
+})
+
+test('new intake handles missing and unbranded scanned products', async () => {
+  searchParams = new URLSearchParams([
+    ['dayId', '7'],
+    ['foodId', 'missing'],
+  ])
+  responses = [{ foodProduct: null }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.ok(screen.getByRole('alert')))
+  assert.match(screen.getByRole('alert').textContent, /Unable to load the scanned product/)
+
+  cleanup()
+  requests.length = 0
+  responses = [{
+    foodProduct: { id: 'p2', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+  }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Oats (500 g)'))
+})
+
+test('new intake ignores late scanned-product completion after unmount', async () => {
+  searchParams = new URLSearchParams([
+    ['dayId', '7'],
+    ['foodId', 'p1'],
+  ])
+  const pendingSuccess = deferred()
+  responses = [() => pendingSuccess.promise]
+  const successView = render(React.createElement(NewIntakePage))
+  assert.ok(screen.getByRole('status'))
+  successView.unmount()
+  pendingSuccess.resolve({
+    foodProduct: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+  })
+  await new Promise(setImmediate)
+
+  const pendingFailure = deferred()
+  const failure = new Error('late failure')
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  responses = [() => pendingFailure.promise]
+  const failureView = render(React.createElement(NewIntakePage))
+  failureView.unmount()
+  pendingFailure.reject(failure)
+  await new Promise(setImmediate)
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake product', failure])
 })
 
 test('edit intake covers food-backed and custom branches and missing payload branch', async () => {
