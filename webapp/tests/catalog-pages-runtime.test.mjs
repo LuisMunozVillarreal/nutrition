@@ -167,7 +167,7 @@ test('products list loads and formats rows, with navigation only for staff', asy
   assert.match(container.textContent, /FarmMilk1 l/)
   assert.equal(
     container.querySelector('[data-testid="scan-link"]').getAttribute('href'),
-    '/scan',
+    '/scan?mode=product',
   )
   assert.equal(latestTable().rowHref, undefined)
   assert.equal(latestTable().addHref, undefined)
@@ -338,6 +338,37 @@ test('new product prefills the form from scan query parameters', async () => {
     energyKcal: 539, proteinG: 6.3, fatG: 30.9, carbsG: 57.5,
     saturatedFatG: 10.6, sugarsG: 56.3, fibreG: null, saltG: 0.11,
   })
+})
+
+test('new product returns scanned intake context after creation', async () => {
+  searchParams = new URLSearchParams([
+    ['fromBarcodeScan', '1'],
+    ['intakeDayId', 'day 7'],
+    ['returnTo', 'https://attacker.example/'],
+    ['barcode', '3017620422003'],
+    ['name', 'Oats'],
+    ['size', '500'],
+    ['sizeUnit', 'g'],
+    ['numServings', '5'],
+    ['nutritionalInfoSize', '100'],
+    ['nutritionalInfoUnit', 'g'],
+    ['energyKcal', '100'],
+    ['proteinG', '10'],
+    ['fatG', '2'],
+    ['carbsG', '12'],
+  ])
+  graphqlImpl = async () => ({ createFoodProduct: { id: 'product/1' } })
+  const { default: Page } = await import('../src/app/products/new/page.tsx')
+  await mount(Page)
+  let destination
+  await act(async () => {
+    destination = await entityProps.onSave()
+  })
+  assert.equal(
+    destination,
+    '/intakes/new?dayId=day+7&foodId=product%2F1',
+  )
+  assert.doesNotMatch(destination, /returnTo|attacker/)
 })
 
 test('new product requires a valid package size for incomplete scan data', async () => {

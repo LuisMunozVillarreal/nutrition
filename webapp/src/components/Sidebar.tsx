@@ -10,7 +10,6 @@ import {
   Footprints,
   Home,
   LogOut,
-  Barcode,
   Package,
   ShoppingBasket,
   Target,
@@ -66,7 +65,6 @@ const navSections: NavSection[] = [
     title: 'Food',
     items: [
       { label: 'Products', href: '/products', icon: <Package size={18} /> },
-      { label: 'Scan products', href: '/scan', icon: <Barcode size={18} /> },
       { label: 'Recipes', href: '/recipes', icon: <ChefHat size={18} /> },
       { label: 'Cupboard', href: '/cupboard', icon: <ShoppingBasket size={18} /> },
     ],

@@ -52,8 +52,13 @@ let detectorCreateCalls = 0
 let cameraStartCalls = 0
 let frozenFrame = false
 let captureCalls = []
+let scanSearchParams = new URLSearchParams()
+const router = { push }
 
-vi.doMock('next/navigation', () => ({ useRouter: () => ({ push }) }))
+vi.doMock('next/navigation', () => ({
+  useRouter: () => router,
+  useSearchParams: () => scanSearchParams,
+}))
 vi.doMock('next-auth/react', () => ({ useSession: () => ({ data: session }) }))
 vi.doMock('next/link', () => ({
   default: ({ href, children, ...props }) =>
@@ -136,6 +141,7 @@ afterEach(async () => {
   cameraStartCalls = 0
   frozenFrame = false
   captureCalls = []
+  scanSearchParams = new URLSearchParams()
   vi.restoreAllMocks()
 })
 
@@ -162,6 +168,49 @@ test('scan page looks up a detected barcode and links to a local product', async
   assert.ok(container.querySelector('a[href="/products/p1"]'))
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '3017620422003' })
   assert.deepEqual(stopCalls, [cameraResult])
+  assert.equal(push.mock.calls.length, 0)
+})
+
+test('intake scan routes a local product directly to the intake form', async () => {
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', 'day 7'],
+  ])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'product/1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  await mount()
+  await settle(() => assert.equal(push.mock.calls.length, 1))
+  assert.equal(
+    push.mock.calls[0][0],
+    '/intakes/new?dayId=day+7&foodId=product%2F1',
+  )
+})
+
+test('intake mode without a day stays in product lookup mode', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'intake']])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Already in your catalog/))
+  assert.equal(push.mock.calls.length, 0)
 })
 
 test('scan page keeps the detected camera frame visible after stopping', async () => {
@@ -262,6 +311,39 @@ test('scan page prefills the new product page from an OFF draft', async () => {
       '&nutritionalInfoUnit=g&energyKcal=539&proteinG=6.3&fatG=30.9' +
       '&carbsG=57.5&saltG=0.11&fromBarcodeScan=1',
   )
+})
+
+test('intake scan preserves only its trusted day context for product creation', async () => {
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', 'day 7'],
+    ['returnTo', 'https://attacker.example/'],
+  ])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Oats', url: '',
+        size: 500, sizeUnit: 'g', numServings: 5,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 100, proteinG: 10, fatG: 2, carbsG: 12,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Found on Open Food Facts/))
+  await act(async () => {
+    buttonByText(container, 'Create product from this data').click()
+  })
+  const destination = push.mock.calls.at(-1)[0]
+  assert.match(destination, /[?&]intakeDayId=day\+7(?:&|$)/)
+  assert.doesNotMatch(destination, /returnTo|attacker/)
 })
 
 test('scan page warns when OFF nutrition is incomplete before review', async () => {

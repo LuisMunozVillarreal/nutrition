@@ -133,7 +133,9 @@ export default function Dashboard() {
   const currentWeight = latestMeasurement?.weight ?? summary?.latestWeight ?? null
   const currentBodyFat = latestMeasurement?.bodyFatPerc ?? summary?.latestBodyFat ?? null
   const firstName = response?.me?.firstName || session?.user?.name?.split(' ')[0] || 'Athlete'
-  const mealHref = !loading && todayIsCurrent ? `/intakes/new?dayId=${encodeURIComponent(today.id)}` : '/days'
+  const mealHref = !loading && todayIsCurrent
+    ? `/scan?mode=intake&dayId=${encodeURIComponent(today.id)}`
+    : '/days'
 
   return (
     <div className="min-h-screen p-6 text-white md:p-12">
@@ -164,7 +166,7 @@ export default function Dashboard() {
           href={mealHref}
           icon={<UtensilsCrossed size={24} />}
           title="Log a meal"
-          description={!loading && todayIsCurrent ? 'Add food directly to today.' : 'Choose a day, then add your meal.'}
+          description={!loading && todayIsCurrent ? 'Scan a product to add it to today.' : 'Choose a day, then add your meal.'}
           accent="emerald"
         />
       </section>

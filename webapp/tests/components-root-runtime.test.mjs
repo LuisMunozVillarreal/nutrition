@@ -326,6 +326,22 @@ test('EntityForm saves, navigates back, toggles fieldsets, renders children, and
   assert.deepEqual(state.push.mock.calls[2], ['/items'])
 })
 
+test('EntityForm follows a destination returned by a successful save', async () => {
+  const onSave = vi.fn(async () => '/intakes/new?dayId=7&foodId=p1')
+  render(React.createElement(EntityForm, {
+    title: 'New item',
+    backHref: '/items',
+    onSave,
+    fieldsets: [],
+  }))
+  await screen.findByTestId('form-ready')
+  fireEvent.submit(screen.getByTestId('form-ready'))
+  await waitFor(() => assert.deepEqual(
+    state.push.mock.calls[0],
+    ['/intakes/new?dayId=7&foodId=p1'],
+  ))
+})
+
 test('EntityForm reports save, route, and delete failures and honors saving state', async () => {
   const saveFailure = { message: 'save failed' }
   const onSave = vi.fn(async () => { throw saveFailure })
@@ -445,7 +461,8 @@ test('Sidebar hides without a session and renders active links, drawer, and logo
   view.rerender(React.createElement(Sidebar))
   assert.match(screen.getByTestId('nav-products').className, /active/)
   assert.doesNotMatch(screen.getByTestId('nav-dashboard').className, /active/)
-  assert.equal(screen.getAllByRole('link').length, 15)
+  assert.equal(screen.getAllByRole('link').length, 14)
+  assert.equal(screen.queryByTestId('nav-scan-products'), null)
   assert.ok(screen.getByLabelText('Open navigation menu'))
   assert.equal(screen.getAllByLabelText('Close navigation menu').length, 2)
   assert.ok(screen.getByLabelText('Go to dashboard'))
@@ -453,32 +470,19 @@ test('Sidebar hides without a session and renders active links, drawer, and logo
   assert.equal(state.signOut.mock.calls.length, 1)
 })
 
-test('Sidebar shows Scan products link and marks it active on /scan', () => {
-  state.session = { user: { name: 'A' } }
-  state.pathname = '/scan'
-  render(React.createElement(Sidebar))
-  const scanNavLink = screen.getByTestId('nav-scan-products')
-  const productsNavLink = screen.getByTestId('nav-products')
-  assert.equal(scanNavLink.getAttribute('href'), '/scan')
-  assert.equal(scanNavLink.getAttribute('aria-current'), 'page')
-  assert.equal(productsNavLink.getAttribute('aria-current'), null)
-  assert.ok(scanNavLink.textContent.includes('Scan products'))
-  assert.match(scanNavLink.className, /active/)
-})
-
 test('Sidebar matches active links only at path-segment boundaries', () => {
   state.session = { user: { name: 'A' } }
-  state.pathname = '/scanner'
+  state.pathname = '/productivity'
   const view = render(React.createElement(Sidebar))
-  let scanNavLink = screen.getByTestId('nav-scan-products')
-  assert.doesNotMatch(scanNavLink.className, /active/)
-  assert.equal(scanNavLink.getAttribute('aria-current'), null)
+  let productsNavLink = screen.getByTestId('nav-products')
+  assert.doesNotMatch(productsNavLink.className, /active/)
+  assert.equal(productsNavLink.getAttribute('aria-current'), null)
 
-  state.pathname = '/scan/history'
+  state.pathname = '/products/history'
   view.rerender(React.createElement(Sidebar))
-  scanNavLink = screen.getByTestId('nav-scan-products')
-  assert.match(scanNavLink.className, /active/)
-  assert.equal(scanNavLink.getAttribute('aria-current'), 'page')
+  productsNavLink = screen.getByTestId('nav-products')
+  assert.match(productsNavLink.className, /active/)
+  assert.equal(productsNavLink.getAttribute('aria-current'), 'page')
 })
 
 test('Sidebar mobile drawer traps focus, closes on Escape, toggles inert, and restores on breakpoint change', async () => {
@@ -729,8 +733,9 @@ test('Dashboard renders today nutrition with a progress bar and day-linked meal 
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuenow'), '1560')
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '2000')
   assert.match(document.body.textContent, /4 entries logged today/)
-  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/intakes/new?dayId=day-7')
+  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/scan?mode=intake&dayId=day-7')
   assert.ok(mealLink)
+  assert.match(mealLink.textContent, /Log a meal/)
   // A single measurement leaves the trend below the two-point threshold.
   assert.match(document.body.textContent, /Log at least two measurements to see your trend/)
 })

@@ -84,6 +84,9 @@ function initialForm(searchParams: URLSearchParams): ProductFormState {
 
 function NewProductForm() {
   const searchParams = useSearchParams()
+  const intakeDayId = searchParams.get('fromBarcodeScan') === '1'
+    ? searchParams.get('intakeDayId')?.trim() || null
+    : null
   const [form, setForm] = useState(() => initialForm(searchParams))
   const [saving, setSaving] = useState(false)
 
@@ -106,7 +109,7 @@ function NewProductForm() {
     }
     setSaving(true)
     try {
-      await graphqlRequest(CREATE_MUTATION, {
+      const result = await graphqlRequest<{ createFoodProduct: { id: string } }>(CREATE_MUTATION, {
         name: form.name,
         brand: form.brand || null,
         barcode: form.barcode || null,
@@ -125,6 +128,13 @@ function NewProductForm() {
         fibreG: form.fibreG ? parseFloat(form.fibreG) : null,
         saltG: form.saltG ? parseFloat(form.saltG) : null,
       })
+      if (intakeDayId) {
+        const params = new URLSearchParams({
+          dayId: intakeDayId,
+          foodId: result.createFoodProduct.id,
+        })
+        return `/intakes/new?${params.toString()}`
+      }
     } finally { setSaving(false) }
   }
 

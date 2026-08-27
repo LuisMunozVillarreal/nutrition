@@ -14,7 +14,7 @@ interface FieldsetConfig {
 interface EntityFormProps {
   title: string
   backHref: string
-  onSave: () => Promise<void>
+  onSave: () => Promise<void | string>
   onDelete?: () => Promise<void>
   fieldsets: FieldsetConfig[]
   saving?: boolean
@@ -51,13 +51,14 @@ export default function EntityForm({
     event.preventDefault()
     setError(null)
     try {
+      let destination: void | string
       try {
-        await onSave()
+        destination = await onSave()
       } catch (saveErr: unknown) {
         throw new Error('API ERROR: ' + errorMessage(saveErr))
       }
       try {
-        router.push(backHref)
+        router.push(destination ?? backHref)
       } catch (routeErr: unknown) {
         throw new Error('ROUTE ERROR: ' + errorMessage(routeErr))
       }
