@@ -52,14 +52,14 @@ vi.doMock('@/components/DataTable', () => ({
 vi.doMock('@/components/EntityForm', () => ({
   default: (props) => {
     entityProps = props
-    const { title, backHref, onSave, onDelete, saving, fieldsets } = props
+    const { title, backHref, onSave, onDelete, saving, disabled, fieldsets } = props
     return React.createElement(
       'form',
       { onSubmit: (event) => { event.preventDefault(); void onSave() }, 'data-saving': String(Boolean(saving)) },
       React.createElement('h1', null, title),
       React.createElement('a', { href: backHref }, 'Back'),
       fieldsets.map((fieldset) => React.createElement('fieldset', { key: fieldset.title }, React.createElement('legend', null, fieldset.title), fieldset.content)),
-      React.createElement('button', { type: 'submit' }, 'Save'),
+      React.createElement('button', { type: 'submit', disabled: Boolean(saving || disabled) }, 'Save'),
       onDelete && React.createElement('button', { type: 'button', onClick: () => void onDelete() }, 'Delete'),
     )
   },
@@ -582,12 +582,18 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
     ['dayId', '7'],
     ['foodId', 'product/1'],
   ])
+  const pending = deferred()
   responses = [
-    { foodProduct: { id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g' } },
+    () => pending.promise,
     { createIntake: { id: 'i12' } },
   ]
   render(React.createElement(NewIntakePage))
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
+  pending.resolve({
+    foodProduct: { id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g' },
+  })
   await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Farm Oats (500 g)'))
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false)
   assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
   assert.equal(screen.queryByLabelText('Protein (g)'), null)
   fireEvent.change(screen.getByLabelText('Meal'), { target: { value: 'lunch' } })
@@ -614,6 +620,7 @@ test('new intake reports a scanned product lookup failure without showing custom
   responses = [failure]
   render(React.createElement(NewIntakePage))
   await waitFor(() => assert.ok(screen.getByRole('alert')))
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   assert.match(screen.getByRole('alert').textContent, /Unable to load the scanned product/)
   assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
   assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake product', failure])
