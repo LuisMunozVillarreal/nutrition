@@ -131,7 +131,7 @@ function NewProductForm() {
       if (intakeDayId) {
         const params = new URLSearchParams({
           dayId: intakeDayId,
-          foodId: result.createFoodProduct.id,
+          productId: result.createFoodProduct.id,
         })
         return `/intakes/new?${params.toString()}`
       }
