@@ -18,6 +18,7 @@ interface EntityFormProps {
   onDelete?: () => Promise<void>
   fieldsets: FieldsetConfig[]
   saving?: boolean
+  disabled?: boolean
   children?: ReactNode
 }
 
@@ -38,6 +39,7 @@ export default function EntityForm({
   onDelete,
   fieldsets,
   saving = false,
+  disabled = false,
   children,
 }: EntityFormProps) {
   const router = useRouter()
@@ -120,7 +122,7 @@ export default function EntityForm({
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={saving}
+            disabled={saving || disabled}
             data-testid="save-btn"
           >
             <Save size={16} />

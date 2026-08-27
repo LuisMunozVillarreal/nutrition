@@ -342,6 +342,19 @@ test('EntityForm follows a destination returned by a successful save', async () 
   ))
 })
 
+test('EntityForm can disable submission without presenting a saving state', async () => {
+  render(React.createElement(EntityForm, {
+    title: 'Pending item',
+    backHref: '/items',
+    onSave: async () => {},
+    disabled: true,
+    fieldsets: [],
+  }))
+  await screen.findByTestId('form-ready')
+  assert.equal(screen.getByTestId('save-btn').disabled, true)
+  assert.equal(screen.getByTestId('save-btn').textContent.includes('Saving'), false)
+})
+
 test('EntityForm reports save, route, and delete failures and honors saving state', async () => {
   const saveFailure = { message: 'save failed' }
   const onSave = vi.fn(async () => { throw saveFailure })
