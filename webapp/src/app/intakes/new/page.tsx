@@ -64,6 +64,7 @@ export default function NewIntakePage() {
         )
         if (cancelled) return
         if (result.foodProduct) {
+          setProductError(null)
           setProduct(result.foodProduct)
         } else {
           setProductError('Unable to load the scanned product.')
@@ -104,6 +105,7 @@ export default function NewIntakePage() {
       backHref={dayIdFromQuery ? `/days/${encodeURIComponent(dayIdFromQuery)}` : '/days'}
       onSave={handleSave}
       saving={saving}
+      disabled={Boolean(foodId) && (productLoading || Boolean(productError))}
       fieldsets={[{
         title: 'Intake Details',
         content: (

@@ -104,6 +104,7 @@ export default function ScanPage() {
   const isStaff = session?.user?.isStaff === true
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const lookupGenerationRef = useRef(0)
   const [frameCaptured, setFrameCaptured] = useState(false)
   const [cameraState, setCameraState] = useState<CameraState>('starting')
   const [manual, setManual] = useState(false)
@@ -117,12 +118,14 @@ export default function ScanPage() {
   const [scanKey, setScanKey] = useState(0)
 
   const searchBarcode = useCallback(async (barcode: string) => {
+    const generation = ++lookupGenerationRef.current
     setSearching(true)
     setError(null)
     try {
       const res = await graphqlRequest<BarcodeLookupResult>(LOOKUP_QUERY, {
         barcode,
       })
+      if (generation !== lookupGenerationRef.current) return
       const result = res.foodProductByBarcode
       if (intakeDayId && result.product) {
         const params = new URLSearchParams({
@@ -134,14 +137,19 @@ export default function ScanPage() {
       }
       setLookup({ barcode, result })
     } catch (err) {
+      if (generation !== lookupGenerationRef.current) return
       setLookup(null)
       setError(
         err instanceof Error ? err.message : 'Barcode lookup failed',
       )
     } finally {
-      setSearching(false)
+      if (generation === lookupGenerationRef.current) setSearching(false)
     }
   }, [intakeDayId, router])
+
+  useEffect(() => () => {
+    lookupGenerationRef.current += 1
+  }, [intakeDayId])
 
   useEffect(() => {
     if (manual) return
@@ -226,7 +234,17 @@ export default function ScanPage() {
     [intakeDayId, router],
   )
 
+  const createFromBarcode = useCallback((barcode: string) => {
+    const params = new URLSearchParams({
+      barcode,
+      fromBarcodeScan: '1',
+    })
+    if (intakeDayId) params.set('intakeDayId', intakeDayId)
+    router.push(`/products/new?${params.toString()}`)
+  }, [intakeDayId, router])
+
   const restart = () => {
+    lookupGenerationRef.current += 1
     setLookup(null)
     setError(null)
     setManual(false)
@@ -372,9 +390,24 @@ export default function ScanPage() {
             </div>
           )}
           {!lookup.result.product && !lookup.result.openFoodFacts && (
-            <p className="text-slate-600">
-              No product found for barcode {lookup.barcode}.
-            </p>
+            <div className="space-y-2">
+              <p className="text-slate-600">
+                No product found for barcode {lookup.barcode}.
+              </p>
+              {isStaff ? (
+                <button
+                  type="button"
+                  onClick={() => createFromBarcode(lookup.barcode)}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+                >
+                  Review and create product
+                </button>
+              ) : (
+                <p className="text-slate-600">
+                  A staff user must review and create this product.
+                </p>
+              )}
+            </div>
           )}
           <button
             type="button"

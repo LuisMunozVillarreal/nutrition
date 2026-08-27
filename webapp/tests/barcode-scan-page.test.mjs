@@ -267,6 +267,45 @@ test('scan page shows a lookup state after detecting a barcode', async () => {
   )
 })
 
+test('scan page ignores a pending intake lookup after unmount', async () => {
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', '7'],
+  ])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  let resolveGraphql
+  graphqlImpl = async () => new Promise((resolve) => { resolveGraphql = resolve })
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Looking up product/))
+  await act(async () => { mountedView.unmount() })
+  mountedView = undefined
+  await act(async () => {
+    resolveGraphql({
+      foodProductByBarcode: {
+        product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+        openFoodFacts: null,
+      },
+    })
+    await new Promise(setImmediate)
+  })
+  assert.equal(push.mock.calls.length, 0)
+
+  let rejectGraphql
+  graphqlImpl = async () => new Promise((_resolve, reject) => { rejectGraphql = reject })
+  const nextContainer = await mount()
+  await settle(() => assert.match(nextContainer.textContent, /Looking up product/))
+  await act(async () => { mountedView.unmount() })
+  mountedView = undefined
+  await act(async () => {
+    rejectGraphql(new Error('late lookup failure'))
+    await new Promise(setImmediate)
+  })
+  assert.equal(push.mock.calls.length, 0)
+})
+
 test('scan page prefills the new product page from an OFF draft', async () => {
   supported = true
   detector = {}
@@ -466,6 +505,10 @@ test('scan page does not offer staff-only product creation to regular users', as
 })
 
 test('scan page reports unknown barcodes', async () => {
+  scanSearchParams = new URLSearchParams([
+    ['mode', 'intake'],
+    ['dayId', 'day 7'],
+  ])
   supported = true
   detector = {}
   cameraResult = { getTracks: () => [] }
@@ -477,6 +520,49 @@ test('scan page reports unknown barcodes', async () => {
   await settle(() =>
     assert.match(container.textContent, /No product found for barcode 123/),
   )
+  await act(async () => {
+    buttonByText(container, 'Review and create product').click()
+  })
+  assert.equal(
+    push.mock.calls.at(-1)[0],
+    '/products/new?barcode=123&fromBarcodeScan=1&intakeDayId=day+7',
+  )
+})
+
+test('unknown product-mode barcodes open creation without intake context', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '123'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: { product: null, openFoodFacts: null },
+  })
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /No product found/))
+  await act(async () => {
+    buttonByText(container, 'Review and create product').click()
+  })
+  assert.equal(
+    push.mock.calls.at(-1)[0],
+    '/products/new?barcode=123&fromBarcodeScan=1',
+  )
+})
+
+test('unknown barcodes keep manual creation staff-only', async () => {
+  session = { user: { isStaff: false } }
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '123'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: { product: null, openFoodFacts: null },
+  })
+  const container = await mount()
+  await settle(() => assert.match(
+    container.textContent,
+    /A staff user must review and create this product/,
+  ))
+  assert.equal(buttonByText(container, 'Review and create product'), undefined)
 })
 
 test('scan page shows lookup error messages', async () => {
