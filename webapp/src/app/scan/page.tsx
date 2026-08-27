@@ -93,13 +93,8 @@ const REQUIRED_NUTRIENTS: Array<
   'energyKcal' | 'proteinG' | 'fatG' | 'carbsG'
 > = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
 
-export default function ScanPage() {
+function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const requestedDayId = searchParams.get('dayId')?.trim()
-  const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
-    ? requestedDayId
-    : null
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -419,5 +414,19 @@ export default function ScanPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function ScanPage() {
+  const searchParams = useSearchParams()
+  const requestedDayId = searchParams.get('dayId')?.trim()
+  const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
+    ? requestedDayId
+    : null
+  return (
+    <ScanPageContent
+      key={JSON.stringify(intakeDayId ? ['intake', intakeDayId] : ['product'])}
+      intakeDayId={intakeDayId}
+    />
   )
 }
