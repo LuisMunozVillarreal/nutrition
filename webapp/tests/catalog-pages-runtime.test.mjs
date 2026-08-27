@@ -28,6 +28,7 @@ vi.doMock('next/navigation', () => ({
   useParams: () => ({ id: routeId }),
   useSearchParams: () => ({
     get: (name) => (name === 'foodId' ? foodId : searchParams.get(name)),
+    toString: () => searchParams.toString(),
   }),
 }))
 vi.doMock('next/link', () => ({
@@ -369,6 +370,35 @@ test('new product returns scanned intake context after creation', async () => {
     '/intakes/new?dayId=day+7&productId=product%2F1',
   )
   assert.doesNotMatch(destination, /returnTo|attacker/)
+})
+
+test('new product remounts when its trusted scan context changes', async () => {
+  const required = [
+    ['fromBarcodeScan', '1'], ['barcode', '111'], ['name', 'First'],
+    ['size', '100'], ['sizeUnit', 'g'], ['numServings', '1'],
+    ['nutritionalInfoSize', '100'], ['nutritionalInfoUnit', 'g'],
+    ['energyKcal', '1'], ['proteinG', '2'], ['fatG', '3'], ['carbsG', '4'],
+    ['intakeDayId', '7'],
+  ]
+  searchParams = new URLSearchParams(required)
+  const { default: Page } = await import('../src/app/products/new/page.tsx')
+  await mount(Page)
+  assert.equal(fieldProps.get('name').value, 'First')
+
+  searchParams = new URLSearchParams(required.map(([name, value]) => {
+    if (name === 'name') return [name, 'Second']
+    if (name === 'barcode') return [name, '222']
+    if (name === 'intakeDayId') return [name, '8']
+    return [name, value]
+  }))
+  await act(async () => { mountedRoot.render(React.createElement(Page)) })
+  assert.equal(fieldProps.get('name').value, 'Second')
+  graphqlImpl = async () => ({ createFoodProduct: { id: 'p2' } })
+  let destination
+  await act(async () => { destination = await entityProps.onSave() })
+  assert.equal(destination, '/intakes/new?dayId=8&productId=p2')
+  assert.equal(graphqlCalls.at(-1)[1].name, 'Second')
+  assert.equal(graphqlCalls.at(-1)[1].barcode, '222')
 })
 
 test('new product requires a valid package size for incomplete scan data', async () => {

@@ -619,6 +619,43 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
   })
 })
 
+test('new intake remounts its trusted day and product context when query parameters change', async () => {
+  searchParams = new URLSearchParams([
+    ['dayId', '7'],
+    ['productId', 'p1'],
+  ])
+  responses = [{
+    foodProduct: {
+      id: 'p1', name: 'First', brand: null, size: 100, sizeUnit: 'g',
+      servings: [{ id: 's1', servingSize: 1, servingUnit: 'serving' }],
+    },
+  }]
+  const view = render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Serving').value, 's1'))
+
+  const pending = deferred()
+  responses = [() => pending.promise, { createIntake: { id: 'i2' } }]
+  searchParams = new URLSearchParams([
+    ['dayId', '8'],
+    ['productId', 'p2'],
+  ])
+  view.rerender(React.createElement(NewIntakePage))
+  assert.equal(screen.getByLabelText('Day ID').value, '8')
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
+  assert.equal(screen.queryByText(/First/), null)
+
+  pending.resolve({
+    foodProduct: {
+      id: 'p2', name: 'Second', brand: null, size: 200, sizeUnit: 'g',
+      servings: [{ id: 's2', servingSize: 1, servingUnit: 'container' }],
+    },
+  })
+  await waitFor(() => assert.equal(screen.getByLabelText('Serving').value, 's2'))
+  fireEvent.submit(document.querySelector('form'))
+  await waitFor(() => assert.equal(requests.at(-1).variables.foodId, 's2'))
+  assert.equal(requests.at(-1).variables.dayId, 8)
+})
+
 test('new intake reports a scanned product lookup failure without showing custom macros', async () => {
   searchParams = new URLSearchParams([
     ['dayId', '7'],

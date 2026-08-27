@@ -67,7 +67,12 @@ const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
   'carbsG',
 ]
 
-function initialForm(searchParams: URLSearchParams): ProductFormState {
+interface ProductSearchParams {
+  get(name: string): string | null
+  toString(): string
+}
+
+function initialForm(searchParams: ProductSearchParams): ProductFormState {
   const form = { ...DEFAULT_FORM }
   if (
     searchParams.get('fromBarcodeScan') === '1' &&
@@ -82,8 +87,7 @@ function initialForm(searchParams: URLSearchParams): ProductFormState {
   return form
 }
 
-function NewProductForm() {
-  const searchParams = useSearchParams()
+function NewProductForm({ searchParams }: { searchParams: ProductSearchParams }) {
   const intakeDayId = searchParams.get('fromBarcodeScan') === '1'
     ? searchParams.get('intakeDayId')?.trim() || null
     : null
@@ -198,10 +202,20 @@ function NewProductForm() {
   )
 }
 
+function RoutedNewProductForm() {
+  const searchParams = useSearchParams()
+  return (
+    <NewProductForm
+      key={searchParams.toString()}
+      searchParams={searchParams}
+    />
+  )
+}
+
 export default function NewProductPage() {
   return (
     <Suspense fallback={<div className="p-12 text-center text-slate-500">Loading form...</div>}>
-      <NewProductForm />
+      <RoutedNewProductForm />
     </Suspense>
   )
 }

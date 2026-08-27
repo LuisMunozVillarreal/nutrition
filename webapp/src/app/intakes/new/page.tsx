@@ -48,10 +48,13 @@ interface IntakeProduct {
   }>
 }
 
-export default function NewIntakePage() {
-  const searchParams = useSearchParams()
-  const dayIdFromQuery = searchParams.get('dayId')
-  const productId = searchParams.get('productId')?.trim() || null
+function NewIntakeForm({
+  dayIdFromQuery,
+  productId,
+}: {
+  dayIdFromQuery: string | null
+  productId: string | null
+}) {
   const [form, setForm] = useState(() => ({
     dayId: dayIdFromQuery ?? '', meal: 'breakfast', numServings: '1.0',
     servingId: '', energyKcal: '', proteinG: '', fatG: '', carbsG: ''
@@ -163,6 +166,19 @@ export default function NewIntakePage() {
           </>
         ),
       }]}
+    />
+  )
+}
+
+export default function NewIntakePage() {
+  const searchParams = useSearchParams()
+  const dayIdFromQuery = searchParams.get('dayId')
+  const productId = searchParams.get('productId')?.trim() || null
+  return (
+    <NewIntakeForm
+      key={JSON.stringify([dayIdFromQuery, productId])}
+      dayIdFromQuery={dayIdFromQuery}
+      productId={productId}
     />
   )
 }
