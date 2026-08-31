@@ -14,6 +14,21 @@ This rule is mandatory and has no exceptions.
 
 All contributors, automation, coding agents, and reviewers must enforce this rule.
 
+## Agent Setup and Verification
+
+For backend work, use the repository's executable agent targets:
+
+- Bootstrap locked dependencies with `make -C backend agent-bootstrap`.
+- Run a focused RED/GREEN test with
+  `make -C backend agent-test-focused TEST='<pytest target>'`.
+- Run the final backend verification with `make -C backend agent-verify`.
+
+Do not invent alternative environment setup or verification commands unless one
+of these targets is demonstrably broken. Focused tests intentionally disable the
+repository-wide coverage gate; final verification retains the complete coverage
+and static-check gates. Automated runs on the Hermes VM must use at most two test
+workers. The Makefile is the executable source of truth for these commands.
+
 ## Pull-Request Ready Handoff
 
 When reporting that a pull request is ready:
