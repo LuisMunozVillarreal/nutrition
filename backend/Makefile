@@ -4,11 +4,40 @@ DJANGO_SETTINGS_MODULE?=config.settings
 SECRET_KEY?=insecure-local-test-secret
 GEMINI_API_KEY?=local-test-gemini-key
 DATABASE_URL?=sqlite:///db.sqlite3
+PYTEST_WORKERS?=4
 
-.PHONY: install python-checks pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push docker-build-contract-tag-push restore-db migrations-check migrate ci-migrations chart-contract-test docker-contract-test contract-tests
+.PHONY: install agent-bootstrap agent-test-focused agent-pytest agent-verify python-checks pytest bandit flake8 black black-fix mypy pylint pylint-tests pydocstyle pydocstyle-tests docker-build docker-tag docker-push docker-build-contract-tag-push restore-db reset-db migrations-check migrate ci-migrations chart-contract-test docker-contract-test contract-tests
 
 install:
 	uv sync
+
+agent-bootstrap:
+	uv sync --frozen
+
+agent-test-focused: override export DJANGO_SETTINGS_MODULE := $(value DJANGO_SETTINGS_MODULE)
+agent-test-focused: override export SECRET_KEY := $(value SECRET_KEY)
+agent-test-focused: override export GEMINI_API_KEY := $(value GEMINI_API_KEY)
+agent-test-focused: override export DATABASE_URL := $(value DATABASE_URL)
+agent-test-focused: override export TEST := $(value TEST)
+agent-test-focused:
+	@test -n "$$TEST" || (echo "TEST=<pytest target> is required" >&2; exit 2)
+	env -u PYTEST_ADDOPTS uv run pytest --no-cov -n 2 -- "$$TEST"
+
+agent-pytest: override export DJANGO_SETTINGS_MODULE := $(value DJANGO_SETTINGS_MODULE)
+agent-pytest: override export SECRET_KEY := $(value SECRET_KEY)
+agent-pytest: override export GEMINI_API_KEY := $(value GEMINI_API_KEY)
+agent-pytest: override export DATABASE_URL := $(value DATABASE_URL)
+agent-pytest:
+	env -u PYTEST_ADDOPTS -u COVERAGE_RCFILE -u COVERAGE_FILE \
+	-u COVERAGE_PROCESS_START -u COVERAGE_FORCE_CONFIG uv run pytest -n 2 \
+	--cov-config=pyproject.toml --cov-fail-under=100 tests ../.circleci/scripts
+
+agent-verify: override ARGS=
+agent-verify: override export DJANGO_SETTINGS_MODULE := $(value DJANGO_SETTINGS_MODULE)
+agent-verify: override export SECRET_KEY := $(value SECRET_KEY)
+agent-verify: override export GEMINI_API_KEY := $(value GEMINI_API_KEY)
+agent-verify: override export DATABASE_URL := $(value DATABASE_URL)
+agent-verify: agent-pytest bandit flake8 black mypy pylint pylint-tests pydocstyle pydocstyle-tests
 
 python-checks: pytest bandit flake8 black-fix mypy pylint pylint-tests pydocstyle pydocstyle-tests
 
@@ -17,7 +46,7 @@ pytest:
 	SECRET_KEY=$(SECRET_KEY) \
 	GEMINI_API_KEY=$(GEMINI_API_KEY) \
 	DATABASE_URL=$(DATABASE_URL) \
-	uv run pytest -n 4 tests ../.circleci/scripts $(ARGS)
+	uv run pytest -n $(PYTEST_WORKERS) tests ../.circleci/scripts $(ARGS)
 
 bandit:
 	uv run bandit -c pyproject.toml -r manage.py config apps ../.circleci/scripts $(ARGS)
