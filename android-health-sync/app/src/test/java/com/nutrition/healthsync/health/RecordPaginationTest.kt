@@ -21,4 +21,18 @@ class RecordPaginationTest {
         assertEquals(listOf(null, "next"), requestedTokens)
         assertEquals(listOf(1, 2, 3), records)
     }
+
+    @Test
+    fun `stops safely when a provider repeats a continuation token`() = runBlocking {
+        var calls = 0
+
+        val records = readAllPages { token ->
+            calls += 1
+            if (token == null) RecordPage(listOf(1), "repeat")
+            else RecordPage(listOf(2), "repeat")
+        }
+
+        assertEquals(2, calls)
+        assertEquals(listOf(1, 2), records)
+    }
 }
