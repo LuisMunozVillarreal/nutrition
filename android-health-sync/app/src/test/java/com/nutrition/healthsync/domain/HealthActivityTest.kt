@@ -1,6 +1,7 @@
 package com.nutrition.healthsync.domain
 
 import java.time.Instant
+import java.time.Duration
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -79,6 +80,23 @@ class HealthActivityTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             HealthActivity("id", modifiedAt, start, end, "swim", 1, 1.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HealthActivity(
+                "id",
+                modifiedAt,
+                start,
+                start.plus(Duration.ofHours(24)).plusSeconds(1),
+                "run",
+                1,
+                1.0,
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HealthActivity("id", modifiedAt, start, end, "run", 100_001, 1.0)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            HealthActivity("id", modifiedAt, start, end, "run", 1, 100_000_000.0)
         }
     }
 }
