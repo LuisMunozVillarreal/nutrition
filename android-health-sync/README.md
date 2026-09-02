@@ -77,7 +77,7 @@ No existe un hostname de despliegue integrado. La URL se introduce en tiempo de 
 - **Manual:** lee los últimos 30 días disponibles. Los pasos se agrupan por día local. Las sesiones Garmin se leen individualmente y sus calorías activas y distancia se agregan dentro del intervalo de la sesión y únicamente para el mismo origen Garmin. Si no hay datos reales, no se realiza una petición de subida.
 - **Periódica:** WorkManager ejecuta cada 12 horas y exige conectividad. Solo se programa si existen vinculación, soporte de lectura en segundo plano, el permiso opcional `READ_HEALTH_DATA_IN_BACKGROUND` y al menos un flujo legible: pasos, o el grupo completo de permisos de actividad. Si falta alguno de esos requisitos, el trabajo único se cancela.
 
-La aplicación filtra cada agregación al origen de la propia sesión Garmin, por lo que no mezcla copias procedentes de Strava o Samsung Health. No suma registros crudos manualmente.
+La aplicación filtra cada agregación al origen de la propia sesión Garmin, por lo que no mezcla copias procedentes de Strava o Samsung Health. No suma registros crudos manualmente. Para evitar atribuir las mismas calorías o distancia dos veces cuando Garmin presenta intervalos solapados, conserva un conjunto cronológico no solapado; también omite sesiones que excedan los límites admitidos por el servidor.
 
 ## Privacidad y seguridad
 

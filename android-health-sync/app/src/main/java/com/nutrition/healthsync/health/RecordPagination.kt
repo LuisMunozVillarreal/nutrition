@@ -9,11 +9,14 @@ internal suspend fun <T> readAllPages(
     fetchPage: suspend (pageToken: String?) -> RecordPage<T>,
 ): List<T> {
     val records = mutableListOf<T>()
+    val seenTokens = mutableSetOf<String>()
     var pageToken: String? = null
-    do {
+    while (true) {
         val page = fetchPage(pageToken)
         records += page.records
-        pageToken = page.nextPageToken
-    } while (pageToken != null)
+        val nextPageToken = page.nextPageToken
+        if (nextPageToken == null || !seenTokens.add(nextPageToken)) break
+        pageToken = nextPageToken
+    }
     return records
 }

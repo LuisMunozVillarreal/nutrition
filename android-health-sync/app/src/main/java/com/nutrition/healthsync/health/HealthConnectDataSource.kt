@@ -75,18 +75,27 @@ class HealthConnectDataSource(private val context: Context) {
         val endExclusive = Instant.now()
         val start = endExclusive.minus(Duration.ofDays(lookbackDays))
         val garminOrigin = DataOrigin(GARMIN_PACKAGE)
-        val sessions = readAllPages { pageToken ->
-            val response = client().readRecords(
-                ReadRecordsRequest(
-                    recordType = ExerciseSessionRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
-                    dataOriginFilter = setOf(garminOrigin),
-                    pageSize = MAX_ACTIVITY_RECORDS,
-                    pageToken = pageToken,
-                ),
-            )
-            RecordPage(response.records, response.pageToken)
-        }
+        val sessions = keepNonOverlapping(
+            readAllPages { pageToken ->
+                val response = client().readRecords(
+                    ReadRecordsRequest(
+                        recordType = ExerciseSessionRecord::class,
+                        timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
+                        dataOriginFilter = setOf(garminOrigin),
+                        pageSize = MAX_ACTIVITY_RECORDS,
+                        pageToken = pageToken,
+                    ),
+                )
+                RecordPage(response.records, response.pageToken)
+            },
+            startOf = ExerciseSessionRecord::startTime,
+            endOf = ExerciseSessionRecord::endTime,
+            isEligible = { session ->
+                val duration = Duration.between(session.startTime, session.endTime)
+                GarminExerciseType.toNutritionType(session.exerciseType) != null &&
+                    duration > Duration.ZERO && duration <= MAX_ACTIVITY_DURATION
+            },
+        )
 
         return sessions.mapNotNull { session ->
             val type = GarminExerciseType.toNutritionType(session.exerciseType)
@@ -108,19 +117,21 @@ class HealthConnectDataSource(private val context: Context) {
                 ?.inKilocalories
                 ?.roundToInt()
                 ?: return@mapNotNull null
-            HealthActivity(
-                sourceRecordId = session.metadata.id,
-                sourceModifiedAt = session.metadata.lastModifiedTime,
-                startTime = session.startTime,
-                endTime = session.endTime,
-                type = type,
-                activeKcals = activeKcals,
-                distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
-                startZoneOffset = session.startZoneOffset
-                    ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
-                endZoneOffset = session.endZoneOffset
-                    ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
-            )
+            runCatching {
+                HealthActivity(
+                    sourceRecordId = session.metadata.id,
+                    sourceModifiedAt = session.metadata.lastModifiedTime,
+                    startTime = session.startTime,
+                    endTime = session.endTime,
+                    type = type,
+                    activeKcals = activeKcals,
+                    distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
+                    startZoneOffset = session.startZoneOffset
+                        ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
+                    endZoneOffset = session.endZoneOffset
+                        ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
+                )
+            }.getOrNull()
         }
     }
 
@@ -128,6 +139,7 @@ class HealthConnectDataSource(private val context: Context) {
         const val DEFAULT_LOOKBACK_DAYS = 30L
         const val GARMIN_PACKAGE = "com.garmin.android.apps.connectmobile"
         private const val MAX_ACTIVITY_RECORDS = 1000
+        private val MAX_ACTIVITY_DURATION: Duration = Duration.ofHours(24)
         val READ_STEPS: String = HealthPermission.getReadPermission(StepsRecord::class)
         val READ_EXERCISE: String = HealthPermission.getReadPermission(ExerciseSessionRecord::class)
         val READ_ACTIVE_CALORIES: String =
