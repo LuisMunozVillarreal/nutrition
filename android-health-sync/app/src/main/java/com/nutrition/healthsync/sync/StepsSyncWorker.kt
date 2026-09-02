@@ -48,10 +48,8 @@ object PeriodicSyncScheduler {
         val paired = SecurePairingStore(applicationContext).load() != null
         val canRun = paired && health.supportsBackgroundRead() &&
             health.grantedPermissions().containsAll(
-                setOf(
-                    HealthConnectDataSource.READ_STEPS,
+                HealthConnectDataSource.REQUIRED_READ_PERMISSIONS +
                     HealthConnectDataSource.READ_IN_BACKGROUND,
-                ),
             )
 
         if (!canRun) {

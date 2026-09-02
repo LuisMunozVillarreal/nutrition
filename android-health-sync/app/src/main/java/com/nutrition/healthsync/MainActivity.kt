@@ -43,10 +43,10 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted ->
-        val message = if (HealthConnectDataSource.READ_STEPS in granted) {
-            "Permiso de pasos concedido."
+        val message = if (granted.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)) {
+            "Permisos de pasos y actividades concedidos."
         } else {
-            "No se concedió el permiso de pasos. Puedes volver a intentarlo."
+            "No se concedieron todos los permisos. Puedes volver a intentarlo."
         }
         refreshState(message)
     }
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
         buildInterface()
         coordinator.pairing()?.let { endpointInput.setText(it.baseUrl) }
         if (intent.action == ACTION_SHOW_PERMISSIONS_RATIONALE) {
-            statusText.text = "Revisa cómo y por qué se usan los pasos antes de conceder acceso."
+            statusText.text = "Revisa cómo y por qué se usan los pasos y las actividades antes de conceder acceso."
         }
     }
 
@@ -71,28 +71,29 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(20), dp(20), dp(20), dp(32))
         }
 
-        content.addView(text("Sincronización de pasos", 26f, bold = true))
+        content.addView(text("Sincronización de salud", 26f, bold = true))
         content.addView(
             text(
-                "Lee únicamente pasos de Health Connect, los agrega por día local y los envía al servidor que tú indiques.",
+                "Lee pasos y actividades de Garmin desde Health Connect y los envía al servidor que tú indiques.",
                 16f,
             ),
         )
 
-        content.addView(section("1. Samsung Health y Health Connect"))
+        content.addView(section("1. Garmin, Samsung Health y Health Connect"))
         content.addView(
             text(
-                "En Samsung Health abre Ajustes > Health Connect y permite que Samsung Health escriba Pasos. " +
-                    "En Android 13 instala o actualiza Health Connect; en Android 14 o posterior viene integrado. " +
-                    "Si no aparecen pasos, actualiza ambas aplicaciones y comprueba el acceso en Health Connect.",
+                "En Garmin Connect abre Más > Configuración > Health Connect y permite escribir Ejercicio, " +
+                    "Calorías activas y Distancia. Garmin requiere Android 14 o posterior para esta conexión. " +
+                    "Para pasos de Samsung, permite también que Samsung Health escriba Pasos. Comprueba ambos " +
+                    "orígenes en los ajustes de Health Connect.",
                 15f,
             ),
         )
         healthSettingsButton = button("Abrir ajustes de Health Connect") { openHealthConnect() }
         content.addView(healthSettingsButton)
 
-        stepsPermissionButton = button("Conceder lectura de pasos") {
-            requestPermissions(setOf(HealthConnectDataSource.READ_STEPS))
+        stepsPermissionButton = button("Conceder lectura de pasos y actividades") {
+            requestPermissions(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
         }
         content.addView(stepsPermissionButton)
 
@@ -100,10 +101,8 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 if (health.supportsBackgroundRead()) {
                     requestPermissions(
-                        setOf(
-                            HealthConnectDataSource.READ_STEPS,
+                        HealthConnectDataSource.REQUIRED_READ_PERMISSIONS +
                             HealthConnectDataSource.READ_IN_BACKGROUND,
-                        ),
                     )
                 } else {
                     statusText.text = "Este dispositivo no ofrece lectura de Health Connect en segundo plano."
@@ -152,9 +151,10 @@ class MainActivity : ComponentActivity() {
         content.addView(section("Privacidad y permisos"))
         content.addView(
             text(
-                "La app solicita READ_STEPS porque necesita calcular totales diarios. No lee rutas, actividad, " +
-                    "nutrición ni otros datos de salud. Envía solamente fecha, total de pasos y hora de observación; " +
-                    "no envía eventos de pasos sin agregar. El permiso de segundo plano es opcional y solo se usa " +
+                "La app lee totales diarios de pasos y, exclusivamente para sesiones originadas por Garmin Connect, " +
+                    "el tipo de ejercicio, inicio, fin, calorías activas y distancia. No lee rutas, nutrición, " +
+                    "frecuencia cardiaca ni calorías basales. Envía los pasos agregados y los campos de ejercicio " +
+                    "indicados al servidor configurado. El permiso de segundo plano es opcional y solo se usa " +
                     "para WorkManager. El token limitado de vinculación se cifra con una clave AES-GCM no exportable " +
                     "del Android Keystore. Puedes revocar permisos en Health Connect y eliminar la vinculación aquí.",
                 14f,
@@ -171,15 +171,15 @@ class MainActivity : ComponentActivity() {
             val permissions = if (available) health.grantedPermissions() else emptySet()
             val paired = coordinator.pairing() != null
             val supportsBackground = available && health.supportsBackgroundRead()
-            val hasSteps = HealthConnectDataSource.READ_STEPS in permissions
+            val hasRequiredReads = permissions.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
 
             healthSettingsButton.isEnabled = true
-            stepsPermissionButton.isEnabled = available && !hasSteps
+            stepsPermissionButton.isEnabled = available && !hasRequiredReads
             backgroundPermissionButton.isEnabled = supportsBackground && !hasBackground
             backgroundPermissionButton.visibility = if (supportsBackground) View.VISIBLE else View.GONE
             pairButton.isEnabled = true
-            syncButton.isEnabled = available && hasSteps && paired
+            syncButton.isEnabled = available && hasRequiredReads && paired
             unpairButton.isEnabled = paired
 
             val healthStatus = when (availability) {
@@ -195,7 +195,7 @@ class MainActivity : ComponentActivity() {
             val pairingStatus = if (paired) "dispositivo vinculado" else "sin vincular"
             val lastSync = coordinator.lastSync()?.let { "; última sincronización: $it" }.orEmpty()
             statusText.text = message ?: (
-                "$healthStatus; pasos: ${if (hasSteps) "permitidos" else "sin permiso"}; " +
+                "$healthStatus; datos: ${if (hasRequiredReads) "permitidos" else "faltan permisos"}; " +
                     "$backgroundStatus; $pairingStatus$lastSync."
                 )
 
@@ -232,9 +232,9 @@ class MainActivity : ComponentActivity() {
             runCatching { coordinator.syncNow() }
                 .onSuccess { result ->
                     message = if (result.recordsProcessed == 0 && result.recordsSkipped == 0) {
-                        "Health Connect no devolvió totales diarios para los últimos 30 días; no se envió nada."
+                        "Health Connect no devolvió pasos ni actividades Garmin para los últimos 30 días; no se envió nada."
                     } else {
-                        "Sincronización completada: ${result.recordsProcessed} días procesados" +
+                        "Sincronización completada: ${result.recordsProcessed} registros procesados" +
                             if (result.recordsSkipped > 0) ", ${result.recordsSkipped} omitidos." else "."
                     }
                 }

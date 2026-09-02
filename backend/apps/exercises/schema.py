@@ -373,17 +373,17 @@ class ExerciseMutation:
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
 
-        try:
-            obj = Exercise.objects.get(pk=id, day__plan__user=user)
-        except Exercise.DoesNotExist as e:
-            raise ValueError("Exercise not found") from e
+        from apps.health_sync.services import update_manual_exercise
 
-        obj.time = parsed_time
-        obj.type = validated_type
-        obj.kcals = validated_kcals
-        obj.duration = parsed_duration
-        obj.distance = validated_distance
-        obj.save()
+        obj = update_manual_exercise(
+            user,
+            int(id),
+            exercise_type=validated_type,
+            kcals=validated_kcals,
+            time=parsed_time,
+            duration=parsed_duration,
+            distance=validated_distance,
+        )
         return ExerciseType.from_model(obj)
 
     @strawberry.mutation
@@ -405,12 +405,9 @@ class ExerciseMutation:
         if user is None or not user.is_authenticated:
             raise PermissionError("Authentication required")
 
-        try:
-            obj = Exercise.objects.get(pk=id, day__plan__user=user)
-        except Exercise.DoesNotExist as e:
-            raise ValueError("Exercise not found") from e
+        from apps.health_sync.services import delete_manual_exercise
 
-        obj.delete()
+        delete_manual_exercise(user, int(id))
         return True
 
     @strawberry.mutation

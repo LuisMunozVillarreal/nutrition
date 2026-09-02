@@ -26,6 +26,15 @@ object HealthSyncRequestFactory {
             .post(HealthSyncJson.codec.encodeToString(payload).toRequestBody(jsonMediaType))
             .build()
     }
+
+    fun activities(baseUrl: String, token: String, payload: ActivitiesUploadRequest): Request {
+        require(token.isNotBlank()) { "Falta el token de vinculación" }
+        return Request.Builder()
+            .url("$baseUrl/api/health-sync/activities/")
+            .header("Authorization", "Bearer $token")
+            .post(HealthSyncJson.codec.encodeToString(payload).toRequestBody(jsonMediaType))
+            .build()
+    }
 }
 
 class HealthSyncApi(
@@ -63,6 +72,25 @@ class HealthSyncApi(
         return execute(request) { body ->
             runCatching {
                 HealthSyncJson.codec.decodeFromString<StepsUploadResponse>(body)
+            }.getOrElse {
+                throw ApiException("La respuesta de sincronización no es válida", cause = it)
+            }
+        }
+    }
+
+    suspend fun uploadActivities(
+        baseUrl: String,
+        token: String,
+        records: List<ActivityUploadRecord>,
+    ): ActivitiesUploadResponse {
+        val request = HealthSyncRequestFactory.activities(
+            baseUrl,
+            token,
+            ActivitiesUploadRequest(records),
+        )
+        return execute(request) { body ->
+            runCatching {
+                HealthSyncJson.codec.decodeFromString<ActivitiesUploadResponse>(body)
             }.getOrElse {
                 throw ApiException("La respuesta de sincronización no es válida", cause = it)
             }
