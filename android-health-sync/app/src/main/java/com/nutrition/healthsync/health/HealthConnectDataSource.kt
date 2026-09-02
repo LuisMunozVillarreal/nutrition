@@ -75,64 +75,64 @@ class HealthConnectDataSource(private val context: Context) {
         val endExclusive = Instant.now()
         val start = endExclusive.minus(Duration.ofDays(lookbackDays))
         val garminOrigin = DataOrigin(GARMIN_PACKAGE)
-        val sessions = keepNonOverlapping(
-            readAllPages { pageToken ->
-                val response = client().readRecords(
-                    ReadRecordsRequest(
-                        recordType = ExerciseSessionRecord::class,
-                        timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
-                        dataOriginFilter = setOf(garminOrigin),
-                        pageSize = MAX_ACTIVITY_RECORDS,
-                        pageToken = pageToken,
-                    ),
-                )
-                RecordPage(response.records, response.pageToken)
-            },
-            startOf = ExerciseSessionRecord::startTime,
-            endOf = ExerciseSessionRecord::endTime,
-            isEligible = { session ->
-                val duration = Duration.between(session.startTime, session.endTime)
-                GarminExerciseType.toNutritionType(session.exerciseType) != null &&
-                    duration > Duration.ZERO && duration <= MAX_ACTIVITY_DURATION
-            },
-        )
-
-        return sessions.mapNotNull { session ->
-            val type = GarminExerciseType.toNutritionType(session.exerciseType)
-                ?: return@mapNotNull null
-            val totals = client().aggregate(
-                AggregateRequest(
-                    metrics = setOf(
-                        ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
-                        DistanceRecord.DISTANCE_TOTAL,
-                    ),
-                    timeRangeFilter = TimeRangeFilter.between(
-                        session.startTime,
-                        session.endTime,
-                    ),
-                    dataOriginFilter = setOf(session.metadata.dataOrigin),
+        val sessions = readAllPages { pageToken ->
+            val response = client().readRecords(
+                ReadRecordsRequest(
+                    recordType = ExerciseSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
+                    dataOriginFilter = setOf(garminOrigin),
+                    pageSize = MAX_ACTIVITY_RECORDS,
+                    pageToken = pageToken,
                 ),
             )
-            val activeKcals = totals[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
-                ?.inKilocalories
-                ?.roundToInt()
-                ?: return@mapNotNull null
-            runCatching {
-                HealthActivity(
-                    sourceRecordId = session.metadata.id,
-                    sourceModifiedAt = session.metadata.lastModifiedTime,
-                    startTime = session.startTime,
-                    endTime = session.endTime,
-                    type = type,
-                    activeKcals = activeKcals,
-                    distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
-                    startZoneOffset = session.startZoneOffset
-                        ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
-                    endZoneOffset = session.endZoneOffset
-                        ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
-                )
-            }.getOrNull()
+            RecordPage(response.records, response.pageToken)
         }
+
+        return mapValidNonOverlapping(
+            sessions,
+            transform = activity@{ session ->
+                val type = GarminExerciseType.toNutritionType(session.exerciseType)
+                    ?: return@activity null
+                val duration = Duration.between(session.startTime, session.endTime)
+                if (duration <= Duration.ZERO || duration > MAX_ACTIVITY_DURATION) {
+                    return@activity null
+                }
+                val totals = client().aggregate(
+                    AggregateRequest(
+                        metrics = setOf(
+                            ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
+                            DistanceRecord.DISTANCE_TOTAL,
+                        ),
+                        timeRangeFilter = TimeRangeFilter.between(
+                            session.startTime,
+                            session.endTime,
+                        ),
+                        dataOriginFilter = setOf(session.metadata.dataOrigin),
+                    ),
+                )
+                val activeKcals = totals[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
+                    ?.inKilocalories
+                    ?.roundToInt()
+                    ?: return@activity null
+                runCatching {
+                    HealthActivity(
+                        sourceRecordId = session.metadata.id,
+                        sourceModifiedAt = session.metadata.lastModifiedTime,
+                        startTime = session.startTime,
+                        endTime = session.endTime,
+                        type = type,
+                        activeKcals = activeKcals,
+                        distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
+                        startZoneOffset = session.startZoneOffset
+                            ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
+                        endZoneOffset = session.endZoneOffset
+                            ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
+                    )
+                }.getOrNull()
+            },
+            startOf = HealthActivity::startTime,
+            endOf = HealthActivity::endTime,
+        )
     }
 
     companion object {

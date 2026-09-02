@@ -591,6 +591,15 @@ def sync_activity_records(
                     )
                     .first()
                 )
+                if import_row is not None and not import_row.is_active:
+                    summary["unchanged"] += 1
+                    results.append(
+                        {
+                            "source_record_id": record.source_record_id,
+                            "status": "unchanged",
+                        }
+                    )
+                    continue
                 if (
                     import_row is not None
                     and record.source_modified_at

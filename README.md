@@ -34,8 +34,10 @@ internal, non-persistent Redis cache used only for rate limits.
 
 Samsung Health can share step data with Health Connect. On Android 14 or later,
 Garmin Connect must be configured to share exercise, active-calorie, and distance
-data with Health Connect. See the companion README for build, pairing, permission,
-and sync instructions.
+data with Health Connect. Imported exercises retain source provenance for idempotent
+updates; once an imported exercise is manually edited or deleted, later device
+replays remain suppressed so the user’s decision is preserved. See the companion
+README for build, pairing, permission, and sync instructions.
 
 ## Deploy to production
 
