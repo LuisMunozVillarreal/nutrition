@@ -23,7 +23,12 @@ from apps.health_sync.models import (
     HealthSyncDevice,
     HealthSyncPairingCode,
 )
-from apps.health_sync.services import parse_records, sync_records
+from apps.health_sync.services import (
+    parse_activity_records,
+    parse_records,
+    sync_activity_records,
+    sync_records,
+)
 
 MAX_JSON_BODY_BYTES = 64 * 1024
 PAIRING_ATTEMPTS_PER_IP = 20
@@ -226,6 +231,36 @@ def upload_steps(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
     result = sync_records(device, records)
+    summary = result["summary"]
+    if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
+        device.mark_sync_success()
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_POST
+def upload_activities(request: HttpRequest) -> JsonResponse:
+    """Validate and import a bounded batch of Garmin activity records."""
+    if _upload_ip_rate_limited(request):
+        response = JsonResponse(
+            {"error": "Too many upload attempts"}, status=429
+        )
+        response["Retry-After"] = str(UPLOAD_WINDOW_SECONDS)
+        return response
+    device = _device_from_request(request)
+    if device is None:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    if _device_upload_rate_limited(device):
+        response = JsonResponse(
+            {"error": "Too many upload attempts"}, status=429
+        )
+        response["Retry-After"] = str(UPLOAD_WINDOW_SECONDS)
+        return response
+    try:
+        records = parse_activity_records(_json_body(request))
+    except ValueError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+    result = sync_activity_records(device, records)
     summary = result["summary"]
     if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
         device.mark_sync_success()

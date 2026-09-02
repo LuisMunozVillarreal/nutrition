@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.core.content.edit
 import com.nutrition.healthsync.domain.EndpointConfig
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.network.HealthSyncApi
+import com.nutrition.healthsync.network.StepsUploadSummary
 import com.nutrition.healthsync.storage.Pairing
 import com.nutrition.healthsync.storage.SecurePairingStore
 import java.time.Instant
@@ -36,18 +38,40 @@ class SyncCoordinator(context: Context) {
         val pairing = pairingStore.load() ?: throw SyncException("Vincula el dispositivo primero")
         if (!health.isAvailable()) throw SyncException("Health Connect no está disponible")
         val granted = health.grantedPermissions()
-        if (HealthConnectDataSource.READ_STEPS !in granted) {
-            throw SyncException("Concede permiso para leer pasos")
+        val canReadSteps = HealthReadPermissions.canReadSteps(granted)
+        val canReadActivities = HealthReadPermissions.canReadActivities(granted)
+        if (!canReadSteps && !canReadActivities) {
+            throw SyncException("Concede permisos para leer pasos o actividades de Garmin")
         }
         if (requireBackgroundPermission && HealthConnectDataSource.READ_IN_BACKGROUND !in granted) {
             throw SyncException("Falta el permiso de lectura en segundo plano")
         }
 
         val observedAt = Instant.now()
-        val records = health.readDailySteps().map { it.toUploadRecord(observedAt) }
-        if (records.isEmpty()) return SyncResult(0, 0, observedAt)
-        val summary = try {
-            api.uploadSteps(pairing.baseUrl, pairing.token, records).summary
+        val stepRecords = if (canReadSteps) {
+            health.readDailySteps().map { it.toUploadRecord(observedAt) }
+        } else {
+            emptyList()
+        }
+        val activityRecords = if (canReadActivities) {
+            health.readGarminActivities().map { it.toUploadRecord() }
+        } else {
+            emptyList()
+        }
+        if (stepRecords.isEmpty() && activityRecords.isEmpty()) {
+            return SyncResult(0, 0, observedAt)
+        }
+        val summaries: List<StepsUploadSummary> = try {
+            mutableListOf<StepsUploadSummary>().apply {
+                if (stepRecords.isNotEmpty()) {
+                    add(api.uploadSteps(pairing.baseUrl, pairing.token, stepRecords).summary)
+                }
+                if (activityRecords.isNotEmpty()) {
+                    activityRecords.chunked(MAX_ACTIVITIES_PER_UPLOAD).forEach { batch ->
+                        add(api.uploadActivities(pairing.baseUrl, pairing.token, batch).summary)
+                    }
+                }
+            }
         } catch (error: ApiException) {
             if (error.statusCode == 401) {
                 clearPairing()
@@ -61,9 +85,13 @@ class SyncCoordinator(context: Context) {
         }
         statusStore.edit {
             putString(KEY_LAST_SYNC, observedAt.toString())
-            putInt(KEY_LAST_COUNT, summary.processed)
+            putInt(KEY_LAST_COUNT, summaries.sumOf { it.processed })
         }
-        return SyncResult(summary.processed, summary.skipped, observedAt)
+        return SyncResult(
+            summaries.sumOf { it.processed },
+            summaries.sumOf { it.skipped },
+            observedAt,
+        )
     }
 
     fun pairing(): Pairing? = pairingStore.load()
@@ -86,6 +114,7 @@ class SyncCoordinator(context: Context) {
         const val STATUS_PREFERENCES = "health_sync_status"
         const val KEY_LAST_SYNC = "last_sync"
         const val KEY_LAST_COUNT = "last_count"
+        const val MAX_ACTIVITIES_PER_UPLOAD = 100
     }
 }
 

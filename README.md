@@ -4,12 +4,14 @@
 
 Check [these instructions](backend/README.md)
 
-## Samsung Health step sync
+## Health Connect sync
 
 The Android companion in [`android-health-sync/`](android-health-sync/) reads daily
-step aggregates from Health Connect and uploads them with a revocable, step-only
-device credential. Device credentials expire after 180 days and can be revoked from
-the steps page. Production must configure a dedicated
+step aggregates plus Garmin Connect exercise sessions from Health Connect. It uploads
+steps, and for supported Garmin sessions the active calories (excluding BMR), distance,
+duration, start time, and mapped exercise type, using a revocable health-sync device
+credential. Device credentials expire after 180 days and can be revoked from the steps
+page. Production must configure a dedicated
 `HEALTH_SYNC_TOKEN_PEPPER`; during rotation, place prior values in the
 comma-separated `HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS` setting until active
 devices have rehashed. Pairing throttles use Django's cache, so production must
@@ -30,8 +32,12 @@ values until the 180-day device-token lifetime has elapsed; the CIDR value must
 identify only the direct trusted proxy network. The base manifests include an
 internal, non-persistent Redis cache used only for rate limits.
 
-Samsung Health must be configured to share step data with Health Connect. See
-the companion README for build, pairing, permission, and sync instructions.
+Samsung Health can share step data with Health Connect. On Android 14 or later,
+Garmin Connect must be configured to share exercise, active-calorie, and distance
+data with Health Connect. Imported exercises retain source provenance for idempotent
+updates; once an imported exercise is manually edited or deleted, later device
+replays remain suppressed so the user’s decision is preserved. See the companion
+README for build, pairing, permission, and sync instructions.
 
 ## Deploy to production
 

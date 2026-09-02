@@ -176,14 +176,20 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
         mutation.create_day_steps(ctx, day_id=999, steps=100)
     create_steps.assert_called_once()
 
-    mocker.patch(
-        "apps.exercises.schema.Exercise.objects.get",
-        side_effect=Exercise.DoesNotExist,
+    update_exercise = mocker.patch(
+        "apps.health_sync.services.update_manual_exercise",
+        side_effect=ValueError("Exercise not found"),
+    )
+    delete_exercise = mocker.patch(
+        "apps.health_sync.services.delete_manual_exercise",
+        side_effect=ValueError("Exercise not found"),
     )
     with pytest.raises(ValueError, match="Exercise not found"):
         mutation.update_exercise(ctx, id="1", type="walk", kcals=10)
     with pytest.raises(ValueError, match="Exercise not found"):
         mutation.delete_exercise(ctx, id="1")
+    update_exercise.assert_called_once()
+    delete_exercise.assert_called_once()
 
     mocker.patch(
         "apps.health_sync.services.update_manual_day_steps",

@@ -234,3 +234,45 @@ class StepSyncWatermark(BaseModel):
                 name="unique_step_sync_watermark_per_user_date",
             )
         ]
+
+
+class ActivityImport(BaseModel):
+    """Provenance and freshness metadata for an imported exercise activity."""
+
+    SOURCE_GARMIN_HEALTH_CONNECT = "garmin_health_connect"
+
+    exercise = models.OneToOneField(
+        "exercises.Exercise",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="activity_import",
+    )
+    user = models.ForeignKey(
+        "users.User",
+        on_delete=models.CASCADE,
+        related_name="activity_imports",
+    )
+    device = models.ForeignKey(
+        HealthSyncDevice,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="activity_imports",
+    )
+    source = models.CharField(
+        max_length=32, default=SOURCE_GARMIN_HEALTH_CONNECT
+    )
+    source_record_id = models.CharField(max_length=255)
+    source_modified_at = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "source", "source_record_id"],
+                name="unique_activity_import_per_user_source_record",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["user", "source_modified_at"]),
+            models.Index(fields=["source", "is_active"]),
+        ]

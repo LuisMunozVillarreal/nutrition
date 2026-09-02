@@ -44,3 +44,20 @@ data class StepUploadRecord(
     val steps: Long,
     @SerialName("observed_at") val observedAt: String,
 )
+
+@Serializable
+data class ActivitiesUploadRequest(val records: List<ActivityUploadRecord>)
+
+@Serializable
+data class ActivitiesUploadResponse(val summary: StepsUploadSummary)
+
+@Serializable
+data class ActivityUploadRecord(
+    @SerialName("source_record_id") val sourceRecordId: String,
+    @SerialName("source_modified_at") val sourceModifiedAt: String,
+    @SerialName("start_time") val startTime: String,
+    @SerialName("end_time") val endTime: String,
+    val type: String,
+    @SerialName("active_kcals") val activeKcals: Int,
+    @SerialName("distance_km") val distanceKm: Double?,
+)

@@ -1,6 +1,6 @@
-# Compañero Android de sincronización de pasos
+# Compañero Android de sincronización de salud
 
-Aplicación Android mínima para leer totales diarios reales de `StepsRecord` desde Health Connect y enviarlos a un servidor configurado por el usuario. No genera ni incluye datos de ejemplo en tiempo de ejecución.
+Aplicación Android para leer desde Health Connect totales diarios reales de pasos y sesiones de ejercicio originadas por Garmin Connect, y enviarlos a un servidor configurado por el usuario. No genera ni incluye datos de ejemplo en tiempo de ejecución.
 
 ## Requisitos
 
@@ -11,6 +11,7 @@ Aplicación Android mínima para leer totales diarios reales de `StepsRecord` de
 - En Android 13: aplicación Health Connect instalada y actualizada.
 - En Android 14 o posterior: módulo Health Connect del sistema actualizado.
 - Samsung Health actualizado con acceso para **escribir Pasos** en Health Connect.
+- Garmin Connect actualizado y Android 14 o posterior, con acceso para escribir **Ejercicio**, **Calorías activas** y **Distancia** en Health Connect.
 
 ## Compilar
 
@@ -29,14 +30,23 @@ Después ejecuta:
 
 El APK de depuración queda en `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Configurar Samsung Health y Health Connect
+## Configurar Garmin, Samsung Health y Health Connect
 
 1. Abre Samsung Health.
 2. Entra en **Ajustes > Health Connect**.
 3. Permite que Samsung Health escriba **Pasos**.
 4. Abre esta aplicación y pulsa **Abrir ajustes de Health Connect** para confirmar que hay datos de pasos y que la app puede leerlos.
-5. Pulsa **Conceder lectura de pasos**.
+5. Pulsa **Conceder lectura de pasos y actividades**. Si solo concedes pasos, la sincronización de pasos seguirá funcionando sin exigir los permisos de actividad.
 6. Si el dispositivo ofrece la función, concede de forma opcional **sincronización en segundo plano**.
+
+Para las actividades Garmin:
+
+1. Abre Garmin Connect y entra en **Más > Configuración > Health Connect**.
+2. Activa la conexión y permite escribir **Ejercicio**, **Calorías activas** y **Distancia**.
+3. En Health Connect comprueba que Garmin Connect aparece como origen autorizado.
+4. En esta aplicación concede la lectura de pasos y actividades.
+
+La aplicación importa únicamente sesiones cuyo origen es el paquete oficial de Garmin Connect. Para cada sesión compatible obtiene el inicio, fin, calorías activas y distancia del mismo origen. Las sesiones sin calorías activas o cuyo tipo no se puede representar como `walk`, `run`, `cycle` o `gym` se omiten en vez de inventar valores.
 
 Si los pasos no aparecen, actualiza Samsung Health y Health Connect, vuelve a comprobar los permisos y espera a que Samsung Health publique sus datos en Health Connect. Esta app no accede directamente al SDK privado de Samsung Health: Samsung Health es la fuente y Health Connect es la capa interoperable.
 
@@ -54,31 +64,37 @@ Contrato de red:
   - JSON: `{"code":"…","device_name":"…"}`
   - Respuesta: `{"token":"…"}`; se ignoran metadatos adicionales.
 - `POST {base}/api/health-sync/steps/`
-  - Cabecera: `Authorization: Bearer <token-limitado>`
+  - Cabecera: `Authorization: Bearer ${DEVICE_TOKEN}`
   - JSON: `{"records":[{"date":"YYYY-MM-DD","steps":1234,"observed_at":"ISO-8601"}]}`
+- `POST {base}/api/health-sync/activities/`
+  - Cabecera: `Authorization: Bearer ${DEVICE_TOKEN}`
+  - JSON: `{"records":[{"source_record_id":"…","source_modified_at":"ISO-8601","start_time":"ISO-8601","end_time":"ISO-8601","type":"run","active_kcals":420,"distance_km":7.25}]}`
 
 No existe un hostname de despliegue integrado. La URL se introduce en tiempo de ejecución y se exige HTTPS; el manifiesto bloquea tráfico HTTP en texto claro.
 
 ## Sincronización
 
-- **Manual:** lee los últimos 30 días disponibles, agrupados por día de calendario local mediante `AggregateGroupByPeriodRequest`, métrica `StepsRecord.COUNT_TOTAL` y periodo de un día. Solo se suben buckets que Health Connect devuelve; si no hay totales, no se realiza una petición de subida.
-- **Periódica:** WorkManager ejecuta cada 12 horas y exige conectividad. Solo se programa si existen vinculación, `READ_STEPS`, soporte de la función de lectura en segundo plano y el permiso opcional `READ_HEALTH_DATA_IN_BACKGROUND`. Si falta alguno, el trabajo único se cancela.
+- **Manual:** lee los últimos 30 días disponibles. Los pasos se agrupan por día local. Las sesiones Garmin se leen individualmente y sus calorías activas y distancia se agregan dentro del intervalo de la sesión y únicamente para el mismo origen Garmin. Si no hay datos reales, no se realiza una petición de subida.
+- **Periódica:** WorkManager ejecuta cada 12 horas y exige conectividad. Solo se programa si existen vinculación, soporte de lectura en segundo plano, el permiso opcional `READ_HEALTH_DATA_IN_BACKGROUND` y al menos un flujo legible: pasos, o el grupo completo de permisos de actividad. Si falta alguno de esos requisitos, el trabajo único se cancela.
 
-Health Connect se encarga de evitar el doble conteo entre fuentes al calcular la agregación. La aplicación no suma registros crudos manualmente.
+La aplicación filtra cada agregación al origen de la propia sesión Garmin, por lo que no mezcla copias procedentes de Strava o Samsung Health. No suma registros crudos manualmente. Para evitar atribuir las mismas calorías o distancia dos veces cuando Garmin presenta intervalos solapados, conserva un conjunto cronológico no solapado; también omite sesiones que excedan los límites admitidos por el servidor.
 
 ## Privacidad y seguridad
 
 La justificación visible en la app y declarada en el manifiesto cubre ambos flujos de permisos:
 
-- `android.permission.health.READ_STEPS`: necesario exclusivamente para calcular totales diarios de pasos.
+- `android.permission.health.READ_STEPS`: necesario para calcular totales diarios de pasos.
+- `android.permission.health.READ_EXERCISE`: necesario para identificar sesiones Garmin, su tipo e intervalo.
+- `android.permission.health.READ_ACTIVE_CALORIES_BURNED`: necesario para importar el gasto activo de cada sesión, sin BMR.
+- `android.permission.health.READ_DISTANCE`: necesario para importar la distancia de cada sesión cuando exista.
 - `android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND`: opcional, necesario únicamente para WorkManager.
 
 La aplicación:
 
 - no solicita permisos de escritura;
-- no lee rutas, nutrición, actividad ni otros tipos de salud;
+- no lee rutas, nutrición, frecuencia cardiaca ni calorías basales;
 - no envía eventos de pasos sin agregar;
-- envía solo fecha, total diario y hora de observación;
+- envía totales diarios de pasos y, para sesiones Garmin, identificador, modificación, intervalo, tipo, calorías activas y distancia;
 - no registra ni muestra el token;
 - cifra URL y token de vinculación con AES-GCM y una clave no exportable de Android Keystore;
 - desactiva copias de seguridad de la aplicación;
