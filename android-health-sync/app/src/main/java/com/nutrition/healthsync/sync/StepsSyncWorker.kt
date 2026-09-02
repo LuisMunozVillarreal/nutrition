@@ -49,10 +49,8 @@ object PeriodicSyncScheduler {
             com.nutrition.healthsync.storage.AccountConnection.CONNECTED
         val canRun = paired && health.supportsBackgroundRead() &&
             health.grantedPermissions().containsAll(
-                setOf(
-                    HealthConnectDataSource.READ_STEPS,
+                HealthConnectDataSource.REQUIRED_READ_PERMISSIONS +
                     HealthConnectDataSource.READ_IN_BACKGROUND,
-                ),
             )
 
         if (!canRun) {
