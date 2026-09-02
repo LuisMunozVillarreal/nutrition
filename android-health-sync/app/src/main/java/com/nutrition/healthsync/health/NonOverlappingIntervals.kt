@@ -6,7 +6,7 @@ internal fun <T> keepNonOverlapping(
     records: List<T>,
     startOf: (T) -> Instant,
     endOf: (T) -> Instant,
-    isEligible: (T) -> Boolean,
+    isEligible: (T) -> Boolean = { true },
 ): List<T> {
     val accepted = mutableListOf<T>()
     var acceptedEnd: Instant? = null
@@ -18,4 +18,15 @@ internal fun <T> keepNonOverlapping(
         }
     }
     return accepted
+}
+
+internal suspend fun <I, O> mapValidNonOverlapping(
+    records: List<I>,
+    transform: suspend (I) -> O?,
+    startOf: (O) -> Instant,
+    endOf: (O) -> Instant,
+): List<O> {
+    val valid = mutableListOf<O>()
+    records.forEach { record -> transform(record)?.let(valid::add) }
+    return keepNonOverlapping(valid, startOf, endOf)
 }
