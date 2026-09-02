@@ -1,6 +1,7 @@
 package com.nutrition.healthsync.health
 
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -23,23 +24,22 @@ class NonOverlappingIntervalsTest {
             listOf(nested, adjacent, first),
             startOf = Interval::start,
             endOf = Interval::end,
-            isEligible = Interval::eligible,
         )
 
         assertEquals(listOf("first", "adjacent"), accepted.map(Interval::name))
     }
 
     @Test
-    fun `ineligible interval cannot suppress an overlapping valid session`() {
+    fun `invalid mapped interval cannot suppress an overlapping valid session`() = runBlocking {
         val base = Instant.parse("2026-09-02T08:00:00Z")
         val invalid = Interval("invalid", base, base.plusSeconds(3600), eligible = false)
         val valid = Interval("valid", base.plusSeconds(60), base.plusSeconds(1800))
 
-        val accepted = keepNonOverlapping(
+        val accepted = mapValidNonOverlapping(
             listOf(invalid, valid),
+            transform = { interval -> interval.takeIf(Interval::eligible) },
             startOf = Interval::start,
             endOf = Interval::end,
-            isEligible = Interval::eligible,
         )
 
         assertEquals(listOf("valid"), accepted.map(Interval::name))

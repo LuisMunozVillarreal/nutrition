@@ -356,7 +356,7 @@ def test_empty_upload_does_not_advance_device_success_timestamp(
 
 
 @pytest.mark.django_db
-def test_manual_update_deactivates_import_and_stale_replay_is_ignored(
+def test_manual_update_deactivates_import_and_all_replays_are_ignored(
     client, user_factory, day_factory
 ):
     """Verify activity synchronization behavior."""
@@ -406,15 +406,15 @@ def test_manual_update_deactivates_import_and_stale_replay_is_ignored(
             ).isoformat(),
         ),
     )
-    assert newer.json()["summary"]["updated"] == 1
+    assert newer.json()["summary"]["unchanged"] == 1
     exercise.refresh_from_db()
     imported.refresh_from_db()
-    assert (exercise.type, exercise.kcals) == ("walk", 700)
-    assert imported.is_active is True
+    assert (exercise.type, exercise.kcals) == ("gym", 999)
+    assert imported.is_active is False
 
 
 @pytest.mark.django_db
-def test_manual_delete_detaches_import_and_newer_upload_recreates(
+def test_manual_delete_detaches_import_and_all_replays_are_ignored(
     client, user_factory, day_factory
 ):
     """Verify activity synchronization behavior."""
@@ -459,11 +459,11 @@ def test_manual_delete_detaches_import_and_newer_upload_recreates(
             ).isoformat(),
         ),
     )
-    assert newer.json()["summary"]["created"] == 1
-    assert Exercise.objects.filter(day=day).count() == 1
+    assert newer.json()["summary"]["unchanged"] == 1
+    assert Exercise.objects.filter(day=day).count() == 0
     imported.refresh_from_db()
-    assert imported.is_active is True
-    assert imported.exercise_id is not None
+    assert imported.is_active is False
+    assert imported.exercise_id is None
 
 
 @pytest.mark.django_db
