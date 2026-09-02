@@ -75,14 +75,18 @@ class HealthConnectDataSource(private val context: Context) {
         val endExclusive = Instant.now()
         val start = endExclusive.minus(Duration.ofDays(lookbackDays))
         val garminOrigin = DataOrigin(GARMIN_PACKAGE)
-        val sessions = client().readRecords(
-            ReadRecordsRequest(
-                recordType = ExerciseSessionRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
-                dataOriginFilter = setOf(garminOrigin),
-                pageSize = MAX_ACTIVITY_RECORDS,
-            ),
-        ).records
+        val sessions = readAllPages { pageToken ->
+            val response = client().readRecords(
+                ReadRecordsRequest(
+                    recordType = ExerciseSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, endExclusive),
+                    dataOriginFilter = setOf(garminOrigin),
+                    pageSize = MAX_ACTIVITY_RECORDS,
+                    pageToken = pageToken,
+                ),
+            )
+            RecordPage(response.records, response.pageToken)
+        }
 
         return sessions.mapNotNull { session ->
             val type = GarminExerciseType.toNutritionType(session.exerciseType)
@@ -129,12 +133,12 @@ class HealthConnectDataSource(private val context: Context) {
         val READ_ACTIVE_CALORIES: String =
             HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class)
         val READ_DISTANCE: String = HealthPermission.getReadPermission(DistanceRecord::class)
-        val REQUIRED_READ_PERMISSIONS: Set<String> = setOf(
-            READ_STEPS,
+        val ACTIVITY_READ_PERMISSIONS: Set<String> = setOf(
             READ_EXERCISE,
             READ_ACTIVE_CALORIES,
             READ_DISTANCE,
         )
+        val REQUIRED_READ_PERMISSIONS: Set<String> = ACTIVITY_READ_PERMISSIONS + READ_STEPS
         val READ_IN_BACKGROUND: String = HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
     }
 }
