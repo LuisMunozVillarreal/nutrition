@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.content.edit
 import com.nutrition.healthsync.domain.EndpointConfig
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.network.HealthSyncApi
 import com.nutrition.healthsync.network.StepsUploadSummary
@@ -37,16 +38,26 @@ class SyncCoordinator(context: Context) {
         val pairing = pairingStore.load() ?: throw SyncException("Vincula el dispositivo primero")
         if (!health.isAvailable()) throw SyncException("Health Connect no está disponible")
         val granted = health.grantedPermissions()
-        if (!granted.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)) {
-            throw SyncException("Concede los permisos para leer pasos y actividades de Garmin")
+        val canReadSteps = HealthReadPermissions.canReadSteps(granted)
+        val canReadActivities = HealthReadPermissions.canReadActivities(granted)
+        if (!canReadSteps && !canReadActivities) {
+            throw SyncException("Concede permisos para leer pasos o actividades de Garmin")
         }
         if (requireBackgroundPermission && HealthConnectDataSource.READ_IN_BACKGROUND !in granted) {
             throw SyncException("Falta el permiso de lectura en segundo plano")
         }
 
         val observedAt = Instant.now()
-        val stepRecords = health.readDailySteps().map { it.toUploadRecord(observedAt) }
-        val activityRecords = health.readGarminActivities().map { it.toUploadRecord() }
+        val stepRecords = if (canReadSteps) {
+            health.readDailySteps().map { it.toUploadRecord(observedAt) }
+        } else {
+            emptyList()
+        }
+        val activityRecords = if (canReadActivities) {
+            health.readGarminActivities().map { it.toUploadRecord() }
+        } else {
+            emptyList()
+        }
         if (stepRecords.isEmpty() && activityRecords.isEmpty()) {
             return SyncResult(0, 0, observedAt)
         }

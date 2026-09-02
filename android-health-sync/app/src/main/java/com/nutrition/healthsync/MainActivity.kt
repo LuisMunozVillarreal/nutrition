@@ -20,6 +20,7 @@ import androidx.health.connect.client.PermissionController
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
 import kotlinx.coroutines.launch
@@ -171,15 +172,18 @@ class MainActivity : ComponentActivity() {
             val permissions = if (available) health.grantedPermissions() else emptySet()
             val paired = coordinator.pairing() != null
             val supportsBackground = available && health.supportsBackgroundRead()
-            val hasRequiredReads = permissions.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
+            val hasStepReads = HealthReadPermissions.canReadSteps(permissions)
+            val hasActivityReads = HealthReadPermissions.canReadActivities(permissions)
+            val canSync = hasStepReads || hasActivityReads
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
 
             healthSettingsButton.isEnabled = true
-            stepsPermissionButton.isEnabled = available && !hasRequiredReads
+            stepsPermissionButton.isEnabled = available &&
+                !permissions.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
             backgroundPermissionButton.isEnabled = supportsBackground && !hasBackground
             backgroundPermissionButton.visibility = if (supportsBackground) View.VISIBLE else View.GONE
             pairButton.isEnabled = true
-            syncButton.isEnabled = available && hasRequiredReads && paired
+            syncButton.isEnabled = available && canSync && paired
             unpairButton.isEnabled = paired
 
             val healthStatus = when (availability) {
@@ -194,9 +198,10 @@ class MainActivity : ComponentActivity() {
             }
             val pairingStatus = if (paired) "dispositivo vinculado" else "sin vincular"
             val lastSync = coordinator.lastSync()?.let { "; última sincronización: $it" }.orEmpty()
+            val dataStatus = "pasos ${if (hasStepReads) "permitidos" else "sin permiso"}; " +
+                "actividades ${if (hasActivityReads) "permitidas" else "sin permisos completos"}"
             statusText.text = message ?: (
-                "$healthStatus; datos: ${if (hasRequiredReads) "permitidos" else "faltan permisos"}; " +
-                    "$backgroundStatus; $pairingStatus$lastSync."
+                "$healthStatus; $dataStatus; $backgroundStatus; $pairingStatus$lastSync."
                 )
 
             PeriodicSyncScheduler.reconcile(this@MainActivity)
