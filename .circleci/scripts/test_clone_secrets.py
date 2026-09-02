@@ -235,6 +235,8 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
             "10.0.0.0/8",
         ]
     )
+
+
 def test_preview_generates_every_secret_referenced_by_base_workloads():
     """Preview namespaces generate every Secret required by base workloads."""
     repository = Path(__file__).resolve().parents[2]
