@@ -579,3 +579,65 @@ def test_manual_exercise_operation_rejects_row_removed_after_day_lock(
         operation(user, exercise.pk)
 
     fake_locks.clear_markers.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_old_boundary_record_is_skipped_without_blocking_valid_batch(
+    client, user_factory, day_factory
+):
+    """Skip an old record individually while importing its valid batch peer."""
+    user = user_factory()
+    day_factory(plan__user=user, day=timezone.localdate())
+    token, _device = HealthSyncDevice.issue(user, "Phone")
+    old_start = timezone.now() - datetime.timedelta(days=31)
+    old = _record(
+        source_record_id="old",
+        start_time=old_start.isoformat(),
+        end_time=(old_start + datetime.timedelta(minutes=30)).isoformat(),
+    )
+    valid = _record(source_record_id="valid")
+
+    response = client.post(
+        "/api/health-sync/activities/",
+        data=json.dumps({"records": [old, valid]}),
+        content_type="application/json",
+        HTTP_AUTHORIZATION=f"Bearer {token}",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["summary"] == {
+        "created": 1,
+        "updated": 0,
+        "unchanged": 0,
+        "skipped": 1,
+    }
+    assert Exercise.objects.filter(day__plan__user=user).count() == 1
+
+
+@pytest.mark.django_db
+def test_activity_record_identity_is_namespaced_by_source(
+    client, user_factory, day_factory
+):
+    """Allow separate providers to reuse an opaque record identifier."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    token, device = HealthSyncDevice.issue(user, "Phone")
+    response = _upload(client, token, _record(source_record_id="shared-id"))
+    assert response.status_code == 200
+    other_exercise = Exercise.objects.create(day=day, type="run", kcals=1)
+
+    ActivityImport.objects.create(
+        user=user,
+        device=device,
+        exercise=other_exercise,
+        source="future_provider",
+        source_record_id="shared-id",
+        source_modified_at=timezone.now(),
+    )
+
+    assert (
+        ActivityImport.objects.filter(
+            user=user, source_record_id="shared-id"
+        ).count()
+        == 2
+    )

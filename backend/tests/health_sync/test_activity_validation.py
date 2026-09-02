@@ -314,8 +314,8 @@ def test_parse_activity_accepts_integer_distance():
     assert parsed.distance == Decimal("7")
 
 
-def test_parse_activity_rejects_dates_outside_sync_window():
-    """Verify activity payload validation behavior."""
+def test_parse_activity_defers_old_dates_for_per_record_skip():
+    """Accept structurally valid old records so sync can skip them individually."""
     today = timezone.localdate()
     too_old = today - datetime.timedelta(days=31)
     too_far_ahead = today + datetime.timedelta(days=2)
@@ -326,17 +326,17 @@ def test_parse_activity_rejects_dates_outside_sync_window():
         too_far_ahead, datetime.time(10, 0), tzinfo=datetime.timezone.utc
     )
 
-    with pytest.raises(ValueError, match="outside the supported sync window"):
-        parse_activity_records(
-            _payload(
-                _valid_record(
-                    start_time=old_start.isoformat(),
-                    end_time=(
-                        old_start + datetime.timedelta(minutes=5)
-                    ).isoformat(),
-                )
+    parsed = parse_activity_records(
+        _payload(
+            _valid_record(
+                start_time=old_start.isoformat(),
+                end_time=(
+                    old_start + datetime.timedelta(minutes=5)
+                ).isoformat(),
             )
         )
+    )
+    assert parsed[0].date == too_old
 
     with pytest.raises(ValueError, match="cannot be in the future"):
         parse_activity_records(

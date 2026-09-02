@@ -77,8 +77,8 @@ class Migration(migrations.Migration):
                 ],
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("user", "source_record_id"),
-                        name="unique_activity_import_per_user_record",
+                        fields=("user", "source", "source_record_id"),
+                        name="unique_activity_import_per_user_source_record",
                     )
                 ],
             },
