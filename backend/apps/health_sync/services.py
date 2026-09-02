@@ -491,10 +491,6 @@ def parse_activity_records(  # pylint: disable=too-many-branches
         # the uploaded start_time, not from the server's configured timezone.
         session_date = start_time.date()
         server_date = timezone.localdate()
-        if session_date < server_date - datetime.timedelta(
-            days=MAX_DATE_LOOKBACK_DAYS
-        ):
-            raise ValueError("activity is outside the supported sync window")
         if session_date > server_date + datetime.timedelta(
             days=MAX_DATE_AHEAD_DAYS
         ):
@@ -570,6 +566,17 @@ def sync_activity_records(
     using = router.db_for_write(Exercise)
 
     for record in records:
+        if record.date < timezone.localdate() - datetime.timedelta(
+            days=MAX_DATE_LOOKBACK_DAYS
+        ):
+            summary["skipped"] += 1
+            results.append(
+                {
+                    "source_record_id": record.source_record_id,
+                    "status": "skipped",
+                }
+            )
+            continue
         with transaction.atomic(using=using):
             locked_user = lock_plan_owner(using=using, user_id=device.user_id)
             day_ids = list(
@@ -590,6 +597,7 @@ def sync_activity_records(
                 ActivityImport.objects.using(using)
                 .filter(
                     user_id=device.user_id,
+                    source=ActivityImport.SOURCE_GARMIN_HEALTH_CONNECT,
                     source_record_id=record.source_record_id,
                     exercise__day__plan__user_id=device.user_id,
                 )
@@ -624,6 +632,7 @@ def sync_activity_records(
                     .using(using)
                     .filter(
                         user_id=device.user_id,
+                        source=ActivityImport.SOURCE_GARMIN_HEALTH_CONNECT,
                         source_record_id=record.source_record_id,
                     )
                     .first()
