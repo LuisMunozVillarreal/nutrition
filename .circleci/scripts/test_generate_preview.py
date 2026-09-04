@@ -45,7 +45,9 @@ def test_sanitize_branch():
         assert result == sanitise_branch_name(branch_input)
         assert len(result) <= MAX_LENGTH
         assert result[0].isalnum() and result[-1].isalnum()
-        assert re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", result) is not None
+        assert (
+            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", result) is not None
+        )
 
 
 def test_sanitize_branch_is_case_resilient():
@@ -86,7 +88,8 @@ def test_sanitize_deterministic_collision_matrix():
     sanitized = [sanitise_branch_name(branch) for branch in candidate_branches]
     assert len(sanitized) == len(set(sanitized))
     assert all(
-        len(name) <= MAX_LENGTH and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name)
+        len(name) <= MAX_LENGTH
+        and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name)
         for name in sanitized
     )
 
@@ -211,9 +214,14 @@ def test_main_dry_run(mock_check_output):
     sanitized = sanitise_branch_name("feature/test")
 
     assert result.exit_code == 0
-    assert "--- Dry Run: Applying the following to cluster ---" in result.output
+    assert (
+        "--- Dry Run: Applying the following to cluster ---" in result.output
+    )
     assert "url: ssh://git@github.com/user/repo.git" in result.output
-    assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in result.output
+    assert (
+        f"serviceAccountName: nutrition-preview-sa-{sanitized}"
+        in result.output
+    )
     assert "SKIP_DB_RESTORE" not in result.output
     assert "kind: ServiceAccount" in result.output
     assert "kind: Role" in result.output
@@ -254,4 +262,7 @@ def test_main_fallback_repo(mock_check_output):
     result = runner.invoke(main, ["feature/test", "v1", "--dry-run"])
 
     assert result.exit_code == 0
-    assert "url: https://github.com/LuisMunozVillarreal/nutrition" in result.output
+    assert (
+        "url: https://github.com/LuisMunozVillarreal/nutrition"
+        in result.output
+    )

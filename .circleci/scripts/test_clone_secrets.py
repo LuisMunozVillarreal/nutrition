@@ -86,7 +86,9 @@ def test_main_success(mock_run, mocker):
     result = runner.invoke(main, ["feature/test-branch"])
 
     assert result.exit_code == 0
-    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
+    expected_ns = (
+        f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
+    )
     assert f"Waiting for namespace {expected_ns} to exist..." in result.output
     for generated in [
         "nutrition-webapp-nextauth-secret",
@@ -127,7 +129,9 @@ def test_main_success(mock_run, mocker):
     ]
 
 
-def test_main_refreshes_existing_copied_secret_and_restarts_backend(mock_run, mocker):
+def test_main_refreshes_existing_copied_secret_and_restarts_backend(
+    mock_run, mocker
+):
     """Existing preview backup credentials are refreshed before backend startup."""
     runner = CliRunner()
     mocker.patch("time.sleep")
@@ -154,9 +158,7 @@ def test_main_refreshes_existing_copied_secret_and_restarts_backend(mock_run, mo
 
     result = runner.invoke(main, ["feature/existing-preview"])
 
-    expected_ns = (
-        f"nutrition-staging--{sanitise_branch_name('feature/existing-preview')}"
-    )
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/existing-preview')}"
     assert result.exit_code == 0
     copied_applies = [
         call
@@ -179,7 +181,9 @@ def test_main_refreshes_existing_copied_secret_and_restarts_backend(mock_run, mo
     )
 
 
-def test_main_fresh_namespace_does_not_require_existing_backend(mock_run, mocker):
+def test_main_fresh_namespace_does_not_require_existing_backend(
+    mock_run, mocker
+):
     """Secret cloning succeeds before Flux creates the first backend deployment."""
     runner = CliRunner()
     mocker.patch("time.sleep")
@@ -220,7 +224,9 @@ def test_main_apply_payload(mock_run, mocker):
     generated_seen = 0
     copied_seen = 0
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
+        payload: dict[str, Any] = json.loads(
+            call.kwargs["input"].decode("utf-8")
+        )
         assert payload["kind"] == "Secret"
         assert payload["type"] == "Opaque"
         assert (
@@ -228,7 +234,10 @@ def test_main_apply_payload(mock_run, mocker):
             == "nutrition-preview"
         )
         assert payload["metadata"]["namespace"] == expected_ns
-        if payload["metadata"]["name"] == "nutrition-gcp-db-backup-credentials":
+        if (
+            payload["metadata"]["name"]
+            == "nutrition-gcp-db-backup-credentials"
+        ):
             # The copied secret carries the source data payload, not a stub.
             assert "stringData" not in payload
             assert payload["data"] == GCP_SOURCE_SECRET["data"]
@@ -289,7 +298,9 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
 
     generated_values: list[str] = []
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
+        payload: dict[str, Any] = json.loads(
+            call.kwargs["input"].decode("utf-8")
+        )
         if "stringData" in payload:
             assert payload["stringData"]
             generated_values.extend(payload["stringData"].values())
@@ -317,7 +328,10 @@ def test_preview_generates_every_secret_referenced_by_base_workloads():
             if isinstance(secret_ref, dict) and "name" in secret_ref:
                 required.add(secret_ref["name"])
             secret_volume = value.get("secret")
-            if isinstance(secret_volume, dict) and "secretName" in secret_volume:
+            if (
+                isinstance(secret_volume, dict)
+                and "secretName" in secret_volume
+            ):
                 required.add(secret_volume["secretName"])
             for child in value.values():
                 collect(child)
