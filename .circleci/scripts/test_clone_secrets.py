@@ -156,9 +156,10 @@ def test_main_refreshes_existing_copied_secret_and_restarts_backend(
 
     mock_run.side_effect = existing_preview_secrets
 
-    result = runner.invoke(main, ["feature/existing-preview"])
+    branch = "feature/existing-preview"
+    result = runner.invoke(main, [branch])
 
-    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/existing-preview')}"
+    expected_ns = f"nutrition-staging--{sanitise_branch_name(branch)}"
     assert result.exit_code == 0
     copied_applies = [
         call
