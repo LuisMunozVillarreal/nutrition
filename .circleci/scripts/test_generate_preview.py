@@ -45,9 +45,7 @@ def test_sanitize_branch():
         assert result == sanitise_branch_name(branch_input)
         assert len(result) <= MAX_LENGTH
         assert result[0].isalnum() and result[-1].isalnum()
-        assert (
-            re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", result) is not None
-        )
+        assert re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", result) is not None
 
 
 def test_sanitize_branch_is_case_resilient():
@@ -88,8 +86,7 @@ def test_sanitize_deterministic_collision_matrix():
     sanitized = [sanitise_branch_name(branch) for branch in candidate_branches]
     assert len(sanitized) == len(set(sanitized))
     assert all(
-        len(name) <= MAX_LENGTH
-        and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name)
+        len(name) <= MAX_LENGTH and re.fullmatch(r"[a-z0-9]([-a-z0-9]*[a-z0-9])?", name)
         for name in sanitized
     )
 
@@ -123,7 +120,8 @@ def test_generate_manifest_content():
     assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in manifest
     assert f"name: source-{sanitized}" in manifest
     assert "name: SKIP_DB_RESTORE" not in manifest
-    assert "initContainers:" not in manifest
+    assert "initContainers:" in manifest
+    assert manifest.count("name: REPAIR_USERLESS_PREVIEW_DB") == 1
     assert 'value: "https://custom.example.com"' in manifest
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
@@ -148,6 +146,22 @@ def test_generate_manifest_content():
         if service["metadata"]["name"] == "nutrition-backend"
     )
     assert 80 in {port["port"] for port in backend_service["spec"]["ports"]}
+
+
+def test_preview_restore_repairs_a_migrated_database_without_users():
+    """Dynamic previews recover when stale credentials left only the schema."""
+    manifest, _ = generate_manifest("feature/test", "v1", "custom.example.com")
+
+    assert "name: REPAIR_USERLESS_PREVIEW_DB" in manifest
+    assert 'value: "true"' in manifest
+
+    repository = Path(__file__).resolve().parents[2]
+    restore_patch = (
+        repository / "platform/k8s/overlays/staging/db-restore-patch.yaml"
+    ).read_text()
+    assert "REPAIR_USERLESS_PREVIEW_DB" in restore_patch
+    assert "get_user_model().objects.exists()" in restore_patch
+    assert "DB has no users. Restoring from backup" in restore_patch
 
 
 def test_generate_manifest_default_domain():
@@ -197,14 +211,9 @@ def test_main_dry_run(mock_check_output):
     sanitized = sanitise_branch_name("feature/test")
 
     assert result.exit_code == 0
-    assert (
-        "--- Dry Run: Applying the following to cluster ---" in result.output
-    )
+    assert "--- Dry Run: Applying the following to cluster ---" in result.output
     assert "url: ssh://git@github.com/user/repo.git" in result.output
-    assert (
-        f"serviceAccountName: nutrition-preview-sa-{sanitized}"
-        in result.output
-    )
+    assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in result.output
     assert "SKIP_DB_RESTORE" not in result.output
     assert "kind: ServiceAccount" in result.output
     assert "kind: Role" in result.output
@@ -245,7 +254,4 @@ def test_main_fallback_repo(mock_check_output):
     result = runner.invoke(main, ["feature/test", "v1", "--dry-run"])
 
     assert result.exit_code == 0
-    assert (
-        "url: https://github.com/LuisMunozVillarreal/nutrition"
-        in result.output
-    )
+    assert "url: https://github.com/LuisMunozVillarreal/nutrition" in result.output

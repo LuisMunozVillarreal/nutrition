@@ -86,9 +86,7 @@ def test_main_success(mock_run, mocker):
     result = runner.invoke(main, ["feature/test-branch"])
 
     assert result.exit_code == 0
-    expected_ns = (
-        f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
-    )
+    expected_ns = f"nutrition-staging--{sanitise_branch_name('feature/test-branch')}"
     assert f"Waiting for namespace {expected_ns} to exist..." in result.output
     for generated in [
         "nutrition-webapp-nextauth-secret",
@@ -101,8 +99,8 @@ def test_main_success(mock_run, mocker):
             f"Creating least-privilege preview secret {generated}..."
         ) in result.output
     assert (
-        f"Copying nutrition-gcp-db-backup-credentials from nutrition-staging "
-        f"to {expected_ns}..."
+        f"Refreshing nutrition-gcp-db-backup-credentials from nutrition-staging "
+        f"in {expected_ns}..."
     ) in result.output
 
     # The only staging read is the backup-credentials copy; generated
@@ -129,6 +127,84 @@ def test_main_success(mock_run, mocker):
     ]
 
 
+def test_main_refreshes_existing_copied_secret_and_restarts_backend(mock_run, mocker):
+    """Existing preview backup credentials are refreshed before backend startup."""
+    runner = CliRunner()
+    mocker.patch("time.sleep")
+
+    def existing_preview_secrets(*args, **kwargs):
+        cmd = args[0]
+        if cmd[:3] == ["kubectl", "get", "namespace"]:
+            return CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:3] == ["kubectl", "get", "secret"]:
+            if (
+                cmd[3] == "nutrition-gcp-db-backup-credentials"
+                and cmd[5] == "nutrition-staging"
+            ):
+                return CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=json.dumps(GCP_SOURCE_SECRET).encode("utf-8"),
+                    stderr=b"",
+                )
+            return CompletedProcess(cmd, 0, stdout=b"{}", stderr=b"")
+        return CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    mock_run.side_effect = existing_preview_secrets
+
+    result = runner.invoke(main, ["feature/existing-preview"])
+
+    expected_ns = (
+        f"nutrition-staging--{sanitise_branch_name('feature/existing-preview')}"
+    )
+    assert result.exit_code == 0
+    copied_applies = [
+        call
+        for call in _apply_calls(mock_run, expected_ns)
+        if json.loads(call.kwargs["input"])["metadata"]["name"]
+        == "nutrition-gcp-db-backup-credentials"
+    ]
+    assert len(copied_applies) == 1
+    assert any(
+        call.args[0]
+        == [
+            "kubectl",
+            "rollout",
+            "restart",
+            "deployment/nutrition-backend",
+            "-n",
+            expected_ns,
+        ]
+        for call in mock_run.call_args_list
+    )
+
+
+def test_main_fresh_namespace_does_not_require_existing_backend(mock_run, mocker):
+    """Secret cloning succeeds before Flux creates the first backend deployment."""
+    runner = CliRunner()
+    mocker.patch("time.sleep")
+
+    def fresh_namespace(*args, **kwargs):
+        cmd = args[0]
+        if cmd[:3] == ["kubectl", "get", "namespace"]:
+            return CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:3] == ["kubectl", "get", "deployment"]:
+            return CompletedProcess(cmd, 1, stdout=b"", stderr=b"NotFound")
+        if cmd[:3] == ["kubectl", "rollout", "restart"]:
+            return CompletedProcess(cmd, 1, stdout=b"", stderr=b"NotFound")
+        return _fake_kubectl(*args, **kwargs)
+
+    mock_run.side_effect = fresh_namespace
+
+    result = runner.invoke(main, ["feature/fresh-preview"])
+
+    assert result.exit_code == 0
+    assert not any(
+        call.args[0][:3] == ["kubectl", "rollout", "restart"]
+        for call in mock_run.call_args_list
+    )
+
+
 def test_main_apply_payload(mock_run, mocker):
     """Test that each preview secret is applied with the expected shape."""
     runner = CliRunner()
@@ -144,9 +220,7 @@ def test_main_apply_payload(mock_run, mocker):
     generated_seen = 0
     copied_seen = 0
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(
-            call.kwargs["input"].decode("utf-8")
-        )
+        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
         assert payload["kind"] == "Secret"
         assert payload["type"] == "Opaque"
         assert (
@@ -154,10 +228,7 @@ def test_main_apply_payload(mock_run, mocker):
             == "nutrition-preview"
         )
         assert payload["metadata"]["namespace"] == expected_ns
-        if (
-            payload["metadata"]["name"]
-            == "nutrition-gcp-db-backup-credentials"
-        ):
+        if payload["metadata"]["name"] == "nutrition-gcp-db-backup-credentials":
             # The copied secret carries the source data payload, not a stub.
             assert "stringData" not in payload
             assert payload["data"] == GCP_SOURCE_SECRET["data"]
@@ -218,9 +289,7 @@ def test_main_secrets_are_preview_scoped_and_non_empty(mock_run, mocker):
 
     generated_values: list[str] = []
     for call in apply_calls:
-        payload: dict[str, Any] = json.loads(
-            call.kwargs["input"].decode("utf-8")
-        )
+        payload: dict[str, Any] = json.loads(call.kwargs["input"].decode("utf-8"))
         if "stringData" in payload:
             assert payload["stringData"]
             generated_values.extend(payload["stringData"].values())
@@ -248,10 +317,7 @@ def test_preview_generates_every_secret_referenced_by_base_workloads():
             if isinstance(secret_ref, dict) and "name" in secret_ref:
                 required.add(secret_ref["name"])
             secret_volume = value.get("secret")
-            if (
-                isinstance(secret_volume, dict)
-                and "secretName" in secret_volume
-            ):
+            if isinstance(secret_volume, dict) and "secretName" in secret_volume:
                 required.add(secret_volume["secretName"])
             for child in value.values():
                 collect(child)
