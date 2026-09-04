@@ -3,14 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
         android:id="@+id/action_settings"
+        android:icon="@drawable/ic_settings"
         android:title="@string/menu_settings"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/action_privacy"
-        android:title="@string/menu_privacy"
-        app:showAsAction="never" />
-    <item
-        android:id="@+id/action_about"
-        android:title="@string/menu_about"
-        app:showAsAction="never" />
+        app:showAsAction="always" />
 </menu>

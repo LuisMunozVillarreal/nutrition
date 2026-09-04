@@ -22,25 +22,25 @@ class SyncCoordinator(context: Context) {
         val operation = pairingGuard.snapshot()
         val baseUrl = EndpointConfig.normalize(baseUrlInput)
         require(code.trim().matches(Regex("\\d{12}"))) {
-            "El código de vinculación debe tener 12 dígitos"
+            "The pairing code must contain 12 digits"
         }
-        require(deviceName.isNotBlank()) { "Introduce el nombre del dispositivo" }
+        require(deviceName.isNotBlank()) { "Enter a device name" }
         val response = api.pair(baseUrl, code.trim(), deviceName.trim())
         if (!pairingGuard.isCurrent(operation)) {
-            throw SyncException("La vinculación se canceló antes de completarse")
+            throw SyncException("Pairing was cancelled before it completed")
         }
         return Pairing(baseUrl, response.token).also(pairingStore::save)
     }
 
     suspend fun syncNow(requireBackgroundPermission: Boolean = false): SyncResult {
-        val pairing = pairingStore.load() ?: throw SyncException("Vincula el dispositivo primero")
-        if (!health.isAvailable()) throw SyncException("Health Connect no está disponible")
+        val pairing = pairingStore.load() ?: throw SyncException("Connect this device first")
+        if (!health.isAvailable()) throw SyncException("Health Connect is unavailable")
         val granted = health.grantedPermissions()
         if (HealthConnectDataSource.READ_STEPS !in granted) {
-            throw SyncException("Concede permiso para leer pasos")
+            throw SyncException("Allow step access first")
         }
         if (requireBackgroundPermission && HealthConnectDataSource.READ_IN_BACKGROUND !in granted) {
-            throw SyncException("Falta el permiso de lectura en segundo plano")
+            throw SyncException("Background health-data access is missing")
         }
 
         val observedAt = Instant.now()
@@ -53,7 +53,7 @@ class SyncCoordinator(context: Context) {
                 clearPairing()
                 PeriodicSyncScheduler.cancel(applicationContext)
                 throw SyncException(
-                    "La vinculación venció o fue revocada. Vincula el dispositivo de nuevo.",
+                    "Pairing expired or was revoked. Connect this device again.",
                     error,
                 )
             }

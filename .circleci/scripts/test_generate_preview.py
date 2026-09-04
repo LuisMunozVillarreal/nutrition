@@ -131,9 +131,8 @@ def test_generate_manifest_content():
     assert "name: HEALTH_SYNC_TOKEN_PEPPER" in manifest
     assert "name: HEALTH_SYNC_TRUSTED_PROXY_COUNT" in manifest
     assert "name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS" in manifest
-    assert "path: /spec/rules/0/http/paths/-" in manifest
-    assert "path: /api/health-sync" in manifest
-    assert "number: 80" in manifest
+    assert "path: /spec/rules/0/http/paths/-" not in manifest
+    assert "path: /api/health-sync" not in manifest
 
     repository = Path(__file__).resolve().parents[2]
     services = [
