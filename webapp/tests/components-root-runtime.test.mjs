@@ -730,7 +730,7 @@ test('Dashboard fetches the dashboard query with timezone offset and bearer auth
   assert.ok(trend)
 })
 
-test('Dashboard renders today nutrition with a progress bar and day-linked meal action', async () => {
+test('Dashboard renders today nutrition with a progress bar and scanner meal action', async () => {
   state.status = 'authenticated'
   state.session = { accessToken: 't', user: { name: 'N' } }
   const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
@@ -746,7 +746,7 @@ test('Dashboard renders today nutrition with a progress bar and day-linked meal 
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuenow'), '1560')
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '2000')
   assert.match(document.body.textContent, /4 entries logged today/)
-  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/scan?mode=intake&dayId=day-7')
+  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/scan')
   assert.ok(mealLink)
   assert.match(mealLink.textContent, /Log a meal/)
   // A single measurement leaves the trend below the two-point threshold.

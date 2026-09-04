@@ -145,30 +145,63 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-test('scan page looks up a detected barcode and links to a local product', async () => {
+test('meal scanner shows the three most-used foods above a half-width camera panel', async () => {
+  graphqlImpl = async (operation) => operation.includes('MostUsedFoods')
+    ? {
+        mostUsedFoods: [
+          { servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 },
+          { servingId: 's2', foodId: 'f2', name: 'Yoghurt', brand: 'Farm', servingSize: 1, servingUnit: 'container', useCount: 6 },
+          { servingId: 's3', foodId: 'f3', name: 'Rice', brand: null, servingSize: 100, servingUnit: 'g', useCount: 4 },
+        ],
+      }
+    : {}
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Your most-used foods/))
+  assert.match(container.textContent, /Oats/)
+  assert.match(container.textContent, /Farm Yoghurt/)
+  assert.match(container.textContent, /Rice/)
+  assert.ok(container.querySelector('[data-testid="scanner-panel"]').className.includes('lg:w-1/2'))
+
+  await act(async () => { buttonByText(container, 'Oats').click() })
+  assert.equal(push.mock.calls[0][0], '/intakes/new?servingId=s1')
+})
+
+test('meal scanner ignores most-used foods that resolve after unmount', async () => {
+  let resolveMostUsed
+  graphqlImpl = async () => new Promise((resolve) => { resolveMostUsed = resolve })
+  await mount()
+  await settle(() => assert.equal(graphqlCalls.length, 1))
+  await act(async () => { mountedView.unmount() })
+  mountedView = undefined
+  await act(async () => {
+    resolveMostUsed({
+      mostUsedFoods: [
+        { servingId: 's1', foodId: 'f1', name: 'Late', brand: null, servingSize: 1, servingUnit: 'g', useCount: 1 },
+      ],
+    })
+  })
+  assert.equal(push.mock.calls.length, 0)
+})
+
+test('meal scanner routes a detected local product to the intake form', async () => {
   supported = true
   detector = {}
   cameraResult = { getTracks: () => [{ stop: vi.fn() }] }
   scanResult = '3017620422003'
-  graphqlImpl = async () => ({
-    foodProductByBarcode: {
-      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
-      openFoodFacts: null,
-    },
-  })
-  const container = await mount()
-  await settle(() =>
-    assert.match(container.textContent, /Already in your catalog/),
-  )
-  assert.match(container.textContent, /Oats/)
-  assert.doesNotMatch(
-    container.textContent,
-    /Camera barcode scanning is not available here/,
-  )
-  assert.ok(container.querySelector('a[href="/products/p1"]'))
+  graphqlImpl = async (operation) => operation.includes('MostUsedFoods')
+    ? { mostUsedFoods: [] }
+    : {
+        foodProductByBarcode: {
+          product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+          openFoodFacts: null,
+        },
+      }
+  await mount()
+  await settle(() => assert.equal(push.mock.calls.length, 1))
+  assert.equal(push.mock.calls[0][0], '/intakes/new?productId=p1')
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '3017620422003' })
   assert.deepEqual(stopCalls, [cameraResult])
-  assert.equal(push.mock.calls.length, 0)
 })
 
 test('intake scan routes a local product directly to the intake form', async () => {
@@ -195,7 +228,7 @@ test('intake scan routes a local product directly to the intake form', async () 
   )
 })
 
-test('intake mode without a day stays in product lookup mode', async () => {
+test('intake mode without a day still routes a local product to intake', async () => {
   scanSearchParams = new URLSearchParams([['mode', 'intake']])
   supported = true
   detector = {}
@@ -208,9 +241,9 @@ test('intake mode without a day stays in product lookup mode', async () => {
     },
   })
 
-  const container = await mount()
-  await settle(() => assert.match(container.textContent, /Already in your catalog/))
-  assert.equal(push.mock.calls.length, 0)
+  await mount()
+  await settle(() => assert.equal(push.mock.calls.length, 1))
+  assert.equal(push.mock.calls[0][0], '/intakes/new?productId=p1')
 })
 
 test('scan page keeps the detected camera frame visible after stopping', async () => {
@@ -221,14 +254,14 @@ test('scan page keeps the detected camera frame visible after stopping', async (
   frozenFrame = true
   graphqlImpl = async () => ({
     foodProductByBarcode: {
-      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      product: null,
       openFoodFacts: null,
     },
   })
 
   const container = await mount()
   await settle(() =>
-    assert.match(container.textContent, /Already in your catalog/),
+    assert.match(container.textContent, /No product found/),
   )
 
   const canvas = container.querySelector('canvas[aria-label="Detected barcode frame"]')
@@ -412,7 +445,7 @@ test('scan page prefills the new product page from an OFF draft', async () => {
     '/products/new?barcode=3017620422003&brand=Ferrero&name=Nutella' +
       '&size=350&sizeUnit=g&numServings=1&nutritionalInfoSize=100' +
       '&nutritionalInfoUnit=g&energyKcal=539&proteinG=6.3&fatG=30.9' +
-      '&carbsG=57.5&saltG=0.11&fromBarcodeScan=1',
+      '&carbsG=57.5&saltG=0.11&fromBarcodeScan=1&fromMealLog=1',
   )
 })
 
@@ -589,11 +622,11 @@ test('scan page reports unknown barcodes', async () => {
   })
   assert.equal(
     push.mock.calls.at(-1)[0],
-    '/products/new?barcode=123&fromBarcodeScan=1&intakeDayId=day+7',
+    '/products/new?barcode=123&fromBarcodeScan=1&fromMealLog=1&intakeDayId=day+7',
   )
 })
 
-test('unknown product-mode barcodes open creation without intake context', async () => {
+test('unknown meal-scan barcodes open creation with meal continuation', async () => {
   supported = true
   detector = {}
   cameraResult = { getTracks: () => [] }
@@ -608,7 +641,7 @@ test('unknown product-mode barcodes open creation without intake context', async
   })
   assert.equal(
     push.mock.calls.at(-1)[0],
-    '/products/new?barcode=123&fromBarcodeScan=1',
+    '/products/new?barcode=123&fromBarcodeScan=1&fromMealLog=1',
   )
 })
 
@@ -634,12 +667,14 @@ test('scan page shows lookup error messages', async () => {
   detector = {}
   cameraResult = { getTracks: () => [] }
   scanResult = '123'
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   graphqlImpl = async () => {
     throw new Error('network down')
   }
   const container = await mount()
   await settle(() => assert.match(container.textContent, /network down/))
   assert.ok(container.querySelector('[role="alert"]'))
+  assert.match(consoleError.mock.calls[0][0], /Failed to fetch most-used foods/)
 })
 
 test('scan page falls back to a generic message for non-Error failures', async () => {
@@ -647,7 +682,8 @@ test('scan page falls back to a generic message for non-Error failures', async (
   detector = {}
   cameraResult = { getTracks: () => [] }
   scanResult = '123'
-  graphqlImpl = async () => {
+  graphqlImpl = async (operation) => {
+    if (operation.includes('MostUsedFoods')) return { mostUsedFoods: [] }
     throw 'boom'
   }
   const container = await mount()
@@ -752,7 +788,7 @@ test('scan page stops an active scan when switching to manual entry', async () =
   await act(async () => {
     resolveScan('3017620422003')
   })
-  assert.equal(graphqlCalls.length, 0)
+  assert.equal(graphqlCalls.length, 1)
 })
 
 test('scan page looks up manually entered barcodes', async () => {
@@ -779,9 +815,8 @@ test('scan page looks up manually entered barcodes', async () => {
   await act(async () => {
     fireEvent.submit(container.querySelector('form'))
   })
-  await settle(() =>
-    assert.match(container.textContent, /Already in your catalog/),
-  )
+  await settle(() => assert.equal(push.mock.calls.length, 1))
+  assert.equal(push.mock.calls[0][0], '/intakes/new?productId=p9')
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '3017620422003' })
 })
 
@@ -800,7 +835,7 @@ test('scan page ignores empty manual submissions', async () => {
   await act(async () => {
     fireEvent.submit(container.querySelector('form'))
   })
-  assert.equal(graphqlCalls.length, 0)
+  assert.equal(graphqlCalls.length, 1)
 })
 
 test('scan page disables manual lookup while searching', async () => {
@@ -837,9 +872,8 @@ test('scan page disables manual lookup while searching', async () => {
       },
     })
   })
-  await settle(() =>
-    assert.match(container.textContent, /Already in your catalog/),
-  )
+  await settle(() => assert.equal(push.mock.calls.length, 1))
+  assert.equal(push.mock.calls[0][0], '/intakes/new?productId=p1')
 })
 
 test('scan page restarts the camera after a result', async () => {
@@ -849,19 +883,19 @@ test('scan page restarts the camera after a result', async () => {
   scanResult = '123'
   graphqlImpl = async () => ({
     foodProductByBarcode: {
-      product: { id: 'p1', name: 'A', brand: null, size: 1, sizeUnit: 'g' },
+      product: null,
       openFoodFacts: null,
     },
   })
   const container = await mount()
   await settle(() =>
-    assert.match(container.textContent, /Already in your catalog/),
+    assert.match(container.textContent, /No product found/),
   )
-  assert.equal(graphqlCalls.length, 1)
+  assert.equal(graphqlCalls.length, 2)
   await act(async () => {
     buttonByText(container, 'Scan another').click()
   })
-  await settle(() => assert.equal(graphqlCalls.length, 2))
+  await settle(() => assert.equal(graphqlCalls.length, 3))
   assert.deepEqual(graphqlCalls.at(-1)[1], { barcode: '123' })
 })
 
@@ -923,5 +957,5 @@ test('scan page stops the camera stream when unmounted mid-scan', async () => {
   await act(async () => {
     resolveScan('3017620422003')
   })
-  assert.equal(graphqlCalls.length, 0)
+  assert.equal(graphqlCalls.length, 1)
 })

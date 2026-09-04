@@ -13,6 +13,7 @@ from django.db import models, router, transaction
 from django.db.models import Prefetch
 from strawberry.types import Info
 
+from apps.foods.models import Serving
 from apps.libs.graphql import (
     get_request_user,
     validated_non_negative_decimal,
@@ -206,6 +207,71 @@ class IntakeType:
             protein_g=float(obj.protein_g),
             fat_g=float(obj.fat_g),
             carbs_g=float(obj.carbs_g),
+        )
+
+
+@strawberry.type
+class IntakeFoodType:
+    """A serving that can be selected for an intake."""
+
+    serving_id: strawberry.ID
+    food_id: strawberry.ID
+    name: str
+    brand: str | None
+    serving_size: float
+    serving_unit: str
+
+    @staticmethod
+    def from_model(obj: Serving) -> "IntakeFoodType":
+        """Create an intake food from a serving model.
+
+        Args:
+            obj: Serving model to expose.
+
+        Returns:
+            Intake food GraphQL value.
+        """
+        return IntakeFoodType(
+            serving_id=strawberry.ID(str(obj.id)),
+            food_id=strawberry.ID(str(obj.food_id)),
+            name=obj.food.name,
+            brand=obj.food.brand,
+            serving_size=float(obj.serving_size),
+            serving_unit=obj.serving_unit,
+        )
+
+
+@strawberry.type
+class MostUsedFoodType:
+    """A serving ranked by how often the current user logged it."""
+
+    serving_id: strawberry.ID
+    food_id: strawberry.ID
+    name: str
+    brand: str | None
+    serving_size: float
+    serving_unit: str
+    use_count: int
+
+    @staticmethod
+    def from_model(obj: Serving, use_count: int) -> "MostUsedFoodType":
+        """Create a ranked food suggestion from a serving model.
+
+        Args:
+            obj: Serving model to expose.
+            use_count: Number of matching intakes for the current user.
+
+        Returns:
+            Ranked food GraphQL value.
+        """
+        return MostUsedFoodType(
+            serving_id=strawberry.ID(str(obj.id)),
+            food_id=strawberry.ID(str(obj.food_id)),
+            name=obj.food.name,
+            brand=obj.food.brand,
+            serving_size=float(obj.serving_size),
+            serving_unit=obj.serving_unit,
+            use_count=use_count,
         )
 
 
@@ -412,6 +478,65 @@ class PlanQuery:
             WeekPlanType.from_model(p)
             for p in queryset.order_by("-start_date")
         ]
+
+    @strawberry.field
+    def most_used_foods(self, info: Info) -> list[MostUsedFoodType]:
+        """Return the current user's three most frequently logged servings.
+
+        Args:
+            info: GraphQL request information.
+
+        Returns:
+            Up to three ranked serving suggestions.
+        """
+        user = get_request_user(info.context)
+        if user is None or not user.is_authenticated:
+            return []
+
+        ranked = list(
+            Intake.objects.filter(day__plan__user=user, food__isnull=False)
+            .values("food_id")
+            .annotate(
+                use_count=models.Count("id"),
+                last_used=models.Max("created_at"),
+            )
+            .order_by("-use_count", "-last_used", "food_id")[:3]
+        )
+        servings = {
+            serving.id: serving
+            for serving in Serving.objects.filter(
+                id__in=[row["food_id"] for row in ranked]
+            ).select_related("food")
+        }
+        return [
+            MostUsedFoodType.from_model(
+                servings[row["food_id"]], cast(int, row["use_count"])
+            )
+            for row in ranked
+            if row["food_id"] in servings
+        ]
+
+    @strawberry.field
+    def intake_food(
+        self, info: Info, id: strawberry.ID
+    ) -> IntakeFoodType | None:
+        """Return a serving for an authenticated intake form.
+
+        Args:
+            info: GraphQL request information.
+            id: Serving ID to load.
+
+        Returns:
+            Intake food details, or ``None`` when unavailable.
+        """
+        user = get_request_user(info.context)
+        if user is None or not user.is_authenticated:
+            return None
+        try:
+            serving = Serving.objects.select_related("food").get(pk=id)
+        except Serving.DoesNotExist:
+            return None
+        return IntakeFoodType.from_model(serving)
 
     @strawberry.field
     def week_plan(self, info: Info, id: strawberry.ID) -> WeekPlanType | None:
