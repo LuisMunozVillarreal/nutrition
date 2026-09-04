@@ -11,6 +11,9 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
@@ -29,7 +32,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 fun formatInstalledVersion(versionName: String, versionCode: Int): String =
-    "Versión $versionName ($versionCode)"
+    "Version $versionName ($versionCode)"
 
 fun formatLastSync(rawInstant: String, zoneId: ZoneId, locale: Locale): String? =
     runCatching {
@@ -75,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
         rootView = findViewById(android.R.id.content)
         syncButton = findViewById(R.id.btn_sync)
@@ -85,11 +89,22 @@ class MainActivity : ComponentActivity() {
         pairingStateText = findViewById(R.id.text_pairing_state)
         backgroundStateText = findViewById(R.id.text_background_state)
 
-        findViewById<MaterialToolbar>(R.id.top_app_bar).setOnMenuItemClickListener { item ->
+        val toolbar = findViewById<MaterialToolbar>(R.id.top_app_bar)
+        val toolbarTopPadding = toolbar.paddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(toolbar) { view, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.setPadding(
+                view.paddingLeft,
+                toolbarTopPadding + statusBars.top,
+                view.paddingRight,
+                view.paddingBottom,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(toolbar)
+        toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_settings -> showSettings()
-                R.id.action_privacy -> showPrivacy()
-                R.id.action_about -> showAbout()
                 else -> return@setOnMenuItemClickListener false
             }
             true
@@ -117,6 +132,12 @@ class MainActivity : ComponentActivity() {
         backgroundPermissionButton = content.findViewById(R.id.btn_background_permission)
         pairButton = content.findViewById(R.id.btn_pair)
         unpairButton = content.findViewById(R.id.btn_unpair)
+        content.findViewById<MaterialButton>(R.id.btn_privacy).setOnClickListener {
+            showPrivacy()
+        }
+        content.findViewById<MaterialButton>(R.id.btn_about).setOnClickListener {
+            showAbout()
+        }
 
         coordinator.pairing()?.let { endpointInput?.setText(it.baseUrl) }
         deviceNameInput?.setText(
@@ -221,7 +242,7 @@ class MainActivity : ComponentActivity() {
                 formatLastSync(
                     raw,
                     ZoneId.systemDefault(),
-                    resources.configuration.locales[0],
+                    Locale.ENGLISH,
                 )
             }
             lastSyncText.text = readableLastSync ?: getString(R.string.last_sync_never)

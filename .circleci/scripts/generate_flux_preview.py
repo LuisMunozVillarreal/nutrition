@@ -210,23 +210,6 @@ spec:
       target:
         kind: Deployment
         name: nutrition-webapp
-    - patch: |
-        - op: add
-          path: /metadata/annotations/traefik.ingress.kubernetes.io~1router.priority
-          value: "200"
-        - op: add
-          path: /spec/rules/0/http/paths/-
-          value:
-            path: /api/health-sync
-            pathType: Prefix
-            backend:
-              service:
-                name: nutrition-backend
-                port:
-                  number: 80
-      target:
-        kind: Ingress
-        name: nutrition-backend
 """
     return manifest, sanitized_branch
 
