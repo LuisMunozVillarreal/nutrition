@@ -166,10 +166,7 @@ test('products list loads and formats rows, with navigation only for staff', asy
   await settle(() => assert.equal(latestTable().loading, false))
   assert.match(container.textContent, /—Oats500 g/)
   assert.match(container.textContent, /FarmMilk1 l/)
-  assert.equal(
-    container.querySelector('[data-testid="scan-link"]').getAttribute('href'),
-    '/scan?mode=product',
-  )
+  assert.equal(container.querySelector('[data-testid="scan-link"]'), null)
   assert.equal(latestTable().rowHref, undefined)
   assert.equal(latestTable().addHref, undefined)
 
@@ -370,6 +367,24 @@ test('new product returns scanned intake context after creation', async () => {
     '/intakes/new?dayId=day+7&productId=product%2F1',
   )
   assert.doesNotMatch(destination, /returnTo|attacker/)
+})
+
+test('new product continues a scanner meal flow without a preselected day', async () => {
+  searchParams = new URLSearchParams([
+    ['fromBarcodeScan', '1'], ['fromMealLog', '1'],
+    ['barcode', '3017620422003'], ['name', 'Oats'],
+    ['size', '500'], ['sizeUnit', 'g'], ['numServings', '5'],
+    ['nutritionalInfoSize', '100'], ['nutritionalInfoUnit', 'g'],
+    ['energyKcal', '100'], ['proteinG', '10'], ['fatG', '2'], ['carbsG', '12'],
+  ])
+  graphqlImpl = async () => ({ createFoodProduct: { id: 'product/1' } })
+  const { default: Page } = await import('../src/app/products/new/page.tsx')
+  await mount(Page)
+
+  let destination
+  await act(async () => { destination = await entityProps.onSave() })
+
+  assert.equal(destination, '/intakes/new?productId=product%2F1')
 })
 
 test('new product remounts when its trusted scan context changes', async () => {

@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import cast
 
 import pytest
+from django.contrib.auth.models import AnonymousUser
 from django.db import connection
 from django.db.models.query import QuerySet
 from django.test.utils import CaptureQueriesContext
@@ -712,7 +713,198 @@ class TestDaySchema:
 
 @pytest.mark.django_db
 class TestIntakeSchema:
-    """Tests for Intake mutations."""
+    """Tests for Intake queries and mutations."""
+
+    def test_most_used_foods_ranks_only_the_current_users_servings(
+        self, mocker, food_product_factory, serving_factory, intake_factory
+    ):
+        """Most-used food suggestions are user-scoped, ranked, and capped."""
+        user, plan = _create_user_and_plan("most-used@test.com")
+        _other_user, other_plan = _create_user_and_plan(
+            "most-used-other@test.com"
+        )
+        day = Day.objects.filter(plan=plan).first()
+        other_day = Day.objects.filter(plan=other_plan).first()
+        servings = []
+        for index in range(4):
+            product = food_product_factory(
+                name=f"Food {index}",
+                brand=f"Brand {index}",
+                barcode=f"most-used-{index}",
+            )
+            servings.append(
+                serving_factory(
+                    food=product,
+                    serving_size=Decimal(str(index + 1)),
+                    serving_unit="serving",
+                )
+            )
+        for count, serving in zip((1, 4, 3, 2), servings):
+            for _ in range(count):
+                intake_factory(day=day, food=serving)
+        for _ in range(10):
+            intake_factory(day=other_day, food=servings[0])
+        intake_factory(day=day, food=None)
+
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        result = schema.execute_sync(
+            """
+                {
+                    mostUsedFoods {
+                        servingId foodId name brand
+                        servingSize servingUnit useCount
+                    }
+                }
+            """,
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["mostUsedFoods"] == [
+            {
+                "servingId": str(servings[1].id),
+                "foodId": str(servings[1].food_id),
+                "name": "Food 1",
+                "brand": "Brand 1",
+                "servingSize": 2.0,
+                "servingUnit": "serving",
+                "useCount": 4,
+            },
+            {
+                "servingId": str(servings[2].id),
+                "foodId": str(servings[2].food_id),
+                "name": "Food 2",
+                "brand": "Brand 2",
+                "servingSize": 3.0,
+                "servingUnit": "serving",
+                "useCount": 3,
+            },
+            {
+                "servingId": str(servings[3].id),
+                "foodId": str(servings[3].food_id),
+                "name": "Food 3",
+                "brand": "Brand 3",
+                "servingSize": 4.0,
+                "servingUnit": "serving",
+                "useCount": 2,
+            },
+        ]
+
+    def test_most_used_foods_is_empty_without_authentication(self, mocker):
+        """Anonymous callers cannot inspect food-use history or servings."""
+        mock_context = mocker.Mock()
+        mock_context.request.user = AnonymousUser()
+
+        result = schema.execute_sync(
+            '{ mostUsedFoods { servingId } intakeFood(id: "1") { servingId } }',
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data == {"mostUsedFoods": [], "intakeFood": None}
+
+    def test_most_used_foods_is_empty_for_a_user_without_intakes(self, mocker):
+        """Authenticated users with no food-backed history get no suggestions."""
+        user, _ = _create_user_and_plan("most-used-empty@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            "{ mostUsedFoods { servingId } }", context_value=mock_context
+        )
+
+        assert result.errors is None
+        assert result.data["mostUsedFoods"] == []
+
+    def test_most_used_foods_breaks_count_ties_by_recency_then_serving_id(
+        self, mocker, food_product_factory, serving_factory, intake_factory
+    ):
+        """Equal counts use latest activity and then serving ID deterministically."""
+        user, plan = _create_user_and_plan("most-used-ties@test.com")
+        day = Day.objects.filter(plan=plan).first()
+        servings = [
+            serving_factory(
+                food=food_product_factory(barcode=f"tie-{index}"),
+                serving_size=Decimal("1"),
+                serving_unit="serving",
+            )
+            for index in range(3)
+        ]
+        intakes = [
+            intake_factory(day=day, food=serving) for serving in servings
+        ]
+        old_time = timezone.now() - datetime.timedelta(days=1)
+        recent_time = timezone.now()
+        Intake.objects.filter(pk=intakes[0].pk).update(created_at=old_time)
+        Intake.objects.filter(pk__in=[intakes[1].pk, intakes[2].pk]).update(
+            created_at=recent_time
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            "{ mostUsedFoods { servingId } }", context_value=mock_context
+        )
+
+        assert result.errors is None
+        assert [row["servingId"] for row in result.data["mostUsedFoods"]] == [
+            str(servings[1].id),
+            str(servings[2].id),
+            str(servings[0].id),
+        ]
+
+    def test_intake_food_returns_an_authenticated_serving(
+        self, mocker, food_product_factory, serving_factory
+    ):
+        """The intake form can load a selected serving without URL display data."""
+        user, _ = _create_user_and_plan("intake-food@test.com")
+        product = food_product_factory(
+            name="Selected food",
+            brand="Selected brand",
+            barcode="selected-food",
+        )
+        serving = serving_factory(
+            food=product, serving_size=Decimal("40"), serving_unit="g"
+        )
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            """
+                query IntakeFood($id: ID!) {
+                    intakeFood(id: $id) {
+                        servingId foodId name brand servingSize servingUnit
+                    }
+                }
+            """,
+            variable_values={"id": str(serving.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["intakeFood"] == {
+            "servingId": str(serving.id),
+            "foodId": str(product.id),
+            "name": "Selected food",
+            "brand": "Selected brand",
+            "servingSize": 40.0,
+            "servingUnit": "g",
+        }
+
+    def test_intake_food_returns_none_for_a_missing_serving(self, mocker):
+        """An authenticated intake form handles a stale serving link safely."""
+        user, _ = _create_user_and_plan("missing-intake-food@test.com")
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+
+        result = schema.execute_sync(
+            'query { intakeFood(id: "999999999") { servingId } }',
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        assert result.data["intakeFood"] is None
 
     @pytest.mark.parametrize("meal", ["", "   ", "brunch", "Lunch", "dinner!"])
     def test_create_intake_rejects_invalid_meal(self, mocker, meal):

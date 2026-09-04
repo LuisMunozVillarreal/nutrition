@@ -308,7 +308,7 @@ test('day edit updates tracked flag, handles missing day, and logs fetch failure
   await waitFor(() => assert.equal(requests[1].variables.id, '42'))
   assert.deepEqual(requests[1].variables, { id: '42', tracked: true })
   assert.equal(screen.getByTestId('row-i1').dataset.href, '/intakes/i1')
-  assert.equal(screen.getByRole('link', { name: 'Scan Product' }).getAttribute('href'), '/scan?mode=intake&dayId=42')
+  assert.equal(screen.queryByRole('link', { name: 'Scan Product' }), null)
   assert.equal(screen.getByRole('link', { name: 'Log Intake' }).getAttribute('href'), '/intakes/new?dayId=42')
   cleanup()
   requests.length = 0
@@ -541,11 +541,108 @@ test('intakes list is static guidance', async () => {
   await screen.findByText('Please browse to a specific Plan > Day to view and manage intakes.')
 })
 
+test('new intake defaults to today, offers owned days, and submits a selected common serving', async () => {
+  const today = new Date()
+  const localToday = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('-')
+  searchParams = new URLSearchParams([['servingId', 'serving/1']])
+  responses = [
+    {
+      weekPlans: [{ days: [
+        { id: '7', day: localToday },
+        { id: '8', day: '2026-09-05' },
+      ] }],
+      foodProduct: null,
+      intakeFood: {
+        servingId: 'serving/1', foodId: 'food/1', name: 'Oats', brand: 'Farm',
+        servingSize: 40, servingUnit: 'g',
+      },
+    },
+    { createIntake: { id: 'i-common' } },
+  ]
+
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '7'))
+  assert.match(screen.getByLabelText('Day').selectedOptions[0].textContent, new RegExp(String(today.getFullYear())))
+  assert.equal(screen.getByLabelText('Food').value, 'Farm Oats')
+  assert.equal(screen.getByLabelText('Serving').value, '40 g')
+
+  fireEvent.change(screen.getByLabelText('Day'), { target: { value: '8' } })
+  fireEvent.change(screen.getByLabelText('Meal'), { target: { value: 'lunch' } })
+  fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
+  fireEvent.submit(document.querySelector('form'))
+  await waitFor(() => assert.equal(requests.length, 2))
+  assert.deepEqual(requests[1].variables, {
+    dayId: 8,
+    foodId: 'serving/1',
+    meal: 'lunch',
+    numServings: 2.5,
+  })
+})
+
+test('new intake reports selected-serving, missing-day, and context failures', async () => {
+  searchParams = new URLSearchParams([['servingId', 'missing']])
+  responses = [{
+    weekPlans: [{ days: [{ id: '7', day: '2026-09-04' }] }],
+    intakeFood: null,
+  }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /Unable to load the selected food/))
+  await act(async () => {
+    await assert.rejects(entityProps.onSave(), /selected food is not available/)
+  })
+
+  cleanup()
+  requests.length = 0
+  searchParams = new URLSearchParams()
+  responses = [{ weekPlans: [] }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /No plan days are available/))
+
+  cleanup()
+  requests.length = 0
+  searchParams = new URLSearchParams([['servingId', 'broken']])
+  const servingFailure = new Error('serving failed')
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  responses = [servingFailure]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /Unable to load the selected food/))
+  assert.deepEqual(consoleError.mock.calls.at(-1), ['Failed to fetch intake context', servingFailure])
+
+  cleanup()
+  requests.length = 0
+  searchParams = new URLSearchParams()
+  const customFailure = new Error('days failed')
+  responses = [customFailure]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /Unable to load the intake form/))
+  assert.deepEqual(consoleError.mock.calls.at(-1), ['Failed to fetch intake context', customFailure])
+})
+
+test('new intake renders an unbranded selected serving', async () => {
+  searchParams = new URLSearchParams([['servingId', 's-unbranded']])
+  responses = [{
+    weekPlans: [{ days: [{ id: '7', day: '2026-09-04' }] }],
+    intakeFood: {
+      servingId: 's-unbranded', foodId: 'f1', name: 'Rice', brand: null,
+      servingSize: 100, servingUnit: 'g',
+    },
+  }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByLabelText('Food').value, 'Rice'))
+})
+
 test('new intake submits parsed custom macro fields', async () => {
   const pending = deferred()
-  responses = [() => pending.promise]
+  responses = [
+    { weekPlans: [{ days: [{ id: '11', day: '2026-09-04' }] }] },
+    () => pending.promise,
+  ]
   render(React.createElement(NewIntakePage))
-  fireEvent.change(screen.getByLabelText('Day ID'), { target: { value: '11' } })
+  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '11'))
   fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
   fireEvent.change(screen.getByLabelText('Energy (kcal)'), { target: { value: '250.5' } })
   fireEvent.change(screen.getByLabelText('Protein (g)'), { target: { value: '20.1' } })
@@ -553,7 +650,7 @@ test('new intake submits parsed custom macro fields', async () => {
   fireEvent.change(screen.getByLabelText('Carbs (g)'), { target: { value: '' } })
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'true'))
-  assert.deepEqual(requests[0].variables, {
+  assert.deepEqual(requests[1].variables, {
     dayId: 11,
     meal: 'breakfast',
     numServings: 2.5,
@@ -565,16 +662,22 @@ test('new intake submits parsed custom macro fields', async () => {
   pending.resolve({ createIntake: { id: 'i10' } })
   await waitFor(() => assert.equal(document.querySelector('form').dataset.saving, 'false'))
 
-  // A dayId supplied via the query string pre-fills the form and is submitted as an int.
+  // A dayId supplied via the query string selects that owned day.
   cleanup()
   requests.length = 0
   searchParams = new URLSearchParams([['dayId', '7']])
-  responses = [{ createIntake: { id: 'i11' } }]
+  responses = [
+    { weekPlans: [{ days: [
+      { id: '8', day: '2026-09-05' },
+      { id: '7', day: '2026-09-04' },
+    ] }] },
+    { createIntake: { id: 'i11' } },
+  ]
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Day ID').value, '7'))
+  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '7'))
   fireEvent.submit(document.querySelector('form'))
-  await waitFor(() => assert.equal(requests.length, 1))
-  assert.equal(requests[0].variables.dayId, 7)
+  await waitFor(() => assert.equal(requests.length, 2))
+  assert.equal(requests[1].variables.dayId, 7)
 })
 
 test('new intake loads a scanned product and submits a food-backed intake', async () => {
@@ -590,6 +693,7 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
   render(React.createElement(NewIntakePage))
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   pending.resolve({
+    weekPlans: [{ days: [{ id: '7', day: '2026-09-04' }] }],
     foodProduct: {
       id: 'product/1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g',
       servings: [
@@ -599,7 +703,7 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
       ],
     },
   })
-  await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Farm Oats (500 g)'))
+  await waitFor(() => assert.equal(screen.getByLabelText('Food').textContent, 'Farm Oats (500 g)'))
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false)
   assert.equal(screen.getByLabelText('Serving').value, 's-serving')
   assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
@@ -610,7 +714,10 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(requests.length, 2))
   assert.match(requests[0].operation, /foodProduct\(id: \$productId\)/)
-  assert.deepEqual(requests[0].variables, { productId: 'product/1' })
+  assert.deepEqual(requests[0].variables, {
+    productId: 'product/1', servingId: '0',
+    includeProduct: true, includeServing: false,
+  })
   assert.deepEqual(requests[1].variables, {
     dayId: 7,
     foodId: 's-container',
@@ -625,6 +732,7 @@ test('new intake remounts its trusted day and product context when query paramet
     ['productId', 'p1'],
   ])
   responses = [{
+    weekPlans: [{ days: [{ id: '7', day: '2026-09-04' }] }],
     foodProduct: {
       id: 'p1', name: 'First', brand: null, size: 100, sizeUnit: 'g',
       servings: [{ id: 's1', servingSize: 1, servingUnit: 'serving' }],
@@ -640,11 +748,12 @@ test('new intake remounts its trusted day and product context when query paramet
     ['productId', 'p2'],
   ])
   view.rerender(React.createElement(NewIntakePage))
-  assert.equal(screen.getByLabelText('Day ID').value, '8')
+  assert.equal(screen.getByLabelText('Day').value, '')
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   assert.equal(screen.queryByText(/First/), null)
 
   pending.resolve({
+    weekPlans: [{ days: [{ id: '8', day: '2026-09-05' }] }],
     foodProduct: {
       id: 'p2', name: 'Second', brand: null, size: 200, sizeUnit: 'g',
       servings: [{ id: 's2', servingSize: 1, servingUnit: 'container' }],
@@ -669,7 +778,7 @@ test('new intake reports a scanned product lookup failure without showing custom
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   assert.match(screen.getByRole('alert').textContent, /Unable to load the scanned product/)
   assert.equal(screen.queryByLabelText('Energy (kcal)'), null)
-  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake product', failure])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake context', failure])
   assert.equal(requests.length, 1)
   await assert.rejects(entityProps.onSave(), /scanned product is not available/)
   assert.equal(requests.length, 1)
@@ -699,13 +808,14 @@ test('new intake handles missing and unbranded scanned products', async () => {
   cleanup()
   requests.length = 0
   responses = [{
+    weekPlans: [{ days: [{ id: '7', day: '2026-09-04' }] }],
     foodProduct: {
       id: 'p2', name: 'Oats', brand: null, size: 500, sizeUnit: 'g',
       servings: [{ id: 's-container', servingSize: 1, servingUnit: 'container' }],
     },
   }]
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Product').textContent, 'Oats (500 g)'))
+  await waitFor(() => assert.equal(screen.getByLabelText('Food').textContent, 'Oats (500 g)'))
 })
 
 test('new intake ignores late scanned-product completion after unmount', async () => {
@@ -734,7 +844,7 @@ test('new intake ignores late scanned-product completion after unmount', async (
   failureView.unmount()
   pendingFailure.reject(failure)
   await new Promise(setImmediate)
-  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake product', failure])
+  assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch intake context', failure])
 })
 
 test('edit intake covers food-backed and custom branches and missing payload branch', async () => {

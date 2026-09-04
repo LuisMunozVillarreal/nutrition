@@ -133,9 +133,6 @@ export default function Dashboard() {
   const currentWeight = latestMeasurement?.weight ?? summary?.latestWeight ?? null
   const currentBodyFat = latestMeasurement?.bodyFatPerc ?? summary?.latestBodyFat ?? null
   const firstName = response?.me?.firstName || session?.user?.name?.split(' ')[0] || 'Athlete'
-  const mealHref = !loading && todayIsCurrent
-    ? `/scan?mode=intake&dayId=${encodeURIComponent(today.id)}`
-    : '/days'
 
   return (
     <div className="min-h-screen p-6 text-white md:p-12">
@@ -163,10 +160,10 @@ export default function Dashboard() {
           accent="purple"
         />
         <QuickAction
-          href={mealHref}
+          href="/scan"
           icon={<UtensilsCrossed size={24} />}
           title="Log a meal"
-          description={!loading && todayIsCurrent ? 'Scan a product to add it to today.' : 'Choose a day, then add your meal.'}
+          description="Scan a product or choose one of your most-used foods."
           accent="emerald"
         />
       </section>
