@@ -22,7 +22,7 @@ class SecurePairingStore(context: Context) {
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun save(pairing: Pairing) {
-        require(pairing.token.isNotBlank()) { "El token no puede estar vacío" }
+        require(pairing.token.isNotBlank()) { "The token cannot be empty" }
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
             init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         }
@@ -34,7 +34,7 @@ class SecurePairingStore(context: Context) {
                 .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
                 .putString(KEY_CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
                 .commit(),
-        ) { "No se pudo guardar la vinculación" }
+        ) { "Could not save the pairing" }
     }
 
     fun load(): Pairing? {
