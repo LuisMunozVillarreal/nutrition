@@ -202,7 +202,9 @@ def clone_secrets(target_namespace: str) -> None:
             )
             sys.exit(1)
 
-    if COPIED_SECRETS and _deployment_exists("nutrition-backend", target_namespace):
+    if COPIED_SECRETS and _deployment_exists(
+        "nutrition-backend", target_namespace
+    ):
         try:
             subprocess.run(
                 [
