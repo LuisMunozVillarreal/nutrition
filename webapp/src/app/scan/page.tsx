@@ -7,7 +7,7 @@ import {
   useState,
   type FormEvent,
 } from 'react'
-import Link from 'next/link'
+
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
@@ -29,6 +29,14 @@ const LOOKUP_QUERY = gql`
         nutritionalInfoSize nutritionalInfoUnit
         energyKcal proteinG fatG carbsG saturatedFatG sugarsG fibreG saltG
       }
+    }
+  }
+`
+
+const MOST_USED_QUERY = gql`
+  query MostUsedFoods {
+    mostUsedFoods {
+      servingId foodId name brand servingSize servingUnit useCount
     }
   }
 `
@@ -66,6 +74,16 @@ interface BarcodeLookupResult {
     product: LocalProduct | null
     openFoodFacts: OpenFoodFactsDraft | null
   }
+}
+
+interface MostUsedFood {
+  servingId: string
+  foodId: string
+  name: string
+  brand: string | null
+  servingSize: number
+  servingUnit: string
+  useCount: number
 }
 
 type CameraState = 'starting' | 'active' | 'stopped' | 'unavailable'
@@ -111,6 +129,23 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [scanKey, setScanKey] = useState(0)
+  const [mostUsedFoods, setMostUsedFoods] = useState<MostUsedFood[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadMostUsedFoods = async () => {
+      try {
+        const result = await graphqlRequest<{ mostUsedFoods?: MostUsedFood[] }>(
+          MOST_USED_QUERY,
+        )
+        if (!cancelled) setMostUsedFoods(result.mostUsedFoods ?? [])
+      } catch (loadError) {
+        console.error('Failed to fetch most-used foods', loadError)
+      }
+    }
+    void loadMostUsedFoods()
+    return () => { cancelled = true }
+  }, [])
 
   const searchBarcode = useCallback(async (barcode: string) => {
     const generation = ++lookupGenerationRef.current
@@ -122,11 +157,10 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       })
       if (generation !== lookupGenerationRef.current) return
       const result = res.foodProductByBarcode
-      if (intakeDayId && result.product) {
-        const params = new URLSearchParams({
-          dayId: intakeDayId,
-          productId: result.product.id,
-        })
+      if (result.product) {
+        const params = new URLSearchParams()
+        if (intakeDayId) params.set('dayId', intakeDayId)
+        params.set('productId', result.product.id)
         router.push(`/intakes/new?${params.toString()}`)
         return
       }
@@ -223,6 +257,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
         }
       }
       params.set('fromBarcodeScan', '1')
+      params.set('fromMealLog', '1')
       if (intakeDayId) params.set('intakeDayId', intakeDayId)
       router.push(`/products/new?${params.toString()}`)
     },
@@ -233,6 +268,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     const params = new URLSearchParams({
       barcode,
       fromBarcodeScan: '1',
+      fromMealLog: '1',
     })
     if (intakeDayId) params.set('intakeDayId', intakeDayId)
     router.push(`/products/new?${params.toString()}`)
@@ -259,6 +295,39 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   return (
     <div className="max-w-4xl">
       <h1 className="page-title mb-6">Scan Barcode</h1>
+
+      <section aria-labelledby="most-used-heading" className="mb-6">
+        <h2 id="most-used-heading" className="mb-3 text-lg font-semibold">
+          Your most-used foods
+        </h2>
+        {mostUsedFoods.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-3">
+            {mostUsedFoods.map((food) => (
+              <button
+                key={food.servingId}
+                type="button"
+                onClick={() => router.push(
+                  `/intakes/new?${new URLSearchParams({ servingId: food.servingId })}`,
+                )}
+                className="rounded-lg border border-slate-300 p-3 text-left hover:bg-slate-50"
+              >
+                <span className="block font-medium">
+                  {food.brand ? `${food.brand} ` : ''}{food.name}
+                </span>
+                <span className="block text-sm text-slate-500">
+                  {food.servingSize} {food.servingUnit}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">
+            Your frequently logged foods will appear here.
+          </p>
+        )}
+      </section>
+
+      <section data-testid="scanner-panel" className="w-full lg:w-1/2">
 
       {!manual && cameraState !== 'unavailable' && (
         <div className="space-y-4">
@@ -343,18 +412,6 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
 
       {lookup && (
         <div className="mt-6 space-y-4">
-          {lookup.result.product && (
-            <div className="rounded-lg border border-slate-300 p-4">
-              <h2 className="font-semibold">Already in your catalog</h2>
-              <p className="mt-1">{lookup.result.product.name}</p>
-              <Link
-                href={`/products/${lookup.result.product.id}`}
-                className="mt-2 inline-block text-slate-600 underline"
-              >
-                View product
-              </Link>
-            </div>
-          )}
           {draft && (
             <div className="rounded-lg border border-slate-300 p-4">
               <h2 className="font-semibold">
@@ -413,6 +470,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
           </button>
         </div>
       )}
+      </section>
     </div>
   )
 }

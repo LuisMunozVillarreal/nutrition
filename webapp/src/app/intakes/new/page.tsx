@@ -19,11 +19,18 @@ const CREATE_MUTATION = gql`
   }
 `
 
-const PRODUCT_QUERY = gql`
-  query IntakeProduct($productId: ID!) {
-    foodProduct(id: $productId) {
+const CONTEXT_QUERY = gql`
+  query IntakeContext(
+    $productId: ID!, $servingId: ID!,
+    $includeProduct: Boolean!, $includeServing: Boolean!
+  ) {
+    weekPlans { days { id day } }
+    foodProduct(id: $productId) @include(if: $includeProduct) {
       id name brand size sizeUnit
       servings { id servingSize servingUnit }
+    }
+    intakeFood(id: $servingId) @include(if: $includeServing) {
+      servingId foodId name brand servingSize servingUnit
     }
   }
 `
@@ -48,65 +55,146 @@ interface IntakeProduct {
   }>
 }
 
+interface IntakeFood {
+  servingId: string
+  foodId: string
+  name: string
+  brand: string | null
+  servingSize: number
+  servingUnit: string
+}
+
+interface DayOption {
+  id: string
+  day: string
+}
+
+interface IntakeContextResponse {
+  weekPlans?: Array<{ days: DayOption[] }>
+  foodProduct?: IntakeProduct | null
+  intakeFood?: IntakeFood | null
+}
+
+function localDateKey(): string {
+  const date = new Date()
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function dayLabel(value: string): string {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, day)))
+}
+
 function NewIntakeForm({
   dayIdFromQuery,
   productId,
+  servingId,
 }: {
   dayIdFromQuery: string | null
   productId: string | null
+  servingId: string | null
 }) {
   const [form, setForm] = useState(() => ({
-    dayId: dayIdFromQuery ?? '', meal: 'breakfast', numServings: '1.0',
+    dayId: '', meal: 'breakfast', numServings: '1.0',
     servingId: '', energyKcal: '', proteinG: '', fatG: '', carbsG: ''
   }))
   const [saving, setSaving] = useState(false)
   const [product, setProduct] = useState<IntakeProduct | null>(null)
-  const [productLoading, setProductLoading] = useState(Boolean(productId))
-  const [productError, setProductError] = useState<string | null>(null)
+  const [intakeFood, setIntakeFood] = useState<IntakeFood | null>(null)
+  const [days, setDays] = useState<DayOption[]>([])
+  const [contextLoading, setContextLoading] = useState(true)
+  const [contextError, setContextError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!productId) return
     let cancelled = false
-    const fetchProduct = async () => {
+    const fetchContext = async () => {
       try {
-        const result = await graphqlRequest<{ foodProduct: IntakeProduct | null }>(
-          PRODUCT_QUERY,
-          { productId },
-        )
+        const result = await graphqlRequest<IntakeContextResponse>(CONTEXT_QUERY, {
+          productId: productId ?? '0',
+          servingId: servingId ?? '0',
+          includeProduct: Boolean(productId),
+          includeServing: Boolean(servingId),
+        })
         if (cancelled) return
+        const uniqueDays = Array.from(
+          new Map(
+            (result.weekPlans ?? []).flatMap((plan) => plan.days).map((day) => [day.id, day]),
+          ).values(),
+        ).sort((left, right) => right.day.localeCompare(left.day))
+        const requestedDay = uniqueDays.find((day) => day.id === dayIdFromQuery)
+        const today = uniqueDays.find((day) => day.day === localDateKey())
+        const selectedDay = requestedDay ?? today ?? uniqueDays[0]
         const defaultServing = result.foodProduct?.servings.find(
-          (serving) => serving.servingUnit === 'serving',
+          (candidate) => candidate.servingUnit === 'serving',
         ) ?? result.foodProduct?.servings.find(
-          (serving) => serving.servingUnit === 'container',
+          (candidate) => candidate.servingUnit === 'container',
         ) ?? result.foodProduct?.servings[0]
-        if (result.foodProduct && defaultServing) {
-          setProductError(null)
-          setProduct(result.foodProduct)
-          setForm((current) => ({ ...current, servingId: defaultServing.id }))
+
+        setDays(uniqueDays)
+        setProduct(result.foodProduct ?? null)
+        setIntakeFood(result.intakeFood ?? null)
+        setForm((current) => ({
+          ...current,
+          dayId: selectedDay?.id ?? '',
+          servingId: defaultServing?.id ?? '',
+        }))
+        if (productId && (!result.foodProduct || !defaultServing)) {
+          setContextError('Unable to load the scanned product.')
+        } else if (servingId && !result.intakeFood) {
+          setContextError('Unable to load the selected food.')
+        } else if (!selectedDay) {
+          setContextError('No plan days are available for logging this intake.')
         } else {
-          setProductError('Unable to load the scanned product.')
+          setContextError(null)
         }
       } catch (error) {
-        console.error('Failed to fetch intake product', error)
-        if (!cancelled) setProductError('Unable to load the scanned product.')
+        console.error('Failed to fetch intake context', error)
+        if (!cancelled) {
+          setContextError(
+            productId
+              ? 'Unable to load the scanned product.'
+              : servingId
+                ? 'Unable to load the selected food.'
+                : 'Unable to load the intake form.',
+          )
+        }
       } finally {
-        if (!cancelled) setProductLoading(false)
+        if (!cancelled) setContextLoading(false)
       }
     }
-    void fetchProduct()
+    void fetchContext()
     return () => { cancelled = true }
-  }, [productId])
+  }, [dayIdFromQuery, productId, servingId])
 
-  const handleChange = (name: string, value: string) => { setForm(prev => ({ ...prev, [name]: value })) }
+  const handleChange = (name: string, value: string) => {
+    setForm((current) => ({ ...current, [name]: value }))
+  }
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      if (productId) {
-        if (!product || !form.servingId) throw new Error('The scanned product is not available')
+      const selectedServingId = intakeFood?.servingId ?? form.servingId
+      if (productId || servingId) {
+        if (!selectedServingId) {
+          throw new Error(
+            productId
+              ? 'The scanned product is not available'
+              : 'The selected food is not available',
+          )
+        }
         await graphqlRequest(CREATE_MUTATION, {
           dayId: parseInt(form.dayId, 10),
-          foodId: form.servingId,
+          foodId: selectedServingId,
           meal: form.meal,
           numServings: parseFloat(form.numServings),
         })
@@ -116,45 +204,62 @@ function NewIntakeForm({
     } finally { setSaving(false) }
   }
 
+  const selectedFoodName = intakeFood
+    ? `${intakeFood.brand ? `${intakeFood.brand} ` : ''}${intakeFood.name}`
+    : null
+
   return (
     <EntityForm
-      title={productId ? 'New Product Intake' : 'New Custom Intake'}
-      backHref={dayIdFromQuery ? `/days/${encodeURIComponent(dayIdFromQuery)}` : '/days'}
+      title={productId || servingId ? 'New Food Intake' : 'New Custom Intake'}
+      backHref={form.dayId ? `/days/${encodeURIComponent(form.dayId)}` : '/days'}
       onSave={handleSave}
       saving={saving}
-      disabled={Boolean(productId) && (productLoading || Boolean(productError))}
+      disabled={contextLoading || Boolean(contextError) || !form.dayId}
       fieldsets={[{
         title: 'Intake Details',
         content: (
           <>
-            <FormField label="Day ID" name="dayId" type="number" value={form.dayId} onChange={handleChange} required />
+            <SelectField
+              label="Day"
+              name="dayId"
+              value={form.dayId}
+              onChange={handleChange}
+              options={days.map((day) => ({ value: day.id, label: dayLabel(day.day) }))}
+              required
+            />
             <SelectField label="Meal" name="meal" value={form.meal} onChange={handleChange} options={MEAL_CHOICES} required />
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
-            {productId ? (
+            {contextLoading && <p role="status">Loading intake details...</p>}
+            {contextError && <p role="alert" className="text-red-600">{contextError}</p>}
+            {product && (
               <>
-                {productLoading && <p role="status">Loading product...</p>}
-                {productError && <p role="alert" className="text-red-600">{productError}</p>}
-                {product && (
-                  <>
-                    <ReadonlyField
-                      label="Product"
-                      value={`${product.brand ? `${product.brand} ` : ''}${product.name} (${product.size} ${product.sizeUnit})`}
-                    />
-                    <SelectField
-                      label="Serving"
-                      name="servingId"
-                      value={form.servingId}
-                      onChange={handleChange}
-                      options={product.servings.map((serving) => ({
-                        value: serving.id,
-                        label: `${serving.servingSize} ${serving.servingUnit}`,
-                      }))}
-                      required
-                    />
-                  </>
-                )}
+                <ReadonlyField
+                  label="Food"
+                  value={`${product.brand ? `${product.brand} ` : ''}${product.name} (${product.size} ${product.sizeUnit})`}
+                />
+                <SelectField
+                  label="Serving"
+                  name="servingId"
+                  value={form.servingId}
+                  onChange={handleChange}
+                  options={product.servings.map((candidate) => ({
+                    value: candidate.id,
+                    label: `${candidate.servingSize} ${candidate.servingUnit}`,
+                  }))}
+                  required
+                />
               </>
-            ) : (
+            )}
+            {intakeFood && (
+              <>
+                <ReadonlyField label="Food" value={selectedFoodName} />
+                <ReadonlyField
+                  label="Serving"
+                  value={`${intakeFood.servingSize} ${intakeFood.servingUnit}`}
+                />
+              </>
+            )}
+            {!productId && !servingId && !contextLoading && !contextError && (
               <>
                 <p className="text-sm text-slate-400 mt-4 mb-2">Custom Macros (total intake)</p>
                 <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.01" min="0" value={form.energyKcal} onChange={handleChange} />
@@ -172,13 +277,15 @@ function NewIntakeForm({
 
 export default function NewIntakePage() {
   const searchParams = useSearchParams()
-  const dayIdFromQuery = searchParams.get('dayId')
+  const dayIdFromQuery = searchParams.get('dayId')?.trim() || null
   const productId = searchParams.get('productId')?.trim() || null
+  const servingId = searchParams.get('servingId')?.trim() || null
   return (
     <NewIntakeForm
-      key={JSON.stringify([dayIdFromQuery, productId])}
+      key={JSON.stringify([dayIdFromQuery, productId, servingId])}
       dayIdFromQuery={dayIdFromQuery}
       productId={productId}
+      servingId={servingId}
     />
   )
 }
