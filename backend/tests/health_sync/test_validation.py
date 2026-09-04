@@ -90,8 +90,8 @@ def test_kubernetes_routes_and_runtime_dependencies_are_declared():
     backup_manifest = (
         repository / "platform/k8s/overlays/production/db-backup-cronjob.yaml"
     ).read_text()
-    assert "name: SECRET_KEY" in backup_manifest
-    assert "name: GEMINI_API_KEY" in backup_manifest
+    assert backup_manifest.count("name: SECRET_KEY") == 1
+    assert backup_manifest.count("name: GEMINI_API_KEY") == 1
 
 
 @pytest.mark.parametrize(

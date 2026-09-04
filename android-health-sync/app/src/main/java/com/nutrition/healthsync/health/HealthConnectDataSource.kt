@@ -19,7 +19,7 @@ class HealthConnectDataSource(private val context: Context) {
     fun isAvailable(): Boolean = availability() == HealthConnectClient.SDK_AVAILABLE
 
     fun client(): HealthConnectClient {
-        check(isAvailable()) { "Health Connect no está disponible" }
+        check(isAvailable()) { "Health Connect is unavailable" }
         return HealthConnectClient.getOrCreate(context)
     }
 
@@ -36,7 +36,7 @@ class HealthConnectDataSource(private val context: Context) {
 
     suspend fun readDailySteps(lookbackDays: Long = DEFAULT_LOOKBACK_DAYS): List<DailySteps> {
         require(lookbackDays in 1..DEFAULT_LOOKBACK_DAYS) {
-            "La ventana debe estar entre 1 y $DEFAULT_LOOKBACK_DAYS días"
+            "The lookback window must be between 1 and $DEFAULT_LOOKBACK_DAYS days"
         }
         val today = LocalDate.now()
         val start = LocalDateTime.of(today.minusDays(lookbackDays - 1), LocalTime.MIN)

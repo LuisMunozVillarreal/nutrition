@@ -19,7 +19,7 @@ object HealthSyncRequestFactory {
         .build()
 
     fun steps(baseUrl: String, token: String, payload: StepsUploadRequest): Request {
-        require(token.isNotBlank()) { "Falta el token de vinculación" }
+        require(token.isNotBlank()) { "The pairing token is missing" }
         return Request.Builder()
             .url("$baseUrl/api/health-sync/steps/")
             .header("Authorization", "Bearer $token")
@@ -44,8 +44,8 @@ class HealthSyncApi(
         return execute(request) { body ->
             val response = runCatching {
                 HealthSyncJson.codec.decodeFromString<PairResponse>(body)
-            }.getOrElse { throw ApiException("La respuesta de vinculación no es válida", cause = it) }
-            require(response.token.isNotBlank()) { "El servidor no devolvió un token válido" }
+            }.getOrElse { throw ApiException("The pairing response is invalid", cause = it) }
+            require(response.token.isNotBlank()) { "The server did not return a valid token" }
             response.copy(token = response.token.trim())
         }
     }
@@ -64,7 +64,7 @@ class HealthSyncApi(
             runCatching {
                 HealthSyncJson.codec.decodeFromString<StepsUploadResponse>(body)
             }.getOrElse {
-                throw ApiException("La respuesta de sincronización no es válida", cause = it)
+                throw ApiException("The sync response is invalid", cause = it)
             }
         }
     }
@@ -76,7 +76,7 @@ class HealthSyncApi(
                     if (!response.isSuccessful) {
                         val retryable = response.code == 408 || response.code == 429 || response.code >= 500
                         throw ApiException(
-                            message = "El servidor respondió con HTTP ${response.code}",
+                            message = "The server returned HTTP ${response.code}",
                             statusCode = response.code,
                             retryable = retryable,
                         )
@@ -88,7 +88,7 @@ class HealthSyncApi(
                 throw error
             } catch (error: IOException) {
                 throw ApiException(
-                    "No se pudo conectar con el servidor",
+                    "Could not connect to the server",
                     retryable = true,
                     cause = error,
                 )
