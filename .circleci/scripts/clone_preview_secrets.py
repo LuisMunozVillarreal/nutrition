@@ -78,6 +78,16 @@ def _secret_exists(secret_name: str, namespace: str) -> bool:
     return res.returncode == 0
 
 
+def _deployment_exists(deployment_name: str, namespace: str) -> bool:
+    """Return True when a deployment already exists in the namespace."""
+    res = subprocess.run(
+        ["kubectl", "get", "deployment", deployment_name, "-n", namespace],
+        capture_output=True,
+        check=False,
+    )  # nosec: B603, B607
+    return res.returncode == 0
+
+
 def _create_generated_secret(
     secret_name: str,
     fields: dict,
@@ -150,11 +160,12 @@ def _copy_secret_from_source(secret_name: str, target_namespace: str) -> None:
 
 
 def clone_secrets(target_namespace: str) -> None:
-    """Create preview secrets directly in the target namespace.
+    """Create or refresh preview secrets in the target namespace.
 
-    Generated secrets are created with fresh random values; backup-credential
-    secrets are copied from the source namespace. Both are create-if-absent so a
-    re-deploy never rotates values under a running workload.
+    Generated secrets are create-if-absent so a re-deploy does not rotate
+    application credentials. Backup credentials are refreshed from staging on
+    every deploy, then the backend is restarted so its restore init container
+    observes the current mounted payload.
 
     Args:
         target_namespace (str): The namespace to clone secrets to.
@@ -174,12 +185,9 @@ def clone_secrets(target_namespace: str) -> None:
             sys.exit(1)
 
     for secret_name in COPIED_SECRETS:
-        if _secret_exists(secret_name, target_namespace):
-            click.echo(f"Secret {secret_name} already exists. Skipping.")
-            continue
         click.echo(
-            f"Copying {secret_name} from {SOURCE_NAMESPACE} "
-            f"to {target_namespace}..."
+            f"Refreshing {secret_name} from {SOURCE_NAMESPACE} "
+            f"in {target_namespace}..."
         )
         try:
             _copy_secret_from_source(secret_name, target_namespace)
@@ -192,6 +200,23 @@ def clone_secrets(target_namespace: str) -> None:
                 f"Error copying secret {secret_name}: {e}",
                 err=True,
             )
+            sys.exit(1)
+
+    if COPIED_SECRETS and _deployment_exists("nutrition-backend", target_namespace):
+        try:
+            subprocess.run(
+                [
+                    "kubectl",
+                    "rollout",
+                    "restart",
+                    "deployment/nutrition-backend",
+                    "-n",
+                    target_namespace,
+                ],
+                check=True,
+            )  # nosec: B603, B607
+        except (OSError, subprocess.CalledProcessError) as e:
+            click.echo(f"Error restarting preview backend: {e}", err=True)
             sys.exit(1)
 
 

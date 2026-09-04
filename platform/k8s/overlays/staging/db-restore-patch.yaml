@@ -78,8 +78,19 @@ spec:
               
               echo "Found $TABLE_COUNT tables.";
               
+              SHOULD_RESTORE="false";
               if [ "$TABLE_COUNT" -eq "0" ]; then
                 echo "DB is empty. Restoring from backup...";
+                SHOULD_RESTORE="true";
+              elif [ "${REPAIR_USERLESS_PREVIEW_DB:-false}" = "true" ]; then
+                USER_EXISTS=$(/srv/www/backend/.venv/bin/python -c "import django; django.setup(); from django.contrib.auth import get_user_model; print(get_user_model().objects.exists())" 2>/dev/null || echo "False");
+                if [ "$USER_EXISTS" != "True" ]; then
+                  echo "DB has no users. Restoring from backup...";
+                  SHOULD_RESTORE="true";
+                fi
+              fi
+
+              if [ "$SHOULD_RESTORE" = "true" ]; then
                 /srv/www/backend/.venv/bin/python manage.py dbrestore --noinput -d nutrition;
               else
                 echo "DB is not empty. Skipping restore.";
