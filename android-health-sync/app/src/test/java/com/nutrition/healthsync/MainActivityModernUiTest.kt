@@ -128,6 +128,7 @@ class MainActivityModernUiTest {
             "La ventana debe",
             "no puede estar vacío",
             "No se pudo guardar",
+            "El conteo de pasos",
         )
 
         spanishPhrases.forEach { phrase ->
