@@ -9,7 +9,7 @@ data class DailySteps(
     val steps: Long,
 ) {
     init {
-        require(steps >= 0) { "El conteo de pasos no puede ser negativo" }
+        require(steps >= 0) { "The step count cannot be negative" }
     }
 
     fun toUploadRecord(observedAt: Instant): StepUploadRecord = StepUploadRecord(
