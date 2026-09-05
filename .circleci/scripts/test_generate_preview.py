@@ -2,8 +2,10 @@
 
 import re
 import subprocess
+from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 from generate_flux_preview import _build_preview_rbac, generate_manifest, main
 from sanitise_branch import MAX_LENGTH, sanitise_branch_name
@@ -121,10 +123,47 @@ def test_generate_manifest_content():
     assert f"serviceAccountName: nutrition-preview-sa-{sanitized}" in manifest
     assert f"name: source-{sanitized}" in manifest
     assert "name: SKIP_DB_RESTORE" not in manifest
-    assert "initContainers:" not in manifest
+    assert "initContainers:" in manifest
+    assert manifest.count("name: REPAIR_USERLESS_PREVIEW_DB") == 1
     assert 'value: "https://custom.example.com"' in manifest
     assert "newTag: v1.0.0" in manifest
     assert "value: custom.example.com" in manifest
+    assert "name: HEALTH_SYNC_TOKEN_PEPPER" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_COUNT" in manifest
+    assert "name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS" in manifest
+    assert "path: /spec/rules/0/http/paths/-" not in manifest
+    assert "path: /api/health-sync" not in manifest
+
+    repository = Path(__file__).resolve().parents[2]
+    services = [
+        document
+        for document in yaml.safe_load_all(
+            (repository / "platform/k8s/base/backend.yaml").read_text()
+        )
+        if document and document.get("kind") == "Service"
+    ]
+    backend_service = next(
+        service
+        for service in services
+        if service["metadata"]["name"] == "nutrition-backend"
+    )
+    assert 80 in {port["port"] for port in backend_service["spec"]["ports"]}
+
+
+def test_preview_restore_repairs_a_migrated_database_without_users():
+    """Dynamic previews recover when stale credentials left only the schema."""
+    manifest, _ = generate_manifest("feature/test", "v1", "custom.example.com")
+
+    assert "name: REPAIR_USERLESS_PREVIEW_DB" in manifest
+    assert 'value: "true"' in manifest
+
+    repository = Path(__file__).resolve().parents[2]
+    restore_patch = (
+        repository / "platform/k8s/overlays/staging/db-restore-patch.yaml"
+    ).read_text()
+    assert "REPAIR_USERLESS_PREVIEW_DB" in restore_patch
+    assert "get_user_model().objects.exists()" in restore_patch
+    assert "DB has no users. Restoring from backup" in restore_patch
 
 
 def test_generate_manifest_default_domain():

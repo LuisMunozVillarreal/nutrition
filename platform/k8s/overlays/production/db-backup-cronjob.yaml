@@ -21,13 +21,13 @@ spec:
             env:
               - name: ENVIRONMENT
                 value: "production"
-              - name: POSTGRESQL_HOST
-                value: "nutrition-postgres"
-              - name: POSTGRESQL_PASSWORD
+              - name: CACHE_URL
+                value: "redis://nutrition-redis:6379/1"
+              - name: HEALTH_SYNC_TOKEN_PEPPER
                 valueFrom:
                   secretKeyRef:
-                    key: postgresql-password
-                    name: nutrition-postgresql
+                    key: token-pepper
+                    name: nutrition-health-sync-secrets
               - name: SECRET_KEY
                 valueFrom:
                   secretKeyRef:
@@ -38,6 +38,13 @@ spec:
                   secretKeyRef:
                     key: gemini-api-key
                     name: nutrition-gemini-api-key
+              - name: POSTGRESQL_HOST
+                value: "nutrition-postgres"
+              - name: POSTGRESQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: postgresql-password
+                    name: nutrition-postgresql
             volumeMounts:
               - mountPath: "/mnt/secret/"
                 name: nutrition-gcp-db-backup-credentials

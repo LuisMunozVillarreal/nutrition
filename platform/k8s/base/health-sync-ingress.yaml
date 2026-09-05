@@ -1,0 +1,39 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: health-sync-body-limit
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+spec:
+  buffering:
+    maxRequestBodyBytes: 65536
+    memRequestBodyBytes: 65536
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nutrition-health-sync
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/instance: nutrition
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.priority: "200"
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: nutrition.localhost
+    traefik.ingress.kubernetes.io/router.middlewares: health-sync-body-limit@kubernetescrd
+spec:
+  rules:
+    - host: nutrition.localhost
+      http:
+        paths:
+          - path: /api/health-sync
+            pathType: Prefix
+            backend:
+              service:
+                name: nutrition-backend
+                port:
+                  number: 80

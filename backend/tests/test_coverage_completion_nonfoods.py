@@ -90,7 +90,9 @@ def test_day_steps_list_empty_for_unauth_and_success_when_authorized(
     day_steps_ctx = _context_with_user_object()
     day_steps = [SimpleNamespace()]
     day_steps_filter = mocker.MagicMock()
-    day_steps_filter.order_by.return_value = day_steps
+    day_steps_filter.select_related.return_value.order_by.return_value = (
+        day_steps
+    )
 
     modelized = SimpleNamespace(id="11", steps=123)
     mocker.patch(
@@ -106,7 +108,10 @@ def test_day_steps_list_empty_for_unauth_and_success_when_authorized(
 
     assert len(got) == 1
     assert got[0] is modelized
-    day_steps_filter.order_by.assert_called_once_with("-day__day")
+    day_steps_filter.select_related.assert_called_once_with("step_import")
+    day_steps_filter.select_related.return_value.order_by.assert_called_once_with(
+        "-day__day"
+    )
     from_model.assert_has_calls([mocker.call(day_steps[0])])
 
 
@@ -116,20 +121,21 @@ def test_day_steps_query_success_and_not_found(mocker) -> None:
 
     model = SimpleNamespace()
     mapped = SimpleNamespace(id="12", steps=321)
-    mocker.patch(
-        "apps.exercises.schema.DaySteps.objects.get", return_value=model
+    queryset = mocker.MagicMock()
+    queryset.get.return_value = model
+    select_related = mocker.patch(
+        "apps.exercises.schema.DaySteps.objects.select_related",
+        return_value=queryset,
     )
     from_model = mocker.patch(
         "apps.exercises.schema.DayStepsType.from_model",
         return_value=mapped,
     )
     assert ExerciseQuery().day_steps(day_steps_ctx, id="1") is mapped
+    select_related.assert_called_once_with("step_import")
     from_model.assert_called_once_with(model)
 
-    mocker.patch(
-        "apps.exercises.schema.DaySteps.objects.get",
-        side_effect=DaySteps.DoesNotExist,
-    )
+    queryset.get.side_effect = DaySteps.DoesNotExist
     assert ExerciseQuery().day_steps(day_steps_ctx, id="missing") is None
 
 
@@ -162,8 +168,13 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
     )
     with pytest.raises(ValueError, match="Day not found"):
         mutation.create_exercise(ctx, day_id=999, type="walk", kcals=10)
+    create_steps = mocker.patch(
+        "apps.health_sync.services.create_manual_day_steps",
+        side_effect=ValueError("Day not found"),
+    )
     with pytest.raises(ValueError, match="Day not found"):
         mutation.create_day_steps(ctx, day_id=999, steps=100)
+    create_steps.assert_called_once()
 
     mocker.patch(
         "apps.exercises.schema.Exercise.objects.get",
@@ -175,8 +186,12 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
         mutation.delete_exercise(ctx, id="1")
 
     mocker.patch(
-        "apps.exercises.schema.DaySteps.objects.get",
-        side_effect=DaySteps.DoesNotExist,
+        "apps.health_sync.services.update_manual_day_steps",
+        side_effect=ValueError("Day steps not found"),
+    )
+    mocker.patch(
+        "apps.health_sync.services.delete_manual_day_steps",
+        side_effect=ValueError("Day steps not found"),
     )
     with pytest.raises(ValueError, match="Day steps not found"):
         mutation.update_day_steps(ctx, id="1", steps=100)
@@ -187,12 +202,13 @@ def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
 def test_update_day_steps_success_returns_serialized_value(mocker) -> None:
     """Cover successful DaySteps update path and save path."""
     mutation = ExerciseMutation()
-    stored = mocker.MagicMock(steps=0)
+    stored = mocker.MagicMock(steps=5)
     mapped = SimpleNamespace(id="3", steps=5)
     mocked_ctx = _context_with_user_object()
 
-    mocker.patch(
-        "apps.exercises.schema.DaySteps.objects.get", return_value=stored
+    update_steps = mocker.patch(
+        "apps.health_sync.services.update_manual_day_steps",
+        return_value=stored,
     )
     from_model = mocker.patch(
         "apps.exercises.schema.DayStepsType.from_model",
@@ -202,8 +218,7 @@ def test_update_day_steps_success_returns_serialized_value(mocker) -> None:
     result = mutation.update_day_steps(mocked_ctx, id="3", steps=5)
 
     assert result is mapped
-    assert stored.steps == 5
-    stored.save.assert_called_once()
+    update_steps.assert_called_once_with(mocked_ctx.context.request.user, 3, 5)
     from_model.assert_called_once_with(stored)
 
 
