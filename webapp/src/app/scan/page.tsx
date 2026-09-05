@@ -449,9 +449,9 @@ function ScanPageContent({
           </div>
         )}
 
-        <div data-testid="camera-panel" className="w-1/2">
+        <div data-testid="camera-panel">
       {!manual && cameraState !== 'unavailable' && (
-        <div className="space-y-4">
+        <div data-testid="camera-view" className="w-1/2 space-y-4">
           <video
             ref={videoRef}
             className={`aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video ${frameCaptured ? 'hidden' : ''}`}
