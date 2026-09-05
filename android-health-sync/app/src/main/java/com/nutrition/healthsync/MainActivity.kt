@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.appcompat.app.AlertDialog
@@ -102,6 +103,19 @@ class MainActivity : ComponentActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(toolbar)
+        val mainScroll = findViewById<ScrollView>(R.id.main_scroll)
+        val contentBottomPadding = mainScroll.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(mainScroll) { view, insets ->
+            val navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            view.setPadding(
+                view.paddingLeft,
+                view.paddingTop,
+                view.paddingRight,
+                contentBottomPadding + navigationBars.bottom,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(mainScroll)
         toolbar.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 R.id.action_settings -> showSettings()
