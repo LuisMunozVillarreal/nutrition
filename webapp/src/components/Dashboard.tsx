@@ -130,6 +130,9 @@ export default function Dashboard() {
   const latestMeasurement = measurements.at(-1)
   const today = summary?.todayNutrition ?? null
   const todayIsCurrent = today !== null && isCurrentLocalDate(today.day)
+  const mealLogHref = today && todayIsCurrent
+    ? `/scan?${new URLSearchParams({ mode: 'intake', dayId: today.id })}`
+    : '/scan'
   const currentWeight = latestMeasurement?.weight ?? summary?.latestWeight ?? null
   const currentBodyFat = latestMeasurement?.bodyFatPerc ?? summary?.latestBodyFat ?? null
   const firstName = response?.me?.firstName || session?.user?.name?.split(' ')[0] || 'Athlete'
@@ -160,7 +163,7 @@ export default function Dashboard() {
           accent="purple"
         />
         <QuickAction
-          href="/scan"
+          href={mealLogHref}
           icon={<UtensilsCrossed size={24} />}
           title="Log a meal"
           description="Scan a product or choose one of your most-used foods."

@@ -57,23 +57,46 @@ export async function createBarcodeDetector(): Promise<BarcodeDetectorLike | nul
 
 export async function startCameraStream(
   video: HTMLVideoElement,
+  signal?: AbortSignal,
 ): Promise<MediaStream | null> {
   const mediaDevices =
     typeof navigator === 'undefined' ? undefined : navigator.mediaDevices
   if (!mediaDevices?.getUserMedia) return null
   let stream: MediaStream | null = null
+  let abortHandler: (() => void) | null = null
   try {
     stream = await mediaDevices.getUserMedia({
       video: { facingMode: 'environment' },
       audio: false,
     })
+    let resolveAbort!: (value: boolean) => void
+    const aborted = new Promise<boolean>((resolve) => {
+      resolveAbort = resolve
+    })
+    abortHandler = () => {
+      stopCameraStream(stream)
+      if (video.srcObject === stream) video.srcObject = null
+      resolveAbort(true)
+    }
+    signal?.addEventListener('abort', abortHandler, { once: true })
+
+    if (signal?.aborted) {
+      abortHandler()
+      return null
+    }
     video.srcObject = stream
-    await video.play()
+    const playbackAborted = await Promise.race([
+      video.play().then(() => false),
+      aborted,
+    ])
+    if (playbackAborted || signal?.aborted) return null
     return stream
   } catch {
     stopCameraStream(stream)
-    video.srcObject = null
+    if (video.srcObject === stream) video.srcObject = null
     return null
+  } finally {
+    if (abortHandler) signal?.removeEventListener('abort', abortHandler)
   }
 }
 

@@ -45,6 +45,7 @@ let graphqlCalls = []
 let supported = false
 let detector = null
 let cameraResult = null
+let cameraImpl = async () => cameraResult
 let scanResult = null
 let scanSignals = []
 let stopCalls = []
@@ -77,9 +78,9 @@ vi.doMock('@/lib/barcodeScanner', () => ({
     detectorCreateCalls += 1
     return detector
   },
-  startCameraStream: async () => {
+  startCameraStream: async (...args) => {
     cameraStartCalls += 1
-    return cameraResult
+    return cameraImpl(...args)
   },
   stopCameraStream: (stream) => {
     if (stream) stopCalls.push(stream)
@@ -134,6 +135,7 @@ afterEach(async () => {
   supported = false
   detector = null
   cameraResult = null
+  cameraImpl = async () => cameraResult
   scanResult = null
   scanSignals = []
   stopCalls = []
@@ -182,6 +184,86 @@ test('meal scanner ignores most-used foods that resolve after unmount', async ()
     })
   })
   assert.equal(push.mock.calls.length, 0)
+})
+
+test('choosing a most-used food cancels a pending camera read and prevents later navigation', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  let resolveScan
+  scanResult = new Promise((resolve) => { resolveScan = resolve })
+  graphqlImpl = async (operation) => operation.includes('MostUsedFoods')
+    ? { mostUsedFoods: [{ servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 }] }
+    : { foodProductByBarcode: { product: { id: 'p1' }, openFoodFacts: null } }
+
+  const container = await mount()
+  await settle(() => assert.equal(scanSignals.length, 1))
+  await act(async () => { buttonByText(container, 'Oats').click() })
+  assert.equal(scanSignals[0].aborted, true)
+  resolveScan('3017620422003')
+  await act(async () => { await new Promise(setImmediate) })
+  assert.deepEqual(push.mock.calls.map(([destination]) => destination), ['/intakes/new?servingId=s1'])
+})
+
+test('choosing a most-used food invalidates a pending manual lookup', async () => {
+  let resolveLookup
+  graphqlImpl = async (operation) => {
+    if (operation.includes('MostUsedFoods')) {
+      return { mostUsedFoods: [{ servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 }] }
+    }
+    return new Promise((resolve) => { resolveLookup = resolve })
+  }
+
+  const container = await mount()
+  await act(async () => { buttonByText(container, 'Enter a barcode manually').click() })
+  await act(async () => {
+    fireEvent.change(container.querySelector('#barcode-input'), { target: { value: '123' } })
+    fireEvent.submit(container.querySelector('form'))
+  })
+  await settle(() => assert.equal(typeof resolveLookup, 'function'))
+  await act(async () => { buttonByText(container, 'Oats').click() })
+  await act(async () => { buttonByText(container, 'Oats').click() })
+  resolveLookup({ foodProductByBarcode: { product: { id: 'p1' }, openFoodFacts: null } })
+  await act(async () => { await new Promise(setImmediate) })
+  assert.deepEqual(push.mock.calls.map(([destination]) => destination), ['/intakes/new?servingId=s1'])
+})
+
+test('most-used food preserves an intake scanner day', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'intake'], ['dayId', 'day 7']])
+  graphqlImpl = async () => ({
+    mostUsedFoods: [{ servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 }],
+  })
+
+  const container = await mount()
+  await settle(() => assert.ok(buttonByText(container, 'Oats')))
+  await act(async () => { buttonByText(container, 'Oats').click() })
+
+  assert.equal(push.mock.calls[0][0], '/intakes/new?servingId=s1&dayId=day+7')
+})
+
+test('overlapping camera starts cannot orphan the newer stream', async () => {
+  supported = true
+  detector = {}
+  const starts = []
+  cameraImpl = async () => new Promise((resolve) => { starts.push(resolve) })
+  scanResult = new Promise(() => {})
+
+  await mount()
+  await settle(() => assert.equal(starts.length, 1))
+  scanSearchParams = new URLSearchParams([['mode', 'intake'], ['dayId', '7']])
+  const { default: Page } = await import('../src/app/scan/page.tsx')
+  await act(async () => { mountedView.rerender(React.createElement(Page)) })
+  await settle(() => assert.equal(starts.length, 2))
+
+  const newerStream = { getTracks: () => [] }
+  const olderStream = { getTracks: () => [] }
+  await act(async () => { starts[1](newerStream); await new Promise(setImmediate) })
+  await act(async () => { starts[0](olderStream); await new Promise(setImmediate) })
+  assert.deepEqual(stopCalls, [olderStream])
+
+  await act(async () => { mountedView.unmount() })
+  mountedView = undefined
+  assert.deepEqual(stopCalls, [olderStream, newerStream])
 })
 
 test('meal scanner routes a detected local product to the intake form', async () => {

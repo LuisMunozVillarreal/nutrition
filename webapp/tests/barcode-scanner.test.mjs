@@ -148,6 +148,152 @@ test('startCameraStream attaches the stream and plays the video', async () => {
   assert.equal(video.play.mock.calls.length, 1)
 })
 
+test('an aborted camera acquisition cannot overwrite a newer stream', async () => {
+  let resolveOlder
+  const olderStop = vi.fn()
+  const olderStream = { getTracks: () => [{ stop: olderStop }] }
+  const newerStream = { getTracks: () => [] }
+  const video = { srcObject: null, play: vi.fn(async () => {}) }
+  const getUserMedia = vi.fn()
+    .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve }))
+    .mockResolvedValueOnce(newerStream)
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia } },
+  })
+
+  const olderController = new AbortController()
+  const olderResult = scanner.startCameraStream(video, olderController.signal)
+  olderController.abort()
+  assert.equal(await scanner.startCameraStream(video, new AbortController().signal), newerStream)
+  assert.equal(video.srcObject, newerStream)
+
+  resolveOlder(olderStream)
+  assert.equal(await olderResult, null)
+  assert.equal(video.srcObject, newerStream)
+  assert.equal(olderStop.mock.calls.length, 1)
+})
+
+test('an aborted camera playback releases only its own stream', async () => {
+  let resolvePlay
+  const stop = vi.fn()
+  const stream = { getTracks: () => [{ stop }] }
+  const video = {
+    srcObject: null,
+    play: vi.fn(() => new Promise((resolve) => { resolvePlay = resolve })),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => stream } },
+  })
+
+  const controller = new AbortController()
+  const result = scanner.startCameraStream(video, controller.signal)
+  await new Promise(setImmediate)
+  controller.abort()
+  resolvePlay()
+
+  assert.equal(await result, null)
+  assert.equal(video.srcObject, null)
+  assert.equal(stop.mock.calls.length, 1)
+})
+
+test('aborting non-settling video playback promptly stops the camera', async () => {
+  const stop = vi.fn()
+  const stream = { getTracks: () => [{ stop }] }
+  const video = {
+    srcObject: null,
+    play: vi.fn(() => new Promise(() => {})),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => stream } },
+  })
+
+  const controller = new AbortController()
+  const outcomes = []
+  scanner.startCameraStream(video, controller.signal).then((value) => outcomes.push(value))
+  await new Promise(setImmediate)
+  controller.abort()
+  await new Promise(setImmediate)
+
+  assert.deepEqual(outcomes, [null])
+  assert.equal(video.srcObject, null)
+  assert.equal(stop.mock.calls.length, 1)
+})
+
+test('an abort immediately after playback settles returns null', async () => {
+  const stop = vi.fn()
+  const stream = { getTracks: () => [{ stop }] }
+  const controller = new AbortController()
+  const video = {
+    srcObject: null,
+    play: vi.fn(() => {
+      const playing = Promise.resolve()
+      playing.then(() => queueMicrotask(() => controller.abort()))
+      return playing
+    }),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => stream } },
+  })
+
+  assert.equal(await scanner.startCameraStream(video, controller.signal), null)
+  assert.equal(video.srcObject, null)
+  assert.equal(stop.mock.calls.length, 1)
+})
+
+test('aborted stale playback cannot clear a newer video attachment', async () => {
+  let resolvePlay
+  const stop = vi.fn()
+  const staleStream = { getTracks: () => [{ stop }] }
+  const newerStream = { getTracks: () => [] }
+  const video = {
+    srcObject: null,
+    play: vi.fn(() => new Promise((resolve) => { resolvePlay = resolve })),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => staleStream } },
+  })
+
+  const controller = new AbortController()
+  const result = scanner.startCameraStream(video, controller.signal)
+  await new Promise(setImmediate)
+  video.srcObject = newerStream
+  controller.abort()
+  resolvePlay()
+
+  assert.equal(await result, null)
+  assert.equal(video.srcObject, newerStream)
+  assert.equal(stop.mock.calls.length, 1)
+})
+
+test('failed stale playback cannot clear a newer video attachment', async () => {
+  let rejectPlay
+  const stop = vi.fn()
+  const staleStream = { getTracks: () => [{ stop }] }
+  const newerStream = { getTracks: () => [] }
+  const video = {
+    srcObject: null,
+    play: vi.fn(() => new Promise((resolve, reject) => { rejectPlay = reject })),
+  }
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => staleStream } },
+  })
+
+  const result = scanner.startCameraStream(video)
+  await new Promise(setImmediate)
+  video.srcObject = newerStream
+  rejectPlay(new Error('stale playback failed'))
+
+  assert.equal(await result, null)
+  assert.equal(video.srcObject, newerStream)
+  assert.equal(stop.mock.calls.length, 1)
+})
+
 test('stopCameraStream stops every track', () => {
   const firstStop = vi.fn()
   const secondStop = vi.fn()

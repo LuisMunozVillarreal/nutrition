@@ -118,6 +118,9 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const lookupGenerationRef = useRef(0)
+  const leavingRef = useRef(false)
+  const scanControllerRef = useRef<AbortController | null>(null)
+  const activeStreamRef = useRef<MediaStream | null>(null)
   const [frameCaptured, setFrameCaptured] = useState(false)
   const [cameraState, setCameraState] = useState<CameraState>('starting')
   const [manual, setManual] = useState(false)
@@ -130,6 +133,18 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   const [error, setError] = useState<string | null>(null)
   const [scanKey, setScanKey] = useState(0)
   const [mostUsedFoods, setMostUsedFoods] = useState<MostUsedFood[]>([])
+
+  const navigate = useCallback((destination: string) => {
+    if (leavingRef.current) return
+    leavingRef.current = true
+    lookupGenerationRef.current += 1
+    scanControllerRef.current?.abort()
+    if (activeStreamRef.current) {
+      stopCameraStream(activeStreamRef.current)
+      activeStreamRef.current = null
+    }
+    router.push(destination)
+  }, [router])
 
   useEffect(() => {
     let cancelled = false
@@ -148,6 +163,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   }, [])
 
   const searchBarcode = useCallback(async (barcode: string) => {
+    if (leavingRef.current) return
     const generation = ++lookupGenerationRef.current
     setSearching(true)
     setError(null)
@@ -155,18 +171,18 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       const res = await graphqlRequest<BarcodeLookupResult>(LOOKUP_QUERY, {
         barcode,
       })
-      if (generation !== lookupGenerationRef.current) return
+      if (generation !== lookupGenerationRef.current || leavingRef.current) return
       const result = res.foodProductByBarcode
       if (result.product) {
         const params = new URLSearchParams()
         if (intakeDayId) params.set('dayId', intakeDayId)
         params.set('productId', result.product.id)
-        router.push(`/intakes/new?${params.toString()}`)
+        navigate(`/intakes/new?${params.toString()}`)
         return
       }
       setLookup({ barcode, result })
     } catch (err) {
-      if (generation !== lookupGenerationRef.current) return
+      if (generation !== lookupGenerationRef.current || leavingRef.current) return
       setLookup(null)
       setError(
         err instanceof Error ? err.message : 'Barcode lookup failed',
@@ -174,7 +190,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     } finally {
       if (generation === lookupGenerationRef.current) setSearching(false)
     }
-  }, [intakeDayId, router])
+  }, [intakeDayId, navigate])
 
   useEffect(() => () => {
     lookupGenerationRef.current += 1
@@ -185,6 +201,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     let cancelled = false
     let activeStream: MediaStream | null = null
     const scanController = new AbortController()
+    scanControllerRef.current = scanController
     // The video element is mounted whenever this effect runs: the initial
     // state renders it, and restart() re-renders it before bumping scanKey.
     const video = videoRef.current!
@@ -200,16 +217,17 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
         setCameraState('unavailable')
         return
       }
-      const stream = await startCameraStream(video)
+      const stream = await startCameraStream(video, scanController.signal)
+      if (cancelled || scanController.signal.aborted) {
+        stopCameraStream(stream)
+        return
+      }
       if (!stream) {
         setCameraState('unavailable')
         return
       }
       activeStream = stream
-      if (cancelled) {
-        stopCameraStream(stream)
-        return
-      }
+      activeStreamRef.current = stream
       setCameraState('active')
       const value = await readBarcodeFromVideo(
         video,
@@ -220,6 +238,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       if (!value) {
         stopCameraStream(stream)
         activeStream = null
+        activeStreamRef.current = null
         setCameraState('unavailable')
         return
       }
@@ -227,6 +246,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       setFrameCaptured(captureVideoFrame(video, canvas))
       stopCameraStream(stream)
       activeStream = null
+      activeStreamRef.current = null
       setCameraState('stopped')
       searchBarcode(value)
     }
@@ -236,7 +256,11 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     return () => {
       cancelled = true
       scanController.abort()
-      if (activeStream) stopCameraStream(activeStream)
+      scanControllerRef.current = null
+      if (activeStreamRef.current === activeStream && activeStream) {
+        stopCameraStream(activeStream)
+        activeStreamRef.current = null
+      }
     }
   }, [manual, scanKey, searchBarcode])
 
@@ -259,9 +283,9 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       params.set('fromBarcodeScan', '1')
       params.set('fromMealLog', '1')
       if (intakeDayId) params.set('intakeDayId', intakeDayId)
-      router.push(`/products/new?${params.toString()}`)
+      navigate(`/products/new?${params.toString()}`)
     },
-    [intakeDayId, router],
+    [intakeDayId, navigate],
   )
 
   const createFromBarcode = useCallback((barcode: string) => {
@@ -271,8 +295,8 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       fromMealLog: '1',
     })
     if (intakeDayId) params.set('intakeDayId', intakeDayId)
-    router.push(`/products/new?${params.toString()}`)
-  }, [intakeDayId, router])
+    navigate(`/products/new?${params.toString()}`)
+  }, [intakeDayId, navigate])
 
   const restart = () => {
     lookupGenerationRef.current += 1
@@ -306,9 +330,11 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
               <button
                 key={food.servingId}
                 type="button"
-                onClick={() => router.push(
-                  `/intakes/new?${new URLSearchParams({ servingId: food.servingId })}`,
-                )}
+                onClick={() => {
+                  const params = new URLSearchParams({ servingId: food.servingId })
+                  if (intakeDayId) params.set('dayId', intakeDayId)
+                  navigate(`/intakes/new?${params}`)
+                }}
                 className="rounded-lg border border-slate-300 p-3 text-left hover:bg-slate-50"
               >
                 <span className="block font-medium">

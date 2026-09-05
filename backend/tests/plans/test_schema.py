@@ -2,7 +2,7 @@
 
 # This module keeps the complete plan GraphQL contract in one regression suite.
 # pylint: disable=too-many-lines,too-many-arguments,too-many-positional-arguments
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals,too-many-public-methods
 
 import datetime
 from decimal import Decimal
@@ -714,6 +714,85 @@ class TestDaySchema:
 @pytest.mark.django_db
 class TestIntakeSchema:
     """Tests for Intake queries and mutations."""
+
+    def test_intake_days_are_authenticated_user_scoped_ordered_and_bounded(
+        self, mocker
+    ):
+        """Intake day choices expose only the newest 84 lightweight owned rows."""
+        user, first_plan = _create_user_and_plan("intake-days@test.com")
+        measurement = first_plan.measurement
+        for offset in range(1, 13):
+            WeekPlan.objects.create(
+                user=user,
+                measurement=measurement,
+                start_date=datetime.date.today()
+                - datetime.timedelta(days=offset * 7),
+                protein_g_kg=Decimal("1.8"),
+                fat_perc=Decimal("25.0"),
+                deficit=Decimal("500.0"),
+            )
+        _other_user, other_plan = _create_user_and_plan(
+            "other-intake-days@test.com"
+        )
+        other_day_ids = {
+            str(value)
+            for value in other_plan.days.values_list("id", flat=True)
+        }
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        oldest_owned_day = (
+            Day.objects.filter(plan__user=user).order_by("day", "id").first()
+        )
+
+        result = schema.execute_sync(
+            "query($requestedId: ID) { "
+            "intakeDays(requestedId: $requestedId) { id day } }",
+            variable_values={"requestedId": str(oldest_owned_day.id)},
+            context_value=mock_context,
+        )
+
+        assert result.errors is None
+        rows = result.data["intakeDays"]
+        assert len(rows) == 84
+        assert [row["day"] for row in rows] == sorted(
+            (row["day"] for row in rows), reverse=True
+        )
+        assert not ({row["id"] for row in rows} & other_day_ids)
+        assert str(oldest_owned_day.id) in {row["id"] for row in rows}
+
+    def test_intake_days_handle_default_recent_and_missing_requested_days(
+        self, mocker
+    ):
+        """Optional requested-day handling keeps normal bounded results stable."""
+        user, plan = _create_user_and_plan("requested-intake-days@test.com")
+        recent_day = plan.days.order_by("-day", "-id").first()
+        mock_context = mocker.Mock()
+        mock_context.request.user = user
+        query = (
+            "query($requestedId: ID) { "
+            "intakeDays(requestedId: $requestedId) { id } }"
+        )
+
+        for requested_id in (None, str(recent_day.id), "999999999"):
+            result = schema.execute_sync(
+                query,
+                variable_values={"requestedId": requested_id},
+                context_value=mock_context,
+            )
+            assert result.errors is None
+            assert len(result.data["intakeDays"]) == 7
+
+    def test_intake_days_are_empty_without_authentication(self, mocker):
+        """Anonymous callers cannot enumerate plan-day choices."""
+        mock_context = mocker.Mock()
+        mock_context.request.user = AnonymousUser()
+
+        result = schema.execute_sync(
+            "{ intakeDays { id day } }", context_value=mock_context
+        )
+
+        assert result.errors is None
+        assert result.data["intakeDays"] == []
 
     def test_most_used_foods_ranks_only_the_current_users_servings(
         self, mocker, food_product_factory, serving_factory, intake_factory

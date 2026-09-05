@@ -1,6 +1,6 @@
 """Plans, Days, and Intakes GraphQL schema module."""
 
-# pylint: disable=too-few-public-methods
+# pylint: disable=too-few-public-methods,too-many-lines
 
 import datetime
 from collections.abc import Iterable
@@ -34,6 +34,7 @@ _DAY_DEPENDENT_FIELDS = frozenset(
         "energyKcal",
     }
 )
+INTAKE_DAY_LIMIT = 84
 
 
 def _requested_field_names(info: Info) -> set[str]:
@@ -208,6 +209,14 @@ class IntakeType:
             fat_g=float(obj.fat_g),
             carbs_g=float(obj.carbs_g),
         )
+
+
+@strawberry.type
+class IntakeDayType:
+    """A lightweight day choice for the intake form."""
+
+    id: strawberry.ID
+    day: str
 
 
 @strawberry.type
@@ -477,6 +486,42 @@ class PlanQuery:
         return [
             WeekPlanType.from_model(p)
             for p in queryset.order_by("-start_date")
+        ]
+
+    @strawberry.field
+    def intake_days(
+        self, info: Info, requested_id: strawberry.ID | None = None
+    ) -> list[IntakeDayType]:
+        """Return at most twelve weeks of lightweight owned day choices.
+
+        Args:
+            info: GraphQL request information.
+            requested_id: Optional owned day to retain outside the recent window.
+
+        Returns:
+            Up to 84 newest day choices owned by the authenticated user.
+        """
+        user = get_request_user(info.context)
+        if user is None or not user.is_authenticated:
+            return []
+        queryset = Day.objects.filter(plan__user=user)
+        rows = list(
+            queryset.values_list("id", "day").order_by("-day", "-id")[
+                :INTAKE_DAY_LIMIT
+            ]
+        )
+        if requested_id is not None:
+            requested = (
+                queryset.filter(pk=requested_id)
+                .values_list("id", "day")
+                .first()
+            )
+            if requested is not None and requested not in rows:
+                rows = rows[: INTAKE_DAY_LIMIT - 1] + [requested]
+                rows.sort(key=lambda row: (row[1], row[0]), reverse=True)
+        return [
+            IntakeDayType(id=strawberry.ID(str(day_id)), day=day.isoformat())
+            for day_id, day in rows
         ]
 
     @strawberry.field
