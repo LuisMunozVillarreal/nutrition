@@ -342,6 +342,46 @@ test('EntityForm follows a destination returned by a successful save', async () 
   ))
 })
 
+test('EntityForm ignores a pending save after unmount', async () => {
+  let resolveSave
+  const onSave = vi.fn(() => new Promise((resolve) => { resolveSave = resolve }))
+  const view = render(React.createElement(EntityForm, {
+    title: 'New item',
+    backHref: '/items',
+    onSave,
+    fieldsets: [],
+  }))
+  await screen.findByTestId('form-ready')
+  fireEvent.submit(screen.getByTestId('form-ready'))
+  await waitFor(() => assert.equal(onSave.mock.calls.length, 1))
+  view.unmount()
+
+  resolveSave('/stale-destination')
+  await act(async () => { await new Promise(setImmediate) })
+
+  assert.equal(state.push.mock.calls.length, 0)
+})
+
+test('EntityForm ignores a pending save rejection after unmount', async () => {
+  let rejectSave
+  const onSave = vi.fn(() => new Promise((resolve, reject) => { rejectSave = reject }))
+  const view = render(React.createElement(EntityForm, {
+    title: 'New item',
+    backHref: '/items',
+    onSave,
+    fieldsets: [],
+  }))
+  await screen.findByTestId('form-ready')
+  fireEvent.submit(screen.getByTestId('form-ready'))
+  await waitFor(() => assert.equal(onSave.mock.calls.length, 1))
+  view.unmount()
+
+  rejectSave(new Error('stale failure'))
+  await act(async () => { await new Promise(setImmediate) })
+
+  assert.equal(state.push.mock.calls.length, 0)
+})
+
 test('EntityForm can disable submission without presenting a saving state', async () => {
   render(React.createElement(EntityForm, {
     title: 'Pending item',
@@ -746,7 +786,9 @@ test('Dashboard renders today nutrition with a progress bar and scanner meal act
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuenow'), '1560')
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '2000')
   assert.match(document.body.textContent, /4 entries logged today/)
-  const mealLink = screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/scan')
+  const mealLink = screen.getAllByRole('link').find(
+    (link) => link.getAttribute('href') === '/scan?mode=intake&dayId=day-7',
+  )
   assert.ok(mealLink)
   assert.match(mealLink.textContent, /Log a meal/)
   // A single measurement leaves the trend below the two-point threshold.

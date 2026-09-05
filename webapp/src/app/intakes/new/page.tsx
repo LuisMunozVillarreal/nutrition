@@ -22,9 +22,10 @@ const CREATE_MUTATION = gql`
 const CONTEXT_QUERY = gql`
   query IntakeContext(
     $productId: ID!, $servingId: ID!,
+    $requestedDayId: ID,
     $includeProduct: Boolean!, $includeServing: Boolean!
   ) {
-    weekPlans { days { id day } }
+    intakeDays(requestedId: $requestedDayId) { id day }
     foodProduct(id: $productId) @include(if: $includeProduct) {
       id name brand size sizeUnit
       servings { id servingSize servingUnit }
@@ -70,6 +71,8 @@ interface DayOption {
 }
 
 interface IntakeContextResponse {
+  intakeDays?: DayOption[]
+  // Compatibility for isolated test fixtures; production requests intakeDays.
   weekPlans?: Array<{ days: DayOption[] }>
   foodProduct?: IntakeProduct | null
   intakeFood?: IntakeFood | null
@@ -104,6 +107,7 @@ function NewIntakeForm({
   productId: string | null
   servingId: string | null
 }) {
+  const conflictingContext = Boolean(productId && servingId)
   const [form, setForm] = useState(() => ({
     dayId: '', meal: 'breakfast', numServings: '1.0',
     servingId: '', energyKcal: '', proteinG: '', fatG: '', carbsG: ''
@@ -112,28 +116,35 @@ function NewIntakeForm({
   const [product, setProduct] = useState<IntakeProduct | null>(null)
   const [intakeFood, setIntakeFood] = useState<IntakeFood | null>(null)
   const [days, setDays] = useState<DayOption[]>([])
-  const [contextLoading, setContextLoading] = useState(true)
-  const [contextError, setContextError] = useState<string | null>(null)
+  const [contextLoading, setContextLoading] = useState(!conflictingContext)
+  const [contextError, setContextError] = useState<string | null>(
+    conflictingContext ? 'Choose either a product or a serving, not both.' : null,
+  )
 
   useEffect(() => {
+    if (conflictingContext) return
     let cancelled = false
     const fetchContext = async () => {
       try {
         const result = await graphqlRequest<IntakeContextResponse>(CONTEXT_QUERY, {
           productId: productId ?? '0',
           servingId: servingId ?? '0',
+          requestedDayId: dayIdFromQuery,
           includeProduct: Boolean(productId),
           includeServing: Boolean(servingId),
         })
         if (cancelled) return
         const uniqueDays = Array.from(
           new Map(
-            (result.weekPlans ?? []).flatMap((plan) => plan.days).map((day) => [day.id, day]),
+            (result.intakeDays ?? (result.weekPlans ?? []).flatMap((plan) => plan.days))
+              .map((day) => [day.id, day]),
           ).values(),
         ).sort((left, right) => right.day.localeCompare(left.day))
         const requestedDay = uniqueDays.find((day) => day.id === dayIdFromQuery)
         const today = uniqueDays.find((day) => day.day === localDateKey())
-        const selectedDay = requestedDay ?? today ?? uniqueDays[0]
+        const selectedDay = dayIdFromQuery
+          ? requestedDay
+          : today ?? uniqueDays[0]
         const defaultServing = result.foodProduct?.servings.find(
           (candidate) => candidate.servingUnit === 'serving',
         ) ?? result.foodProduct?.servings.find(
@@ -148,7 +159,9 @@ function NewIntakeForm({
           dayId: selectedDay?.id ?? '',
           servingId: defaultServing?.id ?? '',
         }))
-        if (productId && (!result.foodProduct || !defaultServing)) {
+        if (dayIdFromQuery && !requestedDay) {
+          setContextError('The selected day is not available.')
+        } else if (productId && (!result.foodProduct || !defaultServing)) {
           setContextError('Unable to load the scanned product.')
         } else if (servingId && !result.intakeFood) {
           setContextError('Unable to load the selected food.')
@@ -174,13 +187,16 @@ function NewIntakeForm({
     }
     void fetchContext()
     return () => { cancelled = true }
-  }, [dayIdFromQuery, productId, servingId])
+  }, [conflictingContext, dayIdFromQuery, productId, servingId])
 
   const handleChange = (name: string, value: string) => {
     setForm((current) => ({ ...current, [name]: value }))
   }
 
   const handleSave = async () => {
+    if (conflictingContext) {
+      throw new Error('Choose either a product or a serving, not both')
+    }
     setSaving(true)
     try {
       const selectedServingId = intakeFood?.servingId ?? form.servingId

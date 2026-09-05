@@ -583,6 +583,20 @@ test('new intake defaults to today, offers owned days, and submits a selected co
   })
 })
 
+test('new intake rejects conflicting product and serving context before loading', async () => {
+  searchParams = new URLSearchParams([
+    ['productId', 'product/1'],
+    ['servingId', 'serving/2'],
+  ])
+
+  render(React.createElement(NewIntakePage))
+
+  assert.match(screen.getByRole('alert').textContent, /Choose either a product or a serving/)
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
+  assert.equal(requests.length, 0)
+  await assert.rejects(entityProps.onSave(), /Choose either a product or a serving/)
+})
+
 test('new intake reports selected-serving, missing-day, and context failures', async () => {
   searchParams = new URLSearchParams([['servingId', 'missing']])
   responses = [{
@@ -620,6 +634,16 @@ test('new intake reports selected-serving, missing-day, and context failures', a
   render(React.createElement(NewIntakePage))
   await waitFor(() => assert.match(screen.getByRole('alert').textContent, /Unable to load the intake form/))
   assert.deepEqual(consoleError.mock.calls.at(-1), ['Failed to fetch intake context', customFailure])
+})
+
+test('new intake rejects an explicit day that is unavailable instead of falling back', async () => {
+  searchParams = new URLSearchParams([['dayId', 'old-or-unowned']])
+  responses = [{ intakeDays: [{ id: '7', day: '2026-09-05' }] }]
+
+  render(React.createElement(NewIntakePage))
+
+  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /selected day is not available/i))
+  assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
 })
 
 test('new intake renders an unbranded selected serving', async () => {
@@ -716,6 +740,7 @@ test('new intake loads a scanned product and submits a food-backed intake', asyn
   assert.match(requests[0].operation, /foodProduct\(id: \$productId\)/)
   assert.deepEqual(requests[0].variables, {
     productId: 'product/1', servingId: '0',
+    requestedDayId: '7',
     includeProduct: true, includeServing: false,
   })
   assert.deepEqual(requests[1].variables, {
@@ -789,7 +814,10 @@ test('new intake handles missing and unbranded scanned products', async () => {
     ['dayId', '7'],
     ['productId', 'missing'],
   ])
-  responses = [{ foodProduct: null }]
+  responses = [{
+    intakeDays: [{ id: '7', day: '2026-09-04' }],
+    foodProduct: null,
+  }]
   render(React.createElement(NewIntakePage))
   await waitFor(() => assert.ok(screen.getByRole('alert')))
   assert.match(screen.getByRole('alert').textContent, /Unable to load the scanned product/)
