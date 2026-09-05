@@ -132,6 +132,16 @@ def test_generate_manifest_content():
     assert "name: HEALTH_SYNC_TRUSTED_PROXY_COUNT" in manifest
     assert "name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS" in manifest
     assert "path: /spec/rules/0/http/paths/-" not in manifest
+    # Traefik registers the middleware as {namespace}-health-sync-body-limit
+    # (double dash collapsed to single), so the ingress annotation must match.
+    assert (
+        f"value: nutrition-staging-{sanitized}-health-sync-body-limit"
+        "@kubernetescrd" in manifest
+    )
+    assert (
+        "target:\n        kind: Ingress\n        name: nutrition-health-sync"
+        in manifest
+    )
     assert "path: /api/health-sync" not in manifest
 
     repository = Path(__file__).resolve().parents[2]
