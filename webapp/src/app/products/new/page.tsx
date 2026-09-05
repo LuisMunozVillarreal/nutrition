@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useState } from 'react'
+import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import EntityForm from '@/components/EntityForm'
@@ -154,6 +155,14 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
           title: 'General',
           content: (
             <>
+              <div className="md:col-span-2">
+                <Link
+                  href="/scan?mode=product"
+                  className="btn btn-secondary inline-flex"
+                >
+                  Scan Product
+                </Link>
+              </div>
               <FormField label="Brand" name="brand" value={form.brand} onChange={handleChange} />
               <FormField label="Name" name="name" value={form.name} onChange={handleChange} required />
               <FormField label="Barcode" name="barcode" value={form.barcode} onChange={handleChange} />

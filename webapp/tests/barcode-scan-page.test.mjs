@@ -147,7 +147,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-test('meal scanner shows the three most-used foods above a half-width camera panel', async () => {
+test('meal scanner shows the three most-used foods above a half-width camera', async () => {
   graphqlImpl = async (operation) => operation.includes('MostUsedFoods')
     ? {
         mostUsedFoods: [
@@ -163,10 +163,109 @@ test('meal scanner shows the three most-used foods above a half-width camera pan
   assert.match(container.textContent, /Oats/)
   assert.match(container.textContent, /Farm Yoghurt/)
   assert.match(container.textContent, /Rice/)
-  assert.ok(container.querySelector('[data-testid="scanner-panel"]').className.includes('lg:w-1/2'))
+  assert.ok(container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
 
   await act(async () => { buttonByText(container, 'Oats').click() })
   assert.equal(push.mock.calls[0][0], '/intakes/new?servingId=s1')
+})
+
+test('product scanner shows only the camera workflow and does not load meal suggestions', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Camera barcode scanning is not available/))
+
+  assert.doesNotMatch(container.textContent, /Your most-used foods/)
+  assert.equal(graphqlCalls.length, 0)
+  assert.ok(container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
+})
+
+test('product scan results appear above the camera and keep existing products out of intake', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Product already exists/))
+
+  const result = container.querySelector('[data-testid="scan-result"]')
+  const camera = container.querySelector('[data-testid="camera-panel"]')
+  assert.ok(result.compareDocumentPosition(camera) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.equal(push.mock.calls.length, 0)
+})
+
+test('product scanner labels an existing branded product', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'p1', name: 'Oats', brand: 'Farm', size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Farm Oats/))
+})
+
+test('product scanner returns Open Food Facts data to the product form without meal context', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: null,
+      openFoodFacts: {
+        barcode: '3017620422003', brand: null, name: 'Oats', url: '',
+        size: 500, sizeUnit: 'g', numServings: 5,
+        nutritionalInfoSize: 100, nutritionalInfoUnit: 'g',
+        energyKcal: 100, proteinG: 10, fatG: 2, carbsG: 12,
+        saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+      },
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.ok(buttonByText(container, 'Create product from this data')))
+  await act(async () => { buttonByText(container, 'Create product from this data').click() })
+
+  const destination = push.mock.calls.at(-1)[0]
+  assert.match(destination, /^\/products\/new\?/)
+  assert.match(destination, /fromBarcodeScan=1/)
+  assert.doesNotMatch(destination, /fromMealLog|intakeDayId/)
+})
+
+test('product scanner returns an unknown barcode to the product form without meal context', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '123'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: { product: null, openFoodFacts: null },
+  })
+
+  const container = await mount()
+  await settle(() => assert.ok(buttonByText(container, 'Review and create product')))
+  await act(async () => { buttonByText(container, 'Review and create product').click() })
+
+  assert.equal(
+    push.mock.calls.at(-1)[0],
+    '/products/new?barcode=123&fromBarcodeScan=1',
+  )
 })
 
 test('meal scanner ignores most-used foods that resolve after unmount', async () => {
