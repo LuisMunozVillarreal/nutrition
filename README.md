@@ -20,7 +20,8 @@ the forwarded-address chain and list the direct proxy networks in
 `HEALTH_SYNC_TRUSTED_PROXY_CIDRS`; leave both empty/zero when clients connect
 directly. Production startup fails closed unless `CACHE_URL` selects Redis and
 `HEALTH_SYNC_TOKEN_PEPPER` differs from `SECRET_KEY`. Staging previews reconcile
-trusted manifests from `main`, so they may temporarily use the process-local
+the PR branch's own Kubernetes manifests with the branch image tags and
+compatibility patches, so they may temporarily use the process-local
 cache while CI injects an independent preview pepper. Uploads
 are also bounded globally, by client address, and per paired device. Kubernetes
 deployments must provision the `nutrition-health-sync-secrets` Secret with
@@ -74,7 +75,7 @@ kubectl -n flux-system create configmap cluster-settings \
     - Generates a `GitRepository` and `Kustomization` manifest in memory.
     - Applies them **directly to the cluster** via `kubectl` (Pure Imperative).
     - **No files are committed** to the repo for previews.
-3.  **Flux Sync:** Flux detects the new resources, reconciles trusted manifests from `main` with the branch image tags and compatibility patches, substitutes `${BASE_DOMAIN}`, and creates a new Namespace (e.g., `nutrition-staging--my-branch`).
+3.  **Flux Sync:** Flux detects the new resources, reconciles the PR branch's own Kubernetes manifests with the branch image tags and compatibility patches, substitutes `${BASE_DOMAIN}`, and creates a new Namespace (e.g., `nutrition-staging--my-branch`).
 4.  **Access:** The app is available at `https://staging--my-branch.example.com`.
 
 ### 5. Cleanup
