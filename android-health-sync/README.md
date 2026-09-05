@@ -23,11 +23,20 @@ sdk.dir=/ruta/al/Android/Sdk
 Después ejecuta:
 
 ```bash
-./gradlew test
-./gradlew assembleDebug
+./gradlew testProductionDebugUnitTest testSandboxDebugUnitTest
+./gradlew assembleProductionDebug assembleSandboxDebug
 ```
 
-El APK de depuración queda en `app/build/outputs/apk/debug/app-debug.apk`.
+The production-profile APK is written to
+`app/build/outputs/apk/production/debug/app-production-debug.apk`. It keeps the
+existing `com.nutrition.healthsync` identity, so installing an update preserves
+the encrypted production pairing and configuration.
+
+The sandbox APK is written to
+`app/build/outputs/apk/sandbox/debug/app-sandbox-debug.apk`. It installs beside
+the production profile as **Nutrition Test** with the isolated
+`com.nutrition.healthsync.testing` identity. Use it for preview or staging
+servers so production configuration and scheduled sync remain untouched.
 
 ## Configurar Samsung Health y Health Connect
 

@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import DataTable, { Column } from '@/components/DataTable'
 import { subscribeToPromise } from '@/lib/promiseSubscription'
-import HealthSyncPanel from './HealthSyncPanel'
 
 const STEPS_QUERY = gql`
   query {
@@ -82,7 +81,6 @@ export default function StepsPage() {
   return (
     <div>
       <h1 className="page-title mb-6" data-testid="steps-title">Day Steps</h1>
-      <HealthSyncPanel />
       <DataTable
         columns={columns}
         data={data}
