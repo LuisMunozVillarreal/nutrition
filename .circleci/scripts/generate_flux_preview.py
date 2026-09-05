@@ -12,7 +12,6 @@ GIT_REPO_PREFIX = "source-"
 SERVICE_ACCOUNT_PREFIX = "nutrition-preview-sa"
 ROLE_PREFIX = "nutrition-preview-rbac"
 NAMESPACE_PREFIX = "nutrition-staging--"
-TRUSTED_SOURCE_BRANCH = "main"
 
 
 def _preview_service_account_name(sanitized_branch: str) -> str:
@@ -280,7 +279,7 @@ spec:
   interval: 1m0s
   url: {repo_url}
   ref:
-    branch: {TRUSTED_SOURCE_BRANCH}
+    branch: {branch}
   secretRef:
     name: flux-system
 """

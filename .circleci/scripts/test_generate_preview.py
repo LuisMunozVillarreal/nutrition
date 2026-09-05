@@ -225,7 +225,25 @@ def test_main_dry_run(mock_check_output):
     assert "kind: ServiceAccount" in result.output
     assert "kind: Role" in result.output
     assert "kind: RoleBinding" in result.output
-    assert "branch: main" in result.output
+    assert "branch: feature/test" in result.output
+
+
+def test_git_repository_tracks_the_pr_branch_not_main(mock_check_output):
+    """Previews must render the PR's own k8s manifests, not main's.
+    If the GitRepository tracks main, PR-only ingresses (for example the
+    Health Sync route) never reach the preview and end-to-end preview testing
+    silently 404s against the webapp catch-all.
+    """
+    mock_check_output.return_value = b"https://github.com/user/repo"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        main, ["feat/samsung-health-steps", "v1", "--dry-run"]
+    )
+
+    assert result.exit_code == 0
+    assert "branch: feat/samsung-health-steps" in result.output
+    assert "branch: main" not in result.output
 
 
 def test_main_skip_main_branch():
