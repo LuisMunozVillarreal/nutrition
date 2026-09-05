@@ -1,7 +1,9 @@
 package com.nutrition.healthsync
 
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
@@ -114,6 +116,22 @@ class MainActivityModernUiTest {
     }
 
     @Test
+    fun `content applies the navigation bar inset without accumulating it`() {
+        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)
+        val scrollView = descendants(content).filterIsInstance<ScrollView>().single()
+        val initialBottom = scrollView.paddingBottom
+        val navigationInsets = WindowInsetsCompat.Builder()
+            .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(0, 0, 0, 48))
+            .build()
+
+        ViewCompat.dispatchApplyWindowInsets(scrollView, navigationInsets)
+        ViewCompat.dispatchApplyWindowInsets(scrollView, navigationInsets)
+
+        assertEquals(initialBottom + 48, scrollView.paddingBottom)
+    }
+
+    @Test
     fun `all shipped user messages are English`() {
         val sourceRoot = listOf(File("app/src/main"), File("src/main")).first(File::exists)
         val shippedText = sourceRoot.walkTopDown()
@@ -152,5 +170,14 @@ class MainActivityModernUiTest {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
 
         assertEquals(R.mipmap.ic_launcher, activity.applicationInfo.icon)
+    }
+
+    private fun descendants(root: View): Sequence<View> = sequence {
+        yield(root)
+        if (root is ViewGroup) {
+            for (index in 0 until root.childCount) {
+                yieldAll(descendants(root.getChildAt(index)))
+            }
+        }
     }
 }
