@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useState, ReactNode, FormEvent } from 'react'
+import { useEffect, useRef, useState, ReactNode, FormEvent } from 'react'
 import { Save, ArrowLeft, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface FieldsetConfig {
@@ -46,8 +46,13 @@ export default function EntityForm({
   const [hydrated, setHydrated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const activeRef = useRef(false)
 
-  useEffect(() => setHydrated(true), [])
+  useEffect(() => {
+    activeRef.current = true
+    setHydrated(true)
+    return () => { activeRef.current = false }
+  }, [])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -59,13 +64,14 @@ export default function EntityForm({
       } catch (saveErr: unknown) {
         throw new Error('API ERROR: ' + errorMessage(saveErr))
       }
+      if (!activeRef.current) return
       try {
         router.push(destination ?? backHref)
       } catch (routeErr: unknown) {
         throw new Error('ROUTE ERROR: ' + errorMessage(routeErr))
       }
     } catch (err: unknown) {
-      setError(errorMessage(err))
+      if (activeRef.current) setError(errorMessage(err))
     }
   }
 
