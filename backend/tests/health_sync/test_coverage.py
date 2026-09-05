@@ -214,6 +214,22 @@ def test_client_address_ignores_invalid_peer_and_forwarded_values():
     assert views._client_address(invalid_forwarded) == "10.0.0.5"
 
 
+@override_settings(
+    HEALTH_SYNC_TRUSTED_PROXY_COUNT=1,
+    HEALTH_SYNC_TRUSTED_PROXY_CIDRS=["10.0.0.0/8"],
+)
+def test_client_address_trusts_ipv4_mapped_proxy_peer():
+    """Dual-stack proxy addresses retain the configured IPv4 trust boundary."""
+    request = SimpleNamespace(
+        META={
+            "REMOTE_ADDR": "::ffff:10.0.0.5",
+            "HTTP_X_FORWARDED_FOR": "198.51.100.1",
+        }
+    )
+
+    assert views._client_address(request) == "198.51.100.1"
+
+
 def test_json_body_accepts_body_with_malformed_content_length():
     """A malformed Content-Length falls back to the bounded read."""
     request = SimpleNamespace(
