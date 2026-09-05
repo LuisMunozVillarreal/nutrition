@@ -163,10 +163,23 @@ test('meal scanner shows the three most-used foods above a half-width camera', a
   assert.match(container.textContent, /Oats/)
   assert.match(container.textContent, /Farm Yoghurt/)
   assert.match(container.textContent, /Rice/)
-  assert.ok(container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
+  assert.equal(container.querySelector('[data-testid="camera-panel"]').className, 'w-1/2')
 
   await act(async () => { buttonByText(container, 'Oats').click() })
   assert.equal(push.mock.calls[0][0], '/intakes/new?servingId=s1')
+})
+
+test('switching from product to intake mode reloads meal suggestions', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Camera barcode scanning is not available/))
+  assert.equal(graphqlCalls.length, 0)
+
+  scanSearchParams = new URLSearchParams([['mode', 'intake'], ['dayId', '7']])
+  const { default: Page } = await import('../src/app/scan/page.tsx')
+  await act(async () => { mountedView.rerender(React.createElement(Page)) })
+  await settle(() => assert.match(container.textContent, /Your most-used foods/))
+  assert.equal(graphqlCalls.length, 1)
 })
 
 test('product scanner shows only the camera workflow and does not load meal suggestions', async () => {
@@ -177,7 +190,7 @@ test('product scanner shows only the camera workflow and does not load meal sugg
 
   assert.doesNotMatch(container.textContent, /Your most-used foods/)
   assert.equal(graphqlCalls.length, 0)
-  assert.ok(container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
+  assert.equal(container.querySelector('[data-testid="camera-panel"]').className, 'w-1/2')
 })
 
 test('product scan results appear above the camera and keep existing products out of intake', async () => {
