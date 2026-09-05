@@ -39,12 +39,14 @@ const rtl = await import('@testing-library/react')
 const { render, screen, fireEvent, waitFor, act, cleanup, within } = rtl.default ?? rtl
 
 let HealthSyncPanel
+let DevicesPage
 let StepsPage
 
 beforeAll(async () => {
   ;({ default: HealthSyncPanel } = await import(
-    '../src/app/steps/HealthSyncPanel.tsx'
+    '../src/app/devices/HealthSyncPanel.tsx'
   ))
+  ;({ default: DevicesPage } = await import('../src/app/devices/page.tsx'))
   ;({ default: StepsPage } = await import('../src/app/steps/page.tsx'))
 })
 
@@ -126,6 +128,23 @@ test('health sync panel loads devices and creates an expiring pairing code', asy
   assert.deepEqual(clearTimeoutSpy.mock.calls[0], [1])
   setTimeoutSpy.mockRestore()
   clearTimeoutSpy.mockRestore()
+})
+
+test('pairing is a dedicated devices destination and is absent from steps', async () => {
+  state.request.mockResolvedValue({ healthSyncDevices: [] })
+
+  const devicesView = render(React.createElement(DevicesPage))
+  assert.ok(await within(devicesView.container).findByRole('heading', { name: 'Devices' }))
+  assert.ok(within(devicesView.container).getByRole('button', { name: 'Pair Android phone' }))
+  devicesView.unmount()
+
+  state.request.mockResolvedValueOnce({ dayStepsList: [] })
+  const stepsView = render(React.createElement(StepsPage))
+  await waitFor(() => assert.equal(state.dataTableProps.loading, false))
+  assert.equal(
+    within(stepsView.container).queryByRole('button', { name: 'Pair Android phone' }),
+    null,
+  )
 })
 
 test('health sync panel exposes loading and pairing failure states', async () => {
