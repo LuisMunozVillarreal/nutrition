@@ -120,6 +120,16 @@ def generate_manifest(
         "/metadata/annotations/traefik.ingress."
         "kubernetes.io~1router.tls.domains.0.main"
     )
+    middleware_path = (
+        "/metadata/annotations/traefik.ingress."
+        "kubernetes.io~1router.middlewares"
+    )
+    # Traefik normalizes object names to alphanumerics joined by single dashes,
+    # so the namespace's `--` collapses to `-` in the middleware reference.
+    normalized_namespace = target_namespace.replace("--", "-")
+    middleware_ref = (
+        f"{normalized_namespace}-health-sync-body-limit@kubernetescrd"
+    )
     manifest = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
 metadata:
@@ -156,6 +166,13 @@ spec:
       target:
         kind: Ingress
         name: .*
+    - patch: |
+        - op: replace
+          path: {middleware_path}
+          value: {middleware_ref}
+      target:
+        kind: Ingress
+        name: nutrition-health-sync
     - patch: |
         apiVersion: apps/v1
         kind: Deployment
