@@ -111,7 +111,13 @@ const REQUIRED_NUTRIENTS: Array<
   'energyKcal' | 'proteinG' | 'fatG' | 'carbsG'
 > = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
 
-function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
+function ScanPageContent({
+  intakeDayId,
+  productMode,
+}: {
+  intakeDayId: string | null
+  productMode: boolean
+}) {
   const router = useRouter()
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
@@ -147,6 +153,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
   }, [router])
 
   useEffect(() => {
+    if (productMode) return
     let cancelled = false
     const loadMostUsedFoods = async () => {
       try {
@@ -160,7 +167,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     }
     void loadMostUsedFoods()
     return () => { cancelled = true }
-  }, [])
+  }, [productMode])
 
   const searchBarcode = useCallback(async (barcode: string) => {
     if (leavingRef.current) return
@@ -174,6 +181,10 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       if (generation !== lookupGenerationRef.current || leavingRef.current) return
       const result = res.foodProductByBarcode
       if (result.product) {
+        if (productMode) {
+          setLookup({ barcode, result })
+          return
+        }
         const params = new URLSearchParams()
         if (intakeDayId) params.set('dayId', intakeDayId)
         params.set('productId', result.product.id)
@@ -190,7 +201,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     } finally {
       if (generation === lookupGenerationRef.current) setSearching(false)
     }
-  }, [intakeDayId, navigate])
+  }, [intakeDayId, navigate, productMode])
 
   useEffect(() => () => {
     lookupGenerationRef.current += 1
@@ -281,22 +292,26 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
         }
       }
       params.set('fromBarcodeScan', '1')
-      params.set('fromMealLog', '1')
-      if (intakeDayId) params.set('intakeDayId', intakeDayId)
+      if (!productMode) {
+        params.set('fromMealLog', '1')
+        if (intakeDayId) params.set('intakeDayId', intakeDayId)
+      }
       navigate(`/products/new?${params.toString()}`)
     },
-    [intakeDayId, navigate],
+    [intakeDayId, navigate, productMode],
   )
 
   const createFromBarcode = useCallback((barcode: string) => {
     const params = new URLSearchParams({
       barcode,
       fromBarcodeScan: '1',
-      fromMealLog: '1',
     })
-    if (intakeDayId) params.set('intakeDayId', intakeDayId)
+    if (!productMode) {
+      params.set('fromMealLog', '1')
+      if (intakeDayId) params.set('intakeDayId', intakeDayId)
+    }
     navigate(`/products/new?${params.toString()}`)
-  }, [intakeDayId, navigate])
+  }, [intakeDayId, navigate, productMode])
 
   const restart = () => {
     lookupGenerationRef.current += 1
@@ -320,7 +335,8 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     <div className="max-w-4xl">
       <h1 className="page-title mb-6">Scan Barcode</h1>
 
-      <section aria-labelledby="most-used-heading" className="mb-6">
+      {!productMode && (
+        <section aria-labelledby="most-used-heading" className="mb-6">
         <h2 id="most-used-heading" className="mb-3 text-lg font-semibold">
           Your most-used foods
         </h2>
@@ -351,10 +367,89 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
             Your frequently logged foods will appear here.
           </p>
         )}
-      </section>
+        </section>
+      )}
 
-      <section data-testid="scanner-panel" className="w-full lg:w-1/2">
+      <section data-testid="scanner-panel">
+        {error && (
+          <p role="alert" className="mb-4 text-red-600">
+            {error}
+          </p>
+        )}
 
+        {lookup && (
+          <div data-testid="scan-result" className="mb-6 space-y-4">
+            {lookup.result.product && (
+              <div className="rounded-lg border border-slate-300 p-4">
+                <h2 className="font-semibold">Product already exists</h2>
+                <p className="mt-1">
+                  {lookup.result.product.brand
+                    ? `${lookup.result.product.brand} `
+                    : ''}
+                  {lookup.result.product.name}
+                </p>
+              </div>
+            )}
+            {draft && (
+              <div className="rounded-lg border border-slate-300 p-4">
+                <h2 className="font-semibold">
+                  Found on Open Food Facts
+                </h2>
+                <p className="mt-1">{draft.name}</p>
+                {!draftIsComplete && (
+                  <p role="status" className="mt-2 text-amber-700">
+                    Product data is incomplete. Review the package size and fill
+                    in any missing main nutrients before saving.
+                  </p>
+                )}
+                {isStaff ? (
+                  <button
+                    type="button"
+                    onClick={() => createFromDraft(draft)}
+                    className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+                  >
+                    {draftIsComplete
+                      ? 'Create product from this data'
+                      : 'Review and complete product data'}
+                  </button>
+                ) : (
+                  <p className="mt-2 text-slate-600">
+                    A staff user must review and create this product.
+                  </p>
+                )}
+              </div>
+            )}
+            {!lookup.result.product && !lookup.result.openFoodFacts && (
+              <div className="space-y-2">
+                <p className="text-slate-600">
+                  No product found for barcode {lookup.barcode}.
+                </p>
+                {isStaff ? (
+                  <button
+                    type="button"
+                    onClick={() => createFromBarcode(lookup.barcode)}
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+                  >
+                    Review and create product
+                  </button>
+                ) : (
+                  <p className="text-slate-600">
+                    A staff user must review and create this product.
+                  </p>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={restart}
+              className="text-slate-600 underline"
+            >
+              Scan another
+            </button>
+          </div>
+        )}
+
+        <div data-testid="camera-panel" className="w-1/2">
       {!manual && cameraState !== 'unavailable' && (
         <div className="space-y-4">
           <video
@@ -429,73 +524,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
           </button>
         </p>
       )}
-
-      {error && (
-        <p role="alert" className="mt-4 text-red-600">
-          {error}
-        </p>
-      )}
-
-      {lookup && (
-        <div className="mt-6 space-y-4">
-          {draft && (
-            <div className="rounded-lg border border-slate-300 p-4">
-              <h2 className="font-semibold">
-                Found on Open Food Facts
-              </h2>
-              <p className="mt-1">{draft.name}</p>
-              {!draftIsComplete && (
-                <p role="status" className="mt-2 text-amber-700">
-                  Product data is incomplete. Review the package size and fill
-                  in any missing main nutrients before saving.
-                </p>
-              )}
-              {isStaff ? (
-                <button
-                  type="button"
-                  onClick={() => createFromDraft(draft)}
-                  className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-                >
-                  {draftIsComplete
-                    ? 'Create product from this data'
-                    : 'Review and complete product data'}
-                </button>
-              ) : (
-                <p className="mt-2 text-slate-600">
-                  A staff user must review and create this product.
-                </p>
-              )}
-            </div>
-          )}
-          {!lookup.result.product && !lookup.result.openFoodFacts && (
-            <div className="space-y-2">
-              <p className="text-slate-600">
-                No product found for barcode {lookup.barcode}.
-              </p>
-              {isStaff ? (
-                <button
-                  type="button"
-                  onClick={() => createFromBarcode(lookup.barcode)}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-                >
-                  Review and create product
-                </button>
-              ) : (
-                <p className="text-slate-600">
-                  A staff user must review and create this product.
-                </p>
-              )}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={restart}
-            className="text-slate-600 underline"
-          >
-            Scan another
-          </button>
         </div>
-      )}
       </section>
     </div>
   )
@@ -503,14 +532,16 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
 
 export default function ScanPage() {
   const searchParams = useSearchParams()
+  const productMode = searchParams.get('mode') === 'product'
   const requestedDayId = searchParams.get('dayId')?.trim()
   const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
     ? requestedDayId
     : null
   return (
     <ScanPageContent
-      key={JSON.stringify(intakeDayId ? ['intake', intakeDayId] : ['product'])}
+      key={JSON.stringify(productMode ? ['product'] : ['intake', intakeDayId])}
       intakeDayId={intakeDayId}
+      productMode={productMode}
     />
   )
 }
