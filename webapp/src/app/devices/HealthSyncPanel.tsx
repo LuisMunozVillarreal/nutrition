@@ -113,11 +113,11 @@ export default function HealthSyncPanel() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <h2 id="health-sync-title" className="text-lg font-semibold text-white">
-            Samsung Health step sync
+            Android companion
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            Samsung Health shares your watch data with Health Connect on your phone.
-            Pair the Nutrition Health Sync Android companion to import daily totals.
+            Pair the Nutrition Android app and manage access to Health Connect imports.
+            Daily steps are the first supported data type.
           </p>
         </div>
         <button
