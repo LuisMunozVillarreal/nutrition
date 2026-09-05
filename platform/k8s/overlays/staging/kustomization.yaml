@@ -10,4 +10,8 @@ patches:
   - path: staging-ingress-patch.yaml
     target:
       kind: Ingress
+  - path: staging-middleware-patch.yaml
+    target:
+      kind: Ingress
+      name: nutrition-health-sync
   - path: staging-domain-patch.yaml
