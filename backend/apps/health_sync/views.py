@@ -59,6 +59,11 @@ def _client_address(request: HttpRequest) -> str:
     ]
     try:
         peer = ipaddress.ip_address(remote_addr)
+        if (
+            isinstance(peer, ipaddress.IPv6Address)
+            and peer.ipv4_mapped is not None
+        ):
+            peer = peer.ipv4_mapped
         trusted_peer = any(
             peer in ipaddress.ip_network(cidr)
             for cidr in settings.HEALTH_SYNC_TRUSTED_PROXY_CIDRS
