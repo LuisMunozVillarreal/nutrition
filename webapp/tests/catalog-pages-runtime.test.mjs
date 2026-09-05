@@ -253,8 +253,12 @@ test('cupboard list formats active and finished inventory and handles failures',
 
 test('new product synchronizes incompatible units and submits nullable and numeric values', async () => {
   const { default: Page } = await import('../src/app/products/new/page.tsx')
-  await mount(Page)
+  const container = await mount(Page)
   assert.equal(entityProps.title, 'New Food Product')
+  assert.equal(
+    [...container.querySelectorAll('a')].find((link) => link.textContent.includes('Scan Product'))?.getAttribute('href'),
+    '/scan?mode=product',
+  )
   assert.equal(fieldProps.get('nutritionalInfoUnit').value, 'g')
   assert.equal(fieldProps.get('energyKcal').value, '')
   await assert.rejects(
