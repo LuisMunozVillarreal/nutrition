@@ -16,6 +16,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.textfield.TextInputLayout
+import com.nutrition.healthsync.network.ApiException
 import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -27,6 +28,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
 
@@ -52,7 +54,7 @@ class MainActivityModernUiTest {
         val toolbar = activity.findViewById<MaterialToolbar>(R.id.top_app_bar)
 
         assertTrue(toolbar is MaterialToolbar)
-        assertEquals("Nutrition", toolbar.title)
+        assertEquals(activity.getString(R.string.app_name), toolbar.title)
         assertTrue(activity.findViewById<View>(R.id.btn_sync) is MaterialButton)
         assertTrue(activity.findViewById<View>(R.id.progress_sync) is LinearProgressIndicator)
         assertNull(activity.findViewById<EditText?>(R.id.input_endpoint))
@@ -61,7 +63,7 @@ class MainActivityModernUiTest {
     }
 
     @Test
-    fun `a visible settings action replaces the overflow menu`() {
+    fun `the visible settings action opens a full screen destination`() {
         val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
         val toolbar = activity.findViewById<MaterialToolbar>(R.id.top_app_bar)
 
@@ -69,11 +71,20 @@ class MainActivityModernUiTest {
         assertTrue(toolbar.menu.findItem(R.id.action_settings).isVisible)
 
         toolbar.menu.performIdentifierAction(R.id.action_settings, 0)
-        val settingsDialog = requireNotNull(ShadowDialog.getLatestDialog())
-        assertTrue(settingsDialog.findViewById<View>(R.id.input_endpoint) is EditText)
-        val aboutButtonId = activity.resources.getIdentifier("btn_about", "id", activity.packageName)
-        assertTrue(aboutButtonId != 0)
-        settingsDialog.findViewById<MaterialButton>(aboutButtonId).performClick()
+        val intent = requireNotNull(shadowOf(activity).nextStartedActivity)
+        assertEquals(SettingsActivity::class.java.name, intent.component?.className)
+        assertNull(ShadowDialog.getLatestDialog())
+    }
+
+    @Test
+    fun `settings is a full screen Material view with account and permissions controls`() {
+        val activity = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
+        val toolbar = activity.findViewById<MaterialToolbar>(R.id.settings_app_bar)
+
+        assertEquals("Settings", toolbar.title)
+        assertTrue(activity.findViewById<View>(R.id.input_endpoint) is EditText)
+        assertTrue(activity.findViewById<View>(R.id.input_pairing_code) is EditText)
+        activity.findViewById<MaterialButton>(R.id.btn_about).performClick()
         val aboutDialog = requireNotNull(ShadowDialog.getLatestDialog())
         val message = aboutDialog.findViewById<TextView>(android.R.id.message).text.toString()
         assertTrue(message.contains(formatInstalledVersion(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)))
@@ -81,22 +92,31 @@ class MainActivityModernUiTest {
 
     @Test
     fun `settings fields use labels without overlapping edit text hints`() {
-        val activity = Robolectric.buildActivity(MainActivity::class.java).setup().get()
-        activity.findViewById<MaterialToolbar>(R.id.top_app_bar)
-            .menu.performIdentifierAction(R.id.action_settings, 0)
-        val dialog = requireNotNull(ShadowDialog.getLatestDialog())
+        val activity = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
 
-        val endpointInput = dialog.findViewById<EditText>(R.id.input_endpoint)
-        val pairingInput = dialog.findViewById<EditText>(R.id.input_pairing_code)
+        val endpointInput = activity.findViewById<EditText>(R.id.input_endpoint)
+        val pairingInput = activity.findViewById<EditText>(R.id.input_pairing_code)
         val endpointLayout = endpointInput.parent.parent as TextInputLayout
         val pairingLayout = pairingInput.parent.parent as TextInputLayout
         assertEquals("Server address", endpointLayout.hint)
         assertEquals(endpointLayout.hint, endpointInput.hint)
         assertEquals(pairingLayout.hint, pairingInput.hint)
         assertFalse(endpointInput.hint.toString().contains("example.com"))
+        assertTrue(endpointLayout.helperText.toString().contains("/api/health-sync/pair/"))
         assertFalse(pairingInput.hint.toString().contains("12 digits"))
-        assertTrue(pairingLayout.helperText.toString().contains("Steps"))
+        assertTrue(pairingLayout.helperText.toString().contains("Devices"))
         assertTrue(pairingLayout.helperText.toString().contains("Pair Android phone"))
+    }
+
+    @Test
+    fun `pairing 404 identifies the exact server route`() {
+        val message = pairingFailureMessage(
+            ApiException("The server returned HTTP 404", 404),
+            "https://example.com",
+        )
+
+        assertTrue(message.contains("https://example.com/api/health-sync/pair/"))
+        assertTrue(message.contains("not available"))
     }
 
     @Test

@@ -22,17 +22,20 @@
     <string name="menu_privacy">Privacy and permissions</string>
     <string name="menu_about">About Nutrition</string>
     <string name="settings_title">Health data setup</string>
+    <string name="settings_subtitle">Connect this app to Nutrition and choose how Health Connect can share data.</string>
+    <string name="account_connection_title">Nutrition account</string>
+    <string name="health_permissions_title">Health Connect permissions</string>
     <string name="endpoint_label">Server address</string>
-    <string name="endpoint_helper">Enter the HTTPS address of your Nutrition website.</string>
+    <string name="endpoint_helper">Enter the HTTPS address of your Nutrition website. Pairing calls /api/health-sync/pair/ on this server.</string>
     <string name="pairing_code_label">Pairing code</string>
-    <string name="pairing_code_helper">On the Nutrition website, open Steps and select Pair Android phone. Enter the 12-digit code shown there; it expires after 10 minutes.</string>
+    <string name="pairing_code_helper">On the Nutrition website, open Devices and select Pair Android phone. Enter the 12-digit code shown there; it expires after 10 minutes.</string>
     <string name="device_name_label">Device name</string>
     <string name="button_pair">Connect account</string>
     <string name="button_health_settings">Open Health Connect</string>
     <string name="button_steps_permission">Allow step access</string>
     <string name="button_background_permission">Enable automatic sync</string>
     <string name="button_unpair">Disconnect account</string>
-    <string name="button_close">Close</string>
+
     <string name="button_cancel">Cancel</string>
     <string name="button_confirm_unpair">Disconnect</string>
     <string name="unpair_title">Disconnect this device?</string>
@@ -44,7 +47,7 @@
     <string name="message_steps_denied">Step access was not allowed</string>
     <string name="message_background_unavailable">This device does not support background health-data access</string>
     <string name="message_unpaired">Device disconnected</string>
-    <string name="message_pair_failed">Could not connect this device</string>
+
     <string name="message_paired">Device connected</string>
     <string name="message_sync_failed">Sync could not be completed</string>
     <string name="message_no_steps">No daily step totals to send</string>
