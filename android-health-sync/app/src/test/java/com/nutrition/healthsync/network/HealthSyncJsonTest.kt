@@ -1,10 +1,23 @@
 package com.nutrition.healthsync.network
 
+import com.nutrition.healthsync.storage.Pairing
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class HealthSyncJsonTest {
+    @Test
+    fun `existing encrypted pairing remains readable before receipts existed`() {
+        val pairing = HealthSyncJson.codec.decodeFromString<Pairing>(
+            """{"baseUrl":"https://example.com","token":"scoped-token"}""",
+        )
+
+        assertEquals("https://example.com", pairing.baseUrl)
+        assertEquals("scoped-token", pairing.token)
+        assertNull(pairing.lastReceipt)
+    }
+
     @Test
     fun `serializa pairing con los nombres exactos del contrato`() {
         val json = HealthSyncJson.codec.encodeToString(
