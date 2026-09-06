@@ -6,11 +6,50 @@ import com.nutrition.healthsync.domain.EndpointConfig
 import com.nutrition.healthsync.health.HealthConnectDataSource
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.network.HealthSyncApi
+import com.nutrition.healthsync.network.StepUploadRecord
+import com.nutrition.healthsync.network.StepsUploadResponse
 import com.nutrition.healthsync.storage.Pairing
 import com.nutrition.healthsync.storage.SecurePairingStore
 import com.nutrition.healthsync.storage.SyncReceipt
+import com.nutrition.healthsync.storage.SyncReceiptRecord
 import java.time.Instant
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+
+internal fun buildSyncReceipt(
+    sent: List<StepUploadRecord>,
+    response: StepsUploadResponse,
+    acknowledgedAt: Instant,
+): SyncReceipt {
+    val sentByDate = sent.associateBy { it.date }
+    val resultsByDate = response.records.associateBy { it.date }
+    require(sentByDate.size == sent.size) { "Sent records contain duplicate dates" }
+    require(resultsByDate.size == response.records.size) {
+        "The sync response contains duplicate dates"
+    }
+    require(sentByDate.keys == resultsByDate.keys) {
+        "The sync response does not match the sent dates"
+    }
+    val allowedStatuses = setOf("created", "updated", "unchanged", "skipped")
+    require(response.records.all { it.status in allowedStatuses }) {
+        "The sync response contains an unknown status"
+    }
+    require(response.records.count { it.status != "skipped" } == response.summary.processed) {
+        "The processed count does not match the record statuses"
+    }
+    require(response.records.count { it.status == "skipped" } == response.summary.skipped) {
+        "The skipped count does not match the record statuses"
+    }
+    return SyncReceipt(
+        acknowledgedAt = acknowledgedAt.toString(),
+        records = response.records.map { result ->
+            val record = checkNotNull(sentByDate[result.date])
+            SyncReceiptRecord(record.date, record.steps, result.status)
+        },
+        processed = response.summary.processed,
+        skipped = response.summary.skipped,
+    )
+}
 
 class SyncCoordinator(context: Context) {
     private val applicationContext = context.applicationContext
@@ -47,9 +86,8 @@ class SyncCoordinator(context: Context) {
 
         val observedAt = Instant.now()
         val records = health.readDailySteps().map { it.toUploadRecord(observedAt) }
-        if (records.isEmpty()) return SyncResult(0, 0, observedAt)
-        val summary = try {
-            api.uploadSteps(pairing.baseUrl, pairing.token, records).summary
+        val response = try {
+            api.uploadSteps(pairing.baseUrl, pairing.token, records)
         } catch (error: ApiException) {
             if (error.statusCode == 401) {
                 clearPairing()
@@ -61,28 +99,29 @@ class SyncCoordinator(context: Context) {
             }
             throw error
         }
+        val receipt = runCatching {
+            buildSyncReceipt(records, response, Instant.now())
+        }.getOrElse { error ->
+            throw SyncException("The server returned an inconsistent sync receipt", error)
+        }
         try {
             pairingStore.save(
                 pairing.copy(
-                    lastReceipt = SyncReceipt(
-                        syncedAt = observedAt.toString(),
-                        records = records,
-                        processed = summary.processed,
-                        skipped = summary.skipped,
-                    ),
+                    lastReceipt = receipt,
                 ),
             )
-        } catch (error: IllegalStateException) {
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
             throw SyncException(
                 "Steps reached Nutrition, but this device could not save the sync receipt",
                 error,
             )
         }
         statusStore.edit {
-            putString(KEY_LAST_SYNC, observedAt.toString())
-            putInt(KEY_LAST_COUNT, summary.processed)
+            putString(KEY_LAST_SYNC, receipt.acknowledgedAt)
+            putInt(KEY_LAST_COUNT, response.summary.processed)
         }
-        return SyncResult(summary.processed, summary.skipped, observedAt)
+        return SyncResult(response.summary.processed, response.summary.skipped, observedAt)
     }
 
     fun pairing(): Pairing? = pairingStore.load()
