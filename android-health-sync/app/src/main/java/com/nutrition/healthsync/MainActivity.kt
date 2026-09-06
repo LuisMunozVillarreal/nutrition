@@ -19,7 +19,10 @@ import com.google.android.material.snackbar.Snackbar
 import com.nutrition.healthsync.health.HealthConnectDataSource
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
+import com.nutrition.healthsync.storage.SyncReceipt
+import java.text.NumberFormat
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -35,6 +38,30 @@ fun formatLastSync(rawInstant: String, zoneId: ZoneId, locale: Locale): String? 
             .format(Instant.parse(rawInstant))
     }.getOrNull()
 
+fun formatConnectionState(connected: Boolean): String =
+    if (connected) "DEVICE CONNECTED" else "DEVICE NOT CONNECTED"
+
+fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): String {
+    if (receipt.records.isEmpty()) return "No daily step totals were sent"
+    val dateFormatter = DateTimeFormatter.ofPattern("d MMM uuuu", locale)
+    val numberFormatter = NumberFormat.getIntegerInstance(locale)
+    val rows = receipt.records.sortedByDescending { it.date }.joinToString("\n") { record ->
+        val date = runCatching { LocalDate.parse(record.date).format(dateFormatter) }
+            .getOrDefault(record.date)
+        "$date · ${numberFormatter.format(record.steps)} steps"
+    }
+    val summary = buildString {
+        val acceptedUnit = if (receipt.processed == 1) "day" else "days"
+        append("${receipt.processed} $acceptedUnit accepted")
+        if (receipt.skipped > 0) {
+            val skippedUnit = if (receipt.skipped == 1) "day" else "days"
+            append(" · ${receipt.skipped} $skippedUnit skipped")
+        }
+        formatLastSync(receipt.syncedAt, zoneId, locale)?.let { append(" · $it") }
+    }
+    return "$summary\n$rows"
+}
+
 class MainActivity : ComponentActivity() {
     private val health by lazy { HealthConnectDataSource(applicationContext) }
     private val coordinator by lazy { SyncCoordinator(applicationContext) }
@@ -43,7 +70,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var syncButton: MaterialButton
     private lateinit var syncProgress: LinearProgressIndicator
     private lateinit var statusText: TextView
+    private lateinit var connectionStateText: TextView
     private lateinit var lastSyncText: TextView
+    private lateinit var syncReceiptText: TextView
     private lateinit var healthStateText: TextView
     private lateinit var pairingStateText: TextView
     private lateinit var backgroundStateText: TextView
@@ -57,7 +86,9 @@ class MainActivity : ComponentActivity() {
         syncButton = findViewById(R.id.btn_sync)
         syncProgress = findViewById(R.id.progress_sync)
         statusText = findViewById(R.id.text_status)
+        connectionStateText = findViewById(R.id.text_connection_state)
         lastSyncText = findViewById(R.id.text_last_sync)
+        syncReceiptText = findViewById(R.id.text_sync_receipt)
         healthStateText = findViewById(R.id.text_health_state)
         pairingStateText = findViewById(R.id.text_pairing_state)
         backgroundStateText = findViewById(R.id.text_background_state)
@@ -71,6 +102,13 @@ class MainActivity : ComponentActivity() {
             true
         }
         syncButton.setOnClickListener { manualSync() }
+        lifecycleScope.launch {
+            coordinator.receiptUpdates().collect { receipt ->
+                syncReceiptText.text = receipt?.let {
+                    formatSyncReceipt(it, ZoneId.systemDefault(), Locale.ENGLISH)
+                } ?: getString(R.string.sync_receipt_never)
+            }
+        }
 
         if (intent.action == ACTION_SHOW_PERMISSIONS_RATIONALE) showPrivacy()
     }
@@ -89,6 +127,7 @@ class MainActivity : ComponentActivity() {
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
 
             syncButton.isEnabled = !busy && available && hasSteps && paired
+            connectionStateText.text = formatConnectionState(paired)
             statusText.setText(
                 when {
                     !available -> R.string.status_health_unavailable
