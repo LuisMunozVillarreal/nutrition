@@ -147,7 +147,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-test('meal scanner shows the three most-used foods above a half-width camera', async () => {
+test('meal scanner shows the three most-used foods above a half-height camera', async () => {
   supported = true
   detector = {}
   cameraResult = { getTracks: () => [] }
@@ -167,8 +167,10 @@ test('meal scanner shows the three most-used foods above a half-width camera', a
   assert.match(container.textContent, /Oats/)
   assert.match(container.textContent, /Farm Yoghurt/)
   assert.match(container.textContent, /Rice/)
-  assert.ok(container.querySelector('[data-testid="camera-view"]').className.includes('w-1/2'))
-  assert.ok(!container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
+  const cameraView = container.querySelector('[data-testid="camera-view"]')
+  assert.ok(!cameraView.className.includes('w-1/2'))
+  assert.ok(cameraView.querySelector('video').className.includes('h-[50vh]'))
+  assert.ok(cameraView.querySelector('canvas').className.includes('h-[50vh]'))
 
   await act(async () => { buttonByText(container, 'Oats').click() })
   assert.equal(push.mock.calls[0][0], '/intakes/new?servingId=s1')
@@ -199,8 +201,10 @@ test('product scanner shows only the camera workflow and does not load meal sugg
 
   assert.doesNotMatch(container.textContent, /Your most-used foods/)
   assert.equal(graphqlCalls.length, 0)
-  assert.ok(container.querySelector('[data-testid="camera-view"]').className.includes('w-1/2'))
-  assert.ok(!container.querySelector('[data-testid="camera-panel"]').className.includes('w-1/2'))
+  const cameraView = container.querySelector('[data-testid="camera-view"]')
+  assert.ok(!cameraView.className.includes('w-1/2'))
+  assert.ok(cameraView.querySelector('video').className.includes('h-[50vh]'))
+  assert.ok(cameraView.querySelector('canvas').className.includes('h-[50vh]'))
 })
 
 test('product scan results appear above the camera and keep existing products out of intake', async () => {
@@ -222,6 +226,10 @@ test('product scan results appear above the camera and keep existing products ou
   const result = container.querySelector('[data-testid="scan-result"]')
   const camera = container.querySelector('[data-testid="camera-panel"]')
   assert.ok(result.compareDocumentPosition(camera) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING)
+  assert.equal(
+    [...result.querySelectorAll('a')].find((link) => link.textContent.includes('View Product'))?.getAttribute('href'),
+    '/products/p1',
+  )
   assert.equal(push.mock.calls.length, 0)
 })
 

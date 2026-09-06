@@ -9,6 +9,7 @@ import {
 } from 'react'
 
 import { useRouter, useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
 import {
@@ -388,6 +389,12 @@ function ScanPageContent({
                     : ''}
                   {lookup.result.product.name}
                 </p>
+                <Link
+                  href={`/products/${lookup.result.product.id}`}
+                  className="mt-2 inline-block text-slate-600 underline"
+                >
+                  View Product
+                </Link>
               </div>
             )}
             {draft && (
@@ -451,17 +458,17 @@ function ScanPageContent({
 
         <div data-testid="camera-panel">
       {!manual && cameraState !== 'unavailable' && (
-        <div data-testid="camera-view" className="w-1/2 space-y-4">
+        <div data-testid="camera-view" className="w-full space-y-4">
           <video
             ref={videoRef}
-            className={`aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video ${frameCaptured ? 'hidden' : ''}`}
+            className={`h-[50vh] w-full rounded-lg bg-slate-900 object-cover ${frameCaptured ? 'hidden' : ''}`}
             muted
             playsInline
           />
           <canvas
             ref={canvasRef}
             aria-label="Detected barcode frame"
-            className={`aspect-[3/4] w-full rounded-lg bg-slate-900 object-cover sm:aspect-video ${frameCaptured ? '' : 'hidden'}`}
+            className={`h-[50vh] w-full rounded-lg bg-slate-900 object-cover ${frameCaptured ? '' : 'hidden'}`}
           />
           {cameraState === 'starting' && (
             <p className="text-slate-500">Starting camera...</p>
