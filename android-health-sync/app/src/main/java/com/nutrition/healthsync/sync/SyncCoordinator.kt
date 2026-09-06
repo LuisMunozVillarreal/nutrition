@@ -8,7 +8,9 @@ import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.network.HealthSyncApi
 import com.nutrition.healthsync.storage.Pairing
 import com.nutrition.healthsync.storage.SecurePairingStore
+import com.nutrition.healthsync.storage.SyncReceipt
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
 
 class SyncCoordinator(context: Context) {
     private val applicationContext = context.applicationContext
@@ -59,6 +61,23 @@ class SyncCoordinator(context: Context) {
             }
             throw error
         }
+        try {
+            pairingStore.save(
+                pairing.copy(
+                    lastReceipt = SyncReceipt(
+                        syncedAt = observedAt.toString(),
+                        records = records,
+                        processed = summary.processed,
+                        skipped = summary.skipped,
+                    ),
+                ),
+            )
+        } catch (error: IllegalStateException) {
+            throw SyncException(
+                "Steps reached Nutrition, but this device could not save the sync receipt",
+                error,
+            )
+        }
         statusStore.edit {
             putString(KEY_LAST_SYNC, observedAt.toString())
             putInt(KEY_LAST_COUNT, summary.processed)
@@ -75,6 +94,8 @@ class SyncCoordinator(context: Context) {
     }
 
     fun lastSync(): String? = statusStore.getString(KEY_LAST_SYNC, null)
+
+    fun receiptUpdates(): Flow<SyncReceipt?> = pairingStore.receiptUpdates()
 
     data class SyncResult(
         val recordsProcessed: Int,
