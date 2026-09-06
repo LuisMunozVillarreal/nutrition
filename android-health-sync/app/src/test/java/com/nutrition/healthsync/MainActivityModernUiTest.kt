@@ -57,6 +57,8 @@ class MainActivityModernUiTest {
         assertEquals(activity.getString(R.string.app_name), toolbar.title)
         assertTrue(activity.findViewById<View>(R.id.btn_sync) is MaterialButton)
         assertTrue(activity.findViewById<View>(R.id.progress_sync) is LinearProgressIndicator)
+        assertTrue(activity.findViewById<TextView>(R.id.text_connection_state).text.isNotBlank())
+        assertTrue(activity.findViewById<TextView>(R.id.text_sync_receipt).text.isNotBlank())
         assertNull(activity.findViewById<EditText?>(R.id.input_endpoint))
         assertNull(activity.findViewById<EditText?>(R.id.input_pairing_code))
         assertTrue(activity.findViewById<TextView>(R.id.text_status).text.length < 120)

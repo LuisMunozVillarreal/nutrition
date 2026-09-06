@@ -2,20 +2,41 @@ package com.nutrition.healthsync.storage
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
 import com.nutrition.healthsync.network.HealthSyncJson
+import com.nutrition.healthsync.network.StepUploadRecord
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class Pairing(val baseUrl: String, val token: String)
+data class SyncReceipt(
+    val syncedAt: String,
+    val records: List<StepUploadRecord>,
+    val processed: Int,
+    val skipped: Int,
+)
+
+@Serializable
+data class Pairing(
+    val baseUrl: String,
+    val token: String,
+    val lastReceipt: SyncReceipt? = null,
+)
 
 class SecurePairingStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -57,6 +78,19 @@ class SecurePairingStore(context: Context) {
             null
         }
     }
+
+    fun receiptUpdates(): Flow<SyncReceipt?> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == KEY_IV || key == KEY_CIPHERTEXT) trySend(Unit)
+        }
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+        trySend(Unit)
+        awaitClose {
+            preferences.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }.conflate()
+        .map { load()?.lastReceipt }
+        .flowOn(Dispatchers.IO)
 
     fun clear() {
         preferences.edit { clear() }
