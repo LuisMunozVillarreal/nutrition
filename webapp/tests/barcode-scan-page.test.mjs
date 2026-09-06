@@ -233,6 +233,28 @@ test('product scan results appear above the camera and keep existing products ou
   assert.equal(push.mock.calls.length, 0)
 })
 
+test('product scanner hides the staff product link from regular users', async () => {
+  scanSearchParams = new URLSearchParams([['mode', 'product']])
+  session = { user: { isStaff: false } }
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = '3017620422003'
+  graphqlImpl = async () => ({
+    foodProductByBarcode: {
+      product: { id: 'p1', name: 'Oats', brand: null, size: 500, sizeUnit: 'g' },
+      openFoodFacts: null,
+    },
+  })
+
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, /Product already exists/))
+  assert.equal(
+    [...container.querySelectorAll('a')].find((link) => link.textContent.includes('View Product')),
+    undefined,
+  )
+})
+
 test('product scanner labels an existing branded product', async () => {
   scanSearchParams = new URLSearchParams([['mode', 'product']])
   supported = true
