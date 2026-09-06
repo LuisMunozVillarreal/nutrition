@@ -8,7 +8,6 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
 import com.nutrition.healthsync.network.HealthSyncJson
-import com.nutrition.healthsync.network.StepUploadRecord
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -21,14 +20,22 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class SyncReceipt(
-    val syncedAt: String,
-    val records: List<StepUploadRecord>,
+    @SerialName("syncedAt") val acknowledgedAt: String,
+    val records: List<SyncReceiptRecord>,
     val processed: Int,
     val skipped: Int,
+)
+
+@Serializable
+data class SyncReceiptRecord(
+    val date: String,
+    val steps: Long,
+    val status: String = "unknown",
 )
 
 @Serializable

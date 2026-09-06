@@ -25,7 +25,16 @@ data class PairResponse(val token: String)
 data class StepsUploadRequest(val records: List<StepUploadRecord>)
 
 @Serializable
-data class StepsUploadResponse(val summary: StepsUploadSummary)
+data class StepsUploadResponse(
+    val summary: StepsUploadSummary,
+    val records: List<StepUploadResult>,
+)
+
+@Serializable
+data class StepUploadResult(
+    val date: String,
+    val status: String,
+)
 
 @Serializable
 data class StepsUploadSummary(
