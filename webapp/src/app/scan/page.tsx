@@ -387,12 +387,14 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
                     : ''}
                   {lookup.result.product.name}
                 </p>
-                <Link
-                  href={`/products/${lookup.result.product.id}`}
-                  className="mt-2 inline-block text-slate-600 underline"
-                >
-                  View Product
-                </Link>
+                {isStaff && (
+                  <Link
+                    href={`/products/${lookup.result.product.id}`}
+                    className="mt-2 inline-block text-slate-600 underline"
+                  >
+                    View Product
+                  </Link>
+                )}
               </div>
             )}
             {draft && (
