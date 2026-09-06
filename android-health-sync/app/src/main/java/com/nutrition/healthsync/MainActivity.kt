@@ -48,7 +48,14 @@ fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): Str
     val rows = receipt.records.sortedByDescending { it.date }.joinToString("\n") { record ->
         val date = runCatching { LocalDate.parse(record.date).format(dateFormatter) }
             .getOrDefault(record.date)
-        "$date · ${numberFormatter.format(record.steps)} steps"
+        val status = when (record.status) {
+            "created" -> "Added"
+            "updated" -> "Updated"
+            "unchanged" -> "Already up to date"
+            "skipped" -> "Not synced"
+            else -> "Unknown"
+        }
+        "$date · ${numberFormatter.format(record.steps)} steps · $status"
     }
     val summary = buildString {
         val acceptedUnit = if (receipt.processed == 1) "day" else "days"
@@ -57,7 +64,7 @@ fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): Str
             val skippedUnit = if (receipt.skipped == 1) "day" else "days"
             append(" · ${receipt.skipped} $skippedUnit skipped")
         }
-        formatLastSync(receipt.syncedAt, zoneId, locale)?.let { append(" · $it") }
+        formatLastSync(receipt.acknowledgedAt, zoneId, locale)?.let { append(" · $it") }
     }
     return "$summary\n$rows"
 }
