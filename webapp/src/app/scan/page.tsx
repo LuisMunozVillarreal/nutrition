@@ -463,14 +463,14 @@ function ScanPageContent({
         <div data-testid="camera-view" className="w-full space-y-4">
           <video
             ref={videoRef}
-            className={`h-[50vh] w-full rounded-lg bg-slate-900 object-cover ${frameCaptured ? 'hidden' : ''}`}
+            className={`aspect-[3/2] w-full rounded-lg bg-slate-900 object-cover sm:aspect-[32/9] ${frameCaptured ? 'hidden' : ''}`}
             muted
             playsInline
           />
           <canvas
             ref={canvasRef}
             aria-label="Detected barcode frame"
-            className={`h-[50vh] w-full rounded-lg bg-slate-900 object-cover ${frameCaptured ? '' : 'hidden'}`}
+            className={`aspect-[3/2] w-full rounded-lg bg-slate-900 object-cover sm:aspect-[32/9] ${frameCaptured ? '' : 'hidden'}`}
           />
           {cameraState === 'starting' && (
             <p className="text-slate-500">Starting camera...</p>
