@@ -30,6 +30,13 @@ MAX_DATE_LOOKBACK_DAYS = 30
 MAX_DATE_AHEAD_DAYS = 1
 CANONICAL_DATE = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
 
+# Bounded machine-readable reasons emitted for each skipped record. The
+# companion maps these to plain-language explanations; any value outside this
+# set must be treated as an honest "not synced" fallback.
+SKIP_REASON_MISSING_PLAN_DAY = "missing_plan_day"
+SKIP_REASON_AMBIGUOUS_PLAN_DAY = "ambiguous_plan_day"
+SKIP_REASON_DAY_CHANGED_RETRY = "day_changed_retry"
+
 
 @dataclass(frozen=True)
 class DailyStepRecord:
@@ -124,10 +131,24 @@ def sync_records(
                 )
                 .values_list("pk", flat=True)[:2]
             )
-            if len(day_ids) != 1:
+            if not day_ids:
                 summary["skipped"] += 1
                 results.append(
-                    {"date": record.date.isoformat(), "status": "skipped"}
+                    {
+                        "date": record.date.isoformat(),
+                        "status": "skipped",
+                        "reason": SKIP_REASON_MISSING_PLAN_DAY,
+                    }
+                )
+                continue
+            if len(day_ids) > 1:
+                summary["skipped"] += 1
+                results.append(
+                    {
+                        "date": record.date.isoformat(),
+                        "status": "skipped",
+                        "reason": SKIP_REASON_AMBIGUOUS_PLAN_DAY,
+                    }
                 )
                 continue
             aggregate_locks = lock_plan_aggregate_rows(
@@ -143,7 +164,11 @@ def sync_records(
                 aggregate_locks.clear_markers()
                 summary["skipped"] += 1
                 results.append(
-                    {"date": record.date.isoformat(), "status": "skipped"}
+                    {
+                        "date": record.date.isoformat(),
+                        "status": "skipped",
+                        "reason": SKIP_REASON_DAY_CHANGED_RETRY,
+                    }
                 )
                 continue
             try:

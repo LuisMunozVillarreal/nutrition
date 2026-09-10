@@ -926,6 +926,13 @@ def test_sync_revalidates_target_after_overlapping_day_appears(
     )
 
     assert result["summary"]["skipped"] == 1
+    assert result["records"] == [
+        {
+            "date": target_date.isoformat(),
+            "status": "skipped",
+            "reason": "day_changed_retry",
+        }
+    ]
     assert DaySteps.objects.count() == 0
 
 
@@ -966,3 +973,10 @@ def test_sync_skips_target_deleted_before_aggregate_lock(
     )
 
     assert result["summary"]["skipped"] == 1
+    assert result["records"] == [
+        {
+            "date": target_date.isoformat(),
+            "status": "skipped",
+            "reason": "day_changed_retry",
+        }
+    ]
