@@ -44,7 +44,7 @@ internal fun buildSyncReceipt(
         acknowledgedAt = acknowledgedAt.toString(),
         records = response.records.map { result ->
             val record = checkNotNull(sentByDate[result.date])
-            SyncReceiptRecord(record.date, record.steps, result.status)
+            SyncReceiptRecord(record.date, record.steps, result.status, result.reason)
         },
         processed = response.summary.processed,
         skipped = response.summary.skipped,

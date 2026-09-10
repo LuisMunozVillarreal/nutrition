@@ -20,6 +20,7 @@ import com.nutrition.healthsync.health.HealthConnectDataSource
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
 import com.nutrition.healthsync.storage.SyncReceipt
+import com.nutrition.healthsync.storage.SyncReceiptRecord
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -41,6 +42,43 @@ fun formatLastSync(rawInstant: String, zoneId: ZoneId, locale: Locale): String? 
 fun formatConnectionState(connected: Boolean): String =
     if (connected) "DEVICE CONNECTED" else "DEVICE NOT CONNECTED"
 
+fun formatRecordStatus(status: String, reason: String?): String = when (status) {
+    "created" -> "Added"
+    "updated" -> "Updated"
+    "unchanged" -> "Already up to date"
+    "skipped" -> when (reason) {
+        "missing_plan_day" -> "No plan day for this date"
+        "ambiguous_plan_day" -> "Duplicate plan days for this date"
+        "day_changed_retry" -> "Changed during sync, try again"
+        else -> "Not synced"
+    }
+    else -> "Unknown"
+}
+
+fun formatSkippedSummary(records: List<SyncReceiptRecord>): String? {
+    val skipped = records.filter { it.status == "skipped" }
+    if (skipped.isEmpty()) return null
+    val knownReasons = setOf("missing_plan_day", "ambiguous_plan_day", "day_changed_retry")
+    val explanations = listOf(
+        "missing_plan_day" to "no plan day for this date — add it in Nutrition",
+        "ambiguous_plan_day" to "duplicate plan days for this date — keep one in Nutrition",
+        "day_changed_retry" to "changed during sync — try again",
+    )
+    val lines = buildList {
+        for ((reason, explanation) in explanations) {
+            val count = skipped.count { it.reason == reason }
+            if (count > 0) {
+                add("$count ${if (count == 1) "day" else "days"} skipped: $explanation")
+            }
+        }
+        val unknown = skipped.count { it.reason !in knownReasons }
+        if (unknown > 0) {
+            add("$unknown ${if (unknown == 1) "day" else "days"} skipped: not synced")
+        }
+    }
+    return lines.joinToString("\n")
+}
+
 fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): String {
     if (receipt.records.isEmpty()) return "No daily step totals were sent"
     val dateFormatter = DateTimeFormatter.ofPattern("d MMM uuuu", locale)
@@ -48,13 +86,7 @@ fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): Str
     val rows = receipt.records.sortedByDescending { it.date }.joinToString("\n") { record ->
         val date = runCatching { LocalDate.parse(record.date).format(dateFormatter) }
             .getOrDefault(record.date)
-        val status = when (record.status) {
-            "created" -> "Added"
-            "updated" -> "Updated"
-            "unchanged" -> "Already up to date"
-            "skipped" -> "Not synced"
-            else -> "Unknown"
-        }
+        val status = formatRecordStatus(record.status, record.reason)
         "$date · ${numberFormatter.format(record.steps)} steps · $status"
     }
     val summary = buildString {
@@ -66,7 +98,8 @@ fun formatSyncReceipt(receipt: SyncReceipt, zoneId: ZoneId, locale: Locale): Str
         }
         formatLastSync(receipt.acknowledgedAt, zoneId, locale)?.let { append(" · $it") }
     }
-    return "$summary\n$rows"
+    val skipDetails = formatSkippedSummary(receipt.records)
+    return listOfNotNull(summary, skipDetails, rows).joinToString("\n")
 }
 
 class MainActivity : ComponentActivity() {
