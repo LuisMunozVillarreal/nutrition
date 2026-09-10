@@ -58,4 +58,35 @@ class SyncReceiptBuilderTest {
             acknowledgedAt = Instant.parse("2026-09-05T12:00:03Z"),
         )
     }
+
+    @Test
+    fun `receipt preserves the skip reason from the acknowledgement`() {
+        val sent = listOf(
+            StepUploadRecord("2026-09-05", 1_234, "2026-09-05T12:00:00Z"),
+        )
+        val response = StepsUploadResponse(
+            summary = StepsUploadSummary(
+                created = 0,
+                updated = 0,
+                unchanged = 0,
+                skipped = 1,
+            ),
+            records = listOf(
+                StepUploadResult("2026-09-05", "skipped", "missing_plan_day"),
+            ),
+        )
+
+        val receipt = buildSyncReceipt(
+            sent = sent,
+            response = response,
+            acknowledgedAt = Instant.parse("2026-09-05T12:00:03Z"),
+        )
+
+        assertEquals(
+            listOf(
+                SyncReceiptRecord("2026-09-05", 1_234, "skipped", "missing_plan_day"),
+            ),
+            receipt.records,
+        )
+    }
 }

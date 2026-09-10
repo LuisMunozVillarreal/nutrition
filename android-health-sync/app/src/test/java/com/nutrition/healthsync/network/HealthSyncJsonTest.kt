@@ -1,6 +1,8 @@
 package com.nutrition.healthsync.network
 
 import com.nutrition.healthsync.storage.Pairing
+import com.nutrition.healthsync.storage.SyncReceipt
+import com.nutrition.healthsync.storage.SyncReceiptRecord
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -80,5 +82,55 @@ class HealthSyncJsonTest {
         assertEquals("2026-09-04", response.records[0].date)
         assertEquals("created", response.records[0].status)
         assertEquals("skipped", response.records[1].status)
+    }
+
+    @Test
+    fun `receipt migration tolerates records without a skip reason`() {
+        val pairing = HealthSyncJson.codec.decodeFromString<Pairing>(
+            """{"baseUrl":"https://example.com","token":"scoped-token","lastReceipt":{"syncedAt":"2026-09-05T12:00:00Z","records":[{"date":"2026-09-05","steps":1234,"status":"skipped"}],"processed":0,"skipped":1}}""",
+        )
+
+        val record = pairing.lastReceipt?.records?.single()
+        assertEquals("skipped", record?.status)
+        assertNull(record?.reason)
+    }
+
+    @Test
+    fun `receipt round-trips the skip reason for each record`() {
+        val pairing = Pairing(
+            baseUrl = "https://example.com",
+            token = "scoped-token",
+            lastReceipt = SyncReceipt(
+                acknowledgedAt = "2026-09-05T12:00:00Z",
+                records = listOf(
+                    SyncReceiptRecord("2026-09-05", 1_234, "skipped", "missing_plan_day"),
+                ),
+                processed = 0,
+                skipped = 1,
+            ),
+        )
+
+        val json = HealthSyncJson.codec.encodeToString(Pairing.serializer(), pairing)
+        val decoded = HealthSyncJson.codec.decodeFromString<Pairing>(json)
+
+        assertEquals("missing_plan_day", decoded.lastReceipt?.records?.single()?.reason)
+    }
+
+    @Test
+    fun `deserializa skipped record con motivo de maquina`() {
+        val response = HealthSyncJson.codec.decodeFromString<StepsUploadResponse>(
+            """{"summary":{"created":0,"updated":0,"unchanged":0,"skipped":1},"records":[{"date":"2026-09-05","status":"skipped","reason":"missing_plan_day"}]}""",
+        )
+
+        assertEquals("missing_plan_day", response.records[0].reason)
+    }
+
+    @Test
+    fun `deserializa skipped record sin motivo como nulo`() {
+        val response = HealthSyncJson.codec.decodeFromString<StepsUploadResponse>(
+            """{"summary":{"created":0,"updated":0,"unchanged":0,"skipped":1},"records":[{"date":"2026-09-05","status":"skipped"}]}""",
+        )
+
+        assertNull(response.records[0].reason)
     }
 }

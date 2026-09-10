@@ -36,6 +36,7 @@ data class SyncReceiptRecord(
     val date: String,
     val steps: Long,
     val status: String = "unknown",
+    val reason: String? = null,
 )
 
 @Serializable
