@@ -12,7 +12,6 @@ GIT_REPO_PREFIX = "source-"
 SERVICE_ACCOUNT_PREFIX = "nutrition-preview-sa"
 ROLE_PREFIX = "nutrition-preview-rbac"
 NAMESPACE_PREFIX = "nutrition-staging--"
-TRUSTED_SOURCE_BRANCH = "main"
 
 
 def _preview_service_account_name(sanitized_branch: str) -> str:
@@ -121,6 +120,16 @@ def generate_manifest(
         "/metadata/annotations/traefik.ingress."
         "kubernetes.io~1router.tls.domains.0.main"
     )
+    middleware_path = (
+        "/metadata/annotations/traefik.ingress."
+        "kubernetes.io~1router.middlewares"
+    )
+    # Traefik normalizes object names to alphanumerics joined by single dashes,
+    # so the namespace's `--` collapses to `-` in the middleware reference.
+    normalized_namespace = target_namespace.replace("--", "-")
+    middleware_ref = (
+        f"{normalized_namespace}-health-sync-body-limit@kubernetescrd"
+    )
     manifest = f"""apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
 metadata:
@@ -158,6 +167,13 @@ spec:
         kind: Ingress
         name: .*
     - patch: |
+        - op: replace
+          path: {middleware_path}
+          value: {middleware_ref}
+      target:
+        kind: Ingress
+        name: nutrition-health-sync
+    - patch: |
         apiVersion: apps/v1
         kind: Deployment
         metadata:
@@ -165,6 +181,11 @@ spec:
         spec:
           template:
             spec:
+              initContainers:
+                - name: db-restore
+                  env:
+                    - name: REPAIR_USERLESS_PREVIEW_DB
+                      value: "true"
               containers:
                 - name: backend
                   env:
@@ -172,6 +193,18 @@ spec:
                       value: "{preview_host}"
                     - name: CSRF_TRUSTED_ORIGINS
                       value: "https://{preview_host}"
+                    - name: HEALTH_SYNC_TOKEN_PEPPER
+                      valueFrom:
+                        secretKeyRef:
+                          key: token-pepper
+                          name: nutrition-health-sync-secrets
+                    - name: HEALTH_SYNC_TRUSTED_PROXY_COUNT
+                      value: "1"
+                    - name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS
+                      valueFrom:
+                        secretKeyRef:
+                          key: trusted-proxy-cidrs
+                          name: nutrition-health-sync-secrets
       target:
         kind: Deployment
         name: nutrition-backend
@@ -263,7 +296,7 @@ spec:
   interval: 1m0s
   url: {repo_url}
   ref:
-    branch: {TRUSTED_SOURCE_BRANCH}
+    branch: {branch}
   secretRef:
     name: flux-system
 """
