@@ -277,7 +277,21 @@ def test_upload_skips_dates_without_a_unique_day_for_the_token_owner(
     )
 
     assert response.status_code == 200
-    assert response.json()["summary"]["skipped"] == 2
+    body = response.json()
+    assert body["summary"]["skipped"] == 2
+    records_by_date = {record["date"]: record for record in body["records"]}
+    yesterday = (timezone.localdate() - datetime.timedelta(days=1)).isoformat()
+    today = timezone.localdate().isoformat()
+    assert records_by_date[yesterday] == {
+        "date": yesterday,
+        "status": "skipped",
+        "reason": "missing_plan_day",
+    }
+    assert records_by_date[today] == {
+        "date": today,
+        "status": "skipped",
+        "reason": "ambiguous_plan_day",
+    }
     assert DaySteps.objects.count() == 0
     _device.refresh_from_db()
     assert _device.last_success_at is None

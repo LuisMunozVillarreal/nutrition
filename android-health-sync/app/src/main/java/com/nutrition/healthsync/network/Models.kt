@@ -34,6 +34,7 @@ data class StepsUploadResponse(
 data class StepUploadResult(
     val date: String,
     val status: String,
+    val reason: String? = null,
 )
 
 @Serializable
