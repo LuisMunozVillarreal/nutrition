@@ -28,6 +28,14 @@ class Day(IntakeCascadeDeletionMixin, Nutrients):
 
     class Meta:
         ordering = ["-plan", "-day"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["plan", "day"], name="unique_plan_day"
+            ),
+            models.UniqueConstraint(
+                fields=["plan", "day_num"], name="unique_plan_day_num"
+            ),
+        ]
 
     plan = models.ForeignKey(
         "plans.WeekPlan",
