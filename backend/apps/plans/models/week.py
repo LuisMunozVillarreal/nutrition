@@ -3,7 +3,7 @@
 from decimal import Decimal
 from typing import Any
 
-from django.db import models
+from django.db import models, router, transaction
 
 from apps.libs.basemodel import BaseModel
 
@@ -12,6 +12,13 @@ from .intake import IntakeCascadeDeletionMixin, IntakeCascadeManager
 
 class WeekPlan(IntakeCascadeDeletionMixin, BaseModel):
     """WeekPlan model class."""
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "start_date"], name="unique_user_week_start"
+            ),
+        ]
 
     objects = IntakeCascadeManager()
 
@@ -176,8 +183,13 @@ class WeekPlan(IntakeCascadeDeletionMixin, BaseModel):
             args (list): arguments.
             kwargs (dict): keyword arguments.
         """
-        self.completed = (
-            bool(self.id) and not self.days.filter(completed=False).exists()
+        using = kwargs.get("using") or router.db_for_write(
+            type(self), instance=self
         )
-
-        super().save(*args, **kwargs)
+        with transaction.atomic(using=using):
+            self.completed = (
+                bool(self.id)
+                and not self.days.using(using).filter(completed=False).exists()
+            )
+            kwargs["using"] = using
+            super().save(*args, **kwargs)
