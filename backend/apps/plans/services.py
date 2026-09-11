@@ -6,6 +6,7 @@ from django.db import router, transaction
 
 from apps.measurements.models import Measurement
 from apps.plans.models import Day, WeekPlan
+from apps.plans.validation import validated_week_plan_parameters
 from apps.users.models import User
 
 
@@ -24,21 +25,42 @@ def ensure_week(user: User, date: datetime.date) -> WeekPlan:
     """
     using = router.db_for_write(WeekPlan, instance=user)
     with transaction.atomic(using=using):
-        # Lock the existing plan before reading targets; generated plans follow
-        # their template in PK order. Day writers also lock WeekPlan before Day.
-        template = (
+        # Discover only immutable identity/anchor fields before taking locks.
+        # Creation and measurement updates both lock Measurement -> Plan -> Day;
+        # taking the template first would invert its new plan's deferred FK lock.
+        anchor = (
             WeekPlan.objects.using(using)
-            .select_for_update(of=("self",))
             .filter(user=user, start_date__lte=date)
             .order_by("-start_date", "-pk")
+            .values_list("pk", "start_date", "measurement_id")
             .first()
         )
-        if template is None:
+        if anchor is None:
             raise ValueError(
                 "Create a week plan on or before the requested date first"
             )
-        start = template.start_date + datetime.timedelta(
-            days=((date - template.start_date).days // 7) * 7
+        template_id, template_start, measurement_id = anchor
+        start = template_start + datetime.timedelta(
+            days=((date - template_start).days // 7) * 7
+        )
+        measurements = Measurement.objects.using(using).select_for_update(
+            of=("self",)
+        )
+        if start == template_start:
+            measurements = measurements.filter(pk=measurement_id)
+        else:
+            measurements = measurements.filter(
+                user=user, created_at__date__lte=start
+            )
+        measurement = measurements.order_by("-created_at", "-pk").first()
+        if measurement is None:
+            raise ValueError(
+                "No measurement available on or before the week start"
+            )
+        template = (
+            WeekPlan.objects.using(using)
+            .select_for_update(of=("self",))
+            .get(pk=template_id)
         )
         # A whole generated week must fit, not just the requested date. Legacy
         # overlaps require an explicit day ID; never choose or merge their data.
@@ -60,24 +82,20 @@ def ensure_week(user: User, date: datetime.date) -> WeekPlan:
         if start == template.start_date:
             ensure_week_days(template)
             return template
-        measurement = (
-            Measurement.objects.using(using)
-            .filter(user=user, created_at__date__lte=start)
-            .order_by("-created_at", "-pk")
-            .first()
+        protein_g_kg, fat_perc, deficit = validated_week_plan_parameters(
+            measurement,
+            float(template.protein_g_kg),
+            float(template.fat_perc),
+            template.deficit,
         )
-        if measurement is None:
-            raise ValueError(
-                "No measurement available on or before the week start"
-            )
         plan, _ = WeekPlan.objects.using(using).get_or_create(
             user=user,
             start_date=start,
             defaults={
                 "measurement": measurement,
-                "protein_g_kg": template.protein_g_kg,
-                "fat_perc": template.fat_perc,
-                "deficit": template.deficit,
+                "protein_g_kg": protein_g_kg,
+                "fat_perc": fat_perc,
+                "deficit": deficit,
             },
         )
         ensure_week_days(plan)

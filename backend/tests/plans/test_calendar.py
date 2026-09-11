@@ -20,9 +20,12 @@ def test_template_is_locked_before_reading_targets(db, week_plan, mocker):
 
     def check_lock(queryset):
         if queryset.model is WeekPlan and queryset._result_cache is None:
-            assert (
-                queryset.query.select_for_update
-            ), "template read without lock"
+            if not queryset.query.select_for_update:
+                assert queryset.query.values_select == (
+                    "pk",
+                    "start_date",
+                    "measurement_id",
+                ), "template targets read without lock"
         return original(queryset)
 
     mocker.patch.object(QuerySet, "_fetch_all", check_lock)
