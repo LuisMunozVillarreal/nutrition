@@ -7,6 +7,7 @@ import re
 from decimal import Decimal
 
 import strawberry
+from django.db import transaction
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
@@ -15,6 +16,7 @@ from apps.libs.graphql import (
     validated_decimal_field,
     validated_non_negative_decimal,
 )
+from apps.plans.services import resolve_day
 
 MAX_DISTANCE = Decimal("99999999.99")
 MAX_DURATION_SECONDS = (2**63 - 1) // 1_000_000
@@ -256,12 +258,14 @@ class ExerciseMutation:
     """Exercise mutations."""
 
     @strawberry.mutation
+    @transaction.atomic
     def create_exercise(
         self,
         info: Info,
-        day_id: int,
         type: str,
         kcals: int,
+        day_id: int | None = None,
+        day_date: str | None = None,
         time: str = "00:00",
         duration: str | None = None,
         distance: float | None = None,
@@ -270,7 +274,8 @@ class ExerciseMutation:
 
         Args:
             info (Info): GraphQL execution info.
-            day_id (int): day ID.
+            day_id (int | None): existing day ID; omit when using day_date.
+            day_date (str | None): ISO date; exactly one day selector is required.
             type (str): exercise type.
             kcals (int): calories burned.
             time (str): time of exercise.
@@ -294,12 +299,7 @@ class ExerciseMutation:
         parsed_time = datetime.time.fromisoformat(time)
         parsed_duration = _parse_duration(duration)
 
-        from apps.plans.models import Day
-
-        try:
-            day = Day.objects.get(pk=day_id, plan__user=user)
-        except Day.DoesNotExist as e:
-            raise ValueError("Day not found") from e
+        day = resolve_day(user, day_id, day_date)
 
         obj = Exercise.objects.create(
             day=day,
@@ -391,17 +391,20 @@ class ExerciseMutation:
         return True
 
     @strawberry.mutation
+    @transaction.atomic
     def create_day_steps(
         self,
         info: Info,
-        day_id: int,
         steps: int,
+        day_id: int | None = None,
+        day_date: str | None = None,
     ) -> DayStepsType:
         """Create a day steps record.
 
         Args:
             info (Info): GraphQL execution info.
-            day_id (int): day ID.
+            day_id (int | None): existing day ID; omit when using day_date.
+            day_date (str | None): ISO date; exactly one day selector is required.
             steps (int): number of steps.
 
         Returns:
@@ -416,12 +419,7 @@ class ExerciseMutation:
             raise PermissionError("Authentication required")
         validated_steps = _validated_non_negative_int(steps, "steps")
 
-        from apps.plans.models import Day
-
-        try:
-            day = Day.objects.get(pk=day_id, plan__user=user)
-        except Day.DoesNotExist as e:
-            raise ValueError("Day not found") from e
+        day = resolve_day(user, day_id, day_date)
 
         obj = DaySteps.objects.create(day=day, steps=validated_steps)
         return DayStepsType.from_model(obj)
