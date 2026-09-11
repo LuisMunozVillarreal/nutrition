@@ -229,15 +229,15 @@ def test_week_plan_validation_rejects_mismatched_daily_inputs(mocker):
     """Validation requires one deficit value for every supplied TDEE."""
     measurement = SimpleNamespace(weight=Decimal("80"), bmr=Decimal("2000"))
     mocker.patch(
-        "apps.plans.schema.validated_positive_decimal",
+        "apps.plans.validation.validated_positive_decimal",
         return_value=Decimal("2"),
     )
     mocker.patch(
-        "apps.plans.schema.validated_percentage_decimal",
+        "apps.plans.validation.validated_percentage_decimal",
         return_value=Decimal("20"),
     )
     mocker.patch(
-        "apps.plans.schema.validated_non_negative_decimal",
+        "apps.plans.validation.validated_non_negative_decimal",
         return_value=Decimal("100"),
     )
 

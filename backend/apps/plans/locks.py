@@ -71,6 +71,7 @@ def lock_plan_aggregate_rows(
     using: str,
     day_ids: Iterable[int] = (),
     plan_ids: Iterable[int] = (),
+    include_all_plan_days: bool = False,
 ) -> PlanAggregateLocks:
     """Lock plans by PK, then their affected days by PK.
 
@@ -83,6 +84,7 @@ def lock_plan_aggregate_rows(
         using (str): Database alias on which to acquire locks.
         day_ids (Iterable[int]): Affected day primary keys.
         plan_ids (Iterable[int]): Additional affected plan primary keys.
+        include_all_plan_days (bool): Read every current day after locking plans.
 
     Returns:
         PlanAggregateLocks: Locked plans and days in deterministic order.
@@ -106,6 +108,12 @@ def lock_plan_aggregate_rows(
         .order_by("pk")
     )
     plans_by_pk = {plan.pk: plan for plan in plans}
+    if include_all_plan_days:
+        normalized_day_ids = tuple(
+            day_model.objects.using(using)
+            .filter(plan_id__in=plans_by_pk)
+            .values_list("pk", flat=True)
+        )
     days = tuple(
         day
         for day in day_model.objects.select_for_update(of=("self",))
