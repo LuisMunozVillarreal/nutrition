@@ -15,8 +15,8 @@ from apps.libs.graphql import (
 )
 from apps.measurements.models import Measurement
 from apps.plans.locks import lock_plan_aggregate_rows
-from apps.plans.models import Day, WeekPlan
-from apps.plans.schema import _validated_week_plan_parameters
+from apps.plans.models import WeekPlan
+from apps.plans.validation import validated_week_plan_parameters
 
 
 @strawberry.type
@@ -223,15 +223,10 @@ class MeasurementMutation:
             .order_by("pk")
             .values_list("pk", flat=True)
         )
-        day_ids = tuple(
-            Day.objects.filter(plan_id__in=plan_ids)
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
         aggregate_locks = lock_plan_aggregate_rows(
             using=router.db_for_write(Measurement, instance=obj),
             plan_ids=plan_ids,
-            day_ids=day_ids,
+            include_all_plan_days=True,
         )
         plans = aggregate_locks.plans
         days = aggregate_locks.days
@@ -259,7 +254,7 @@ class MeasurementMutation:
                 )
                 for day in plan_days
             ]
-            _validated_week_plan_parameters(
+            validated_week_plan_parameters(
                 proposed_measurement,
                 float(plan.protein_g_kg),
                 float(plan.fat_perc),

@@ -8,7 +8,6 @@ from decimal import Decimal
 from typing import cast
 
 import strawberry
-from django.conf import settings
 from django.db import models, router, transaction
 from django.db.models import Prefetch
 from strawberry.types import Info
@@ -17,13 +16,15 @@ from apps.foods.models import Serving
 from apps.libs.graphql import (
     get_request_user,
     validated_non_negative_decimal,
-    validated_percentage_decimal,
     validated_positive_decimal,
 )
 from apps.measurements.models import Measurement
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
 from apps.plans.services import resolve_day
+from apps.plans.validation import (
+    validated_week_plan_parameters as _validated_week_plan_parameters,
+)
 
 # WeekPlanType fields that traverse the days relation (and therefore need the
 # batched day prefetch to avoid per-plan query growth).
@@ -111,66 +112,6 @@ def _day_tdee(day: Day) -> Decimal:
     else:
         eat_total = Decimal(day.eat or 0)
     return day.plan.measurement.bmr + neat + tef + eat_total
-
-
-def _validated_week_plan_parameters(
-    measurement: Measurement,
-    protein_g_kg: float,
-    fat_perc: float,
-    deficit: int,
-    tdee_values: list[Decimal] | None = None,
-    daily_deficits: list[Decimal] | None = None,
-) -> tuple[Decimal, Decimal, int]:
-    """Validate plan inputs and every resulting daily nutrition goal."""
-    validated_protein_g_kg = validated_positive_decimal(
-        protein_g_kg,
-        "proteinGKg",
-        WeekPlan._meta.get_field("protein_g_kg"),
-    )
-    validated_fat_perc = validated_percentage_decimal(
-        fat_perc,
-        "fatPerc",
-        WeekPlan._meta.get_field("fat_perc"),
-    )
-    validated_deficit = validated_non_negative_decimal(deficit, "deficit")
-    protein_g_goal = validated_protein_g_kg * measurement.weight
-    daily_tdee_values = tdee_values or [
-        measurement.bmr for _ in range(WeekPlan.PLAN_LENGTH_DAYS)
-    ]
-    daily_deficit_values = daily_deficits or [
-        validated_deficit * Decimal(deficit_perc) / 100
-        for deficit_perc in WeekPlan.DEFICIT_DISTRIBUTION
-    ]
-
-    if len(daily_tdee_values) != len(daily_deficit_values):
-        raise ValueError("Every day must have a TDEE and deficit")
-
-    for tdee, daily_deficit in zip(daily_tdee_values, daily_deficit_values):
-        energy_kcal_goal = tdee - daily_deficit
-        if not energy_kcal_goal.is_finite() or energy_kcal_goal <= 0:
-            raise ValueError("energyKcalGoal must be greater than 0")
-        fat_g_goal = (
-            energy_kcal_goal
-            * validated_fat_perc
-            / 100
-            / settings.FAT_KCAL_GRAM
-        )
-        carbs_g_goal = (
-            energy_kcal_goal
-            - fat_g_goal * settings.FAT_KCAL_GRAM
-            - protein_g_goal * settings.PROTEIN_KCAL_GRAM
-        ) / settings.CARB_KCAL_GRAM
-        for field_name, goal in (
-            ("proteinGGoal", protein_g_goal),
-            ("fatGGoal", fat_g_goal),
-            ("carbsGGoal", carbs_g_goal),
-        ):
-            if not goal.is_finite() or goal < 0:
-                raise ValueError(
-                    f"{field_name} must be greater than or equal to 0"
-                )
-
-    return validated_protein_g_kg, validated_fat_perc, int(validated_deficit)
 
 
 @strawberry.type

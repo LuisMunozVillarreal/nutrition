@@ -2,14 +2,19 @@
 
 import datetime
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
+from queue import Queue
+from types import SimpleNamespace
 
 import pytest
 from django.db import close_old_connections, connection, connections
 
 from apps.measurements.models import Measurement
+from apps.measurements.schema import MeasurementMutation
 from apps.plans.models import Day, Intake, WeekPlan
-from apps.plans.services import ensure_day
+from apps.plans.services import ensure_day, ensure_week_days
 
 
 @pytest.mark.django_db(transaction=True)
@@ -71,3 +76,95 @@ def test_concurrent_ensure_and_logging(
     assert WeekPlan.objects.filter(user=user).count() == (
         1 if scenario == "repair" else 2
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.skipif(
+    connection.vendor != "postgresql", reason="PostgreSQL row locks required"
+)
+@pytest.mark.parametrize("scenario", ["generate", "repair"])
+def test_measurement_update_serializes_with_calendar(
+    user, measurement_factory, week_plan_factory, scenario
+):
+    """A blocked measurement writer includes created days without an FK cycle."""
+    # Explicit connection IDs and lock checkpoints keep this schedule red-capable.
+    # pylint: disable=too-many-locals,too-many-statements
+    measurement = measurement_factory(user=user)
+    Measurement.objects.filter(pk=measurement.pk).update(
+        created_at=datetime.datetime(2023, 1, 1, tzinfo=datetime.timezone.utc)
+    )
+    template = week_plan_factory(user=user, measurement=measurement)
+    requested = template.start_date + datetime.timedelta(days=7)
+    if scenario == "repair":
+        template.days.filter(day_num=7).delete()
+        requested = template.start_date
+    plan_locked = threading.Event()
+    release_calendar = threading.Event()
+    updater_pids = Queue()
+
+    def checkpoint(execute, sql, params, many, context):
+        result = execute(sql, params, many, context)
+        if (
+            '"plans_weekplan"' in sql
+            and "FOR UPDATE" in sql
+            and not plan_locked.is_set()
+        ):
+            plan_locked.set()
+            assert release_calendar.wait(timeout=10)
+        return result
+
+    def run_writer(calendar):
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '8s'")
+                cursor.execute("SET statement_timeout = '12s'")
+                cursor.execute("SELECT pg_backend_pid()")
+                pid = cursor.fetchone()[0]
+            if calendar:
+                with connection.execute_wrapper(checkpoint):
+                    if scenario == "repair":
+                        ensure_week_days(template)
+                        return pid, template.pk
+                    return pid, ensure_day(user, requested).plan_id
+            updater_pids.put(pid)
+            info = SimpleNamespace(
+                context=SimpleNamespace(request=SimpleNamespace(user=user))
+            )
+            MeasurementMutation().update_measurement(
+                info, id=str(measurement.pk), weight=90, body_fat_perc=21
+            )
+            return pid, None
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        calendar_future = executor.submit(run_writer, True)
+        try:
+            assert plan_locked.wait(timeout=10)
+            update_future = executor.submit(run_writer, False)
+            updater_pid = updater_pids.get(timeout=10)
+            deadline = time.monotonic() + 5
+            while True:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT pg_blocking_pids(%s)", [updater_pid]
+                    )
+                    blockers = cursor.fetchone()[0]
+                if blockers:
+                    break
+                assert (
+                    time.monotonic() < deadline
+                ), "Updater never waited on a lock"
+                release_calendar.wait(timeout=0.01)
+        finally:
+            release_calendar.set()
+        calendar_pid, plan_id = calendar_future.result(timeout=20)
+        update_pid, _ = update_future.result(timeout=20)
+    assert calendar_pid != update_pid
+    assert calendar_pid in blockers
+    plan = WeekPlan.objects.get(pk=plan_id)
+    assert plan.days.count() == 7
+    assert set(plan.days.values_list("protein_g_goal", flat=True)) == {
+        template.protein_g_kg * Decimal("90")
+    }
