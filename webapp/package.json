@@ -65,7 +65,7 @@
       "serialize-javascript": "7.0.7"
     },
     "next": {
-      "sharp": "0.35.3"
+      "sharp": "0.35.4"
     },
     "nanoid": "3.3.18"
   }
