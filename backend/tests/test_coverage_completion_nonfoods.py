@@ -152,10 +152,14 @@ def test_exercise_mutations_auth_gate_forbidden() -> None:
         mutation.delete_day_steps(ctx, id="1")
 
 
-def test_exercise_mutation_not_found_and_validation_errors(mocker) -> None:
+def test_exercise_mutation_not_found_and_validation_errors(
+    mocker, user
+) -> None:
     """Cover not-found branches and mutation error paths."""
     mutation = ExerciseMutation()
-    ctx = _context_with_user_object()
+    ctx = SimpleNamespace(
+        context=SimpleNamespace(request=SimpleNamespace(user=user))
+    )
 
     mocker.patch(
         "apps.plans.models.Day.objects.get", side_effect=Day.DoesNotExist

@@ -1,6 +1,5 @@
 """plans app signal handlers module."""
 
-import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +17,7 @@ from apps.foods.models.nutrients import NUTRIENT_LIST
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
 from apps.plans.models.intake import get_intake_deletion_locks
+from apps.plans.services import ensure_week_days
 
 
 @receiver(post_save, sender=WeekPlan)
@@ -38,15 +38,7 @@ def create_week_days(
     if not created:
         return
 
-    plan = instance
-
-    for num in range(plan.PLAN_LENGTH_DAYS):
-        Day.objects.create(
-            plan=plan,
-            day=plan.start_date + datetime.timedelta(num),
-            day_num=num + 1,
-            deficit=(plan.deficit * plan.DEFICIT_DISTRIBUTION[num] / 100),
-        )
+    ensure_week_days(instance)
 
 
 def _recalculate_intake_days(instance: Intake, using: str) -> None:

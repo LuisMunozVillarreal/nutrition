@@ -23,6 +23,7 @@ from apps.libs.graphql import (
 from apps.measurements.models import Measurement
 from apps.plans.locks import lock_plan_aggregate_rows
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.plans.services import resolve_day
 
 # WeekPlanType fields that traverse the days relation (and therefore need the
 # batched day prefetch to avoid per-plan query growth).
@@ -842,9 +843,10 @@ class PlanMutation:
     def create_intake(
         self,
         info: Info,
-        day_id: int,
         meal: str,
         num_servings: float,
+        day_id: int | None = None,
+        day_date: str | None = None,
         food_id: strawberry.ID | None = None,
         energy_kcal: float | None = None,
         protein_g: float | None = None,
@@ -855,7 +857,8 @@ class PlanMutation:
 
         Args:
             info (Info): GraphQL execution info.
-            day_id (int): day ID.
+            day_id (int | None): existing day ID; omit when using day_date.
+            day_date (str | None): ISO date; exactly one day selector is required.
             meal (str): meal name.
             num_servings (float): number of servings.
             food_id (strawberry.ID | None): food product ID.
@@ -881,10 +884,7 @@ class PlanMutation:
         )
         validated_meal = Intake.validate_meal(meal)
 
-        try:
-            day = Day.objects.get(pk=day_id, plan__user=user)
-        except Day.DoesNotExist as e:
-            raise ValueError("Day not found") from e
+        day = resolve_day(user, day_id, day_date)
 
         # If food_id is not provided, we must set nutrients directly.
         # This mirrors the flexibility of Django admin for Intakes.
