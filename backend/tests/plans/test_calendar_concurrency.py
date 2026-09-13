@@ -14,7 +14,98 @@ from django.db import close_old_connections, connection, connections
 from apps.measurements.models import Measurement
 from apps.measurements.schema import MeasurementMutation
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.plans.schema import PlanMutation
 from apps.plans.services import ensure_day, ensure_week_days
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.skipif(
+    connection.vendor != "postgresql", reason="PostgreSQL row locks required"
+)
+def test_concurrent_exact_target_reuses_valid_targets_before_defaults(
+    user, measurement_factory, week_plan_factory
+):
+    """A committed target wins over invalid copied historical defaults."""
+    # Real commits between anchor discovery and validation are essential here.
+    # pylint: disable=too-many-locals
+    old = measurement_factory(
+        user=user, weight=Decimal("94.3"), body_fat_perc=Decimal("21")
+    )
+    Measurement.objects.filter(pk=old.pk).update(
+        created_at=datetime.datetime(2023, 1, 1, tzinfo=datetime.timezone.utc)
+    )
+    template = week_plan_factory(
+        user=user,
+        measurement=old,
+        start_date=datetime.date(2023, 1, 9),
+        protein_g_kg=Decimal("2"),
+        fat_perc=Decimal("25"),
+        deficit=700,
+    )
+    new = measurement_factory(
+        user=user, weight=Decimal("50"), body_fat_perc=Decimal("21")
+    )
+    Measurement.objects.filter(pk=new.pk).update(
+        created_at=datetime.datetime(2023, 2, 1, tzinfo=datetime.timezone.utc)
+    )
+    anchor_read = threading.Event()
+    release_resolver = threading.Event()
+
+    def checkpoint(execute, sql, params, many, context):
+        result = execute(sql, params, many, context)
+        if '"plans_weekplan"' in sql and not anchor_read.is_set():
+            assert "FOR UPDATE" not in sql
+            anchor_read.set()
+            assert release_resolver.wait(timeout=10)
+        return result
+
+    def resolve():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '5s'")
+                cursor.execute("SET statement_timeout = '10s'")
+                cursor.execute("SELECT pg_backend_pid()")
+                pid = cursor.fetchone()[0]
+            with connection.execute_wrapper(checkpoint):
+                return pid, ensure_day(user, datetime.date(2023, 2, 7)).plan_id
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(resolve)
+        try:
+            assert anchor_read.wait(timeout=10)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                creator_pid = cursor.fetchone()[0]
+            info = SimpleNamespace(
+                context=SimpleNamespace(request=SimpleNamespace(user=user))
+            )
+            created = PlanMutation().create_week_plan(
+                info,
+                start_date="2023-02-06",
+                protein_g_kg=2,
+                fat_perc=25,
+                deficit=200,
+                measurement_id=new.pk,
+            )
+            target = WeekPlan.objects.get(pk=created.id)
+            before = list(target.days.order_by("pk").values())
+            assert len(before) == 7
+            assert min(row["carbs_g_goal"] for row in before) > 0
+        finally:
+            release_resolver.set()
+        resolver_pid, plan_id = future.result(timeout=20)
+    assert resolver_pid != creator_pid
+    assert plan_id == target.pk
+    assert list(target.days.order_by("pk").values()) == before
+    target.refresh_from_db()
+    assert target.measurement_id == new.pk
+    assert target.deficit == 200
+    assert WeekPlan.objects.filter(user=user).count() == 2
+    template.refresh_from_db()
+    assert template.deficit == 700
 
 
 @pytest.mark.django_db(transaction=True)
