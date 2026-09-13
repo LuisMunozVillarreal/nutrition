@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import strawberry
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import router, transaction
 from strawberry.types import Info
 
 from apps.exercises.models import DaySteps, Exercise
@@ -443,7 +443,10 @@ class ExerciseMutation:
         validated_steps = _validated_non_negative_int(steps, "steps")
 
         from apps.health_sync.services import create_manual_day_steps
+        from apps.plans.locks import lock_plan_owner
 
+        # Match sync's owner-before-calendar lock order within this transaction.
+        lock_plan_owner(using=router.db_for_write(DaySteps), user_id=user.pk)
         day = resolve_day(user, day_id, day_date)
         obj = create_manual_day_steps(user, day.pk, validated_steps)
         return DayStepsType.from_model(obj)
