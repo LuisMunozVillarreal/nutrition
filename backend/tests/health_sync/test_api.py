@@ -245,11 +245,21 @@ def test_upload_skips_dates_without_a_unique_day_for_the_token_owner(
     """Imports never attach to another user or guess between duplicate plan days."""
     owner = user_factory()
     other = user_factory()
+    missing_date = timezone.localdate() - datetime.timedelta(days=2)
     day_factory(
-        plan__user=other, day=timezone.localdate() - datetime.timedelta(days=1)
+        plan__user=other, plan__start_date=missing_date, day=missing_date
     )
-    day_factory(plan__user=owner, day=timezone.localdate())
-    day_factory(plan__user=owner, day=timezone.localdate())
+    day_factory(
+        plan__user=owner,
+        plan__start_date=timezone.localdate(),
+        day=timezone.localdate(),
+    )
+    day_factory(
+        plan__user=owner,
+        plan__start_date=timezone.localdate() - datetime.timedelta(days=1),
+        day_num=2,
+        day=timezone.localdate(),
+    )
     raw_token, _device = HealthSyncDevice.issue(
         user=owner, name="Galaxy phone"
     )
@@ -260,9 +270,7 @@ def test_upload_skips_dates_without_a_unique_day_for_the_token_owner(
         {
             "records": [
                 {
-                    "date": (
-                        timezone.localdate() - datetime.timedelta(days=1)
-                    ).isoformat(),
+                    "date": missing_date.isoformat(),
                     "steps": 5000,
                     "observed_at": timezone.now().isoformat(),
                 },
@@ -280,10 +288,9 @@ def test_upload_skips_dates_without_a_unique_day_for_the_token_owner(
     body = response.json()
     assert body["summary"]["skipped"] == 2
     records_by_date = {record["date"]: record for record in body["records"]}
-    yesterday = (timezone.localdate() - datetime.timedelta(days=1)).isoformat()
     today = timezone.localdate().isoformat()
-    assert records_by_date[yesterday] == {
-        "date": yesterday,
+    assert records_by_date[missing_date.isoformat()] == {
+        "date": missing_date.isoformat(),
         "status": "skipped",
         "reason": "missing_plan_day",
     }
