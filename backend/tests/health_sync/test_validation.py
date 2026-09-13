@@ -902,9 +902,7 @@ def test_sync_revalidates_target_after_overlapping_day_appears(
     """A date that becomes ambiguous while locking is skipped, never guessed."""
     user = user_factory()
     target_date = timezone.localdate()
-    day_factory(
-        plan__user=user, plan__start_date=target_date, day=target_date
-    )
+    day_factory(plan__user=user, plan__start_date=target_date, day=target_date)
     _token, device = HealthSyncDevice.issue(user, "Phone")
     original = health_sync_services.lock_plan_aggregate_rows
 
