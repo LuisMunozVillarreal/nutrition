@@ -406,10 +406,12 @@ def test_day_steps_query_exposes_import_provenance(
     user = user_factory()
     imported_day = day_factory(
         plan__user=user,
+        plan__start_date=timezone.localdate() - datetime.timedelta(days=1),
         day=timezone.localdate() - datetime.timedelta(days=1),
     )
     manual_day = day_factory(
-        plan__user=user,
+        plan=imported_day.plan,
+        day_num=2,
         day=timezone.localdate(),
     )
     imported_steps = DaySteps.objects.create(day=imported_day, steps=9000)
@@ -507,7 +509,11 @@ def test_manual_step_create_returns_stable_error_when_row_already_exists(
 ):
     """A concurrent/existing manual total never escapes as an integrity 500."""
     user = user_factory()
-    day = day_factory(plan__user=user, day=timezone.localdate())
+    day = day_factory(
+        plan__user=user,
+        plan__start_date=timezone.localdate(),
+        day=timezone.localdate(),
+    )
     DaySteps.objects.create(day=day, steps=9000)
 
     result = schema.execute_sync(
@@ -896,13 +902,20 @@ def test_sync_revalidates_target_after_overlapping_day_appears(
     """A date that becomes ambiguous while locking is skipped, never guessed."""
     user = user_factory()
     target_date = timezone.localdate()
-    day_factory(plan__user=user, day=target_date)
+    day_factory(
+        plan__user=user, plan__start_date=target_date, day=target_date
+    )
     _token, device = HealthSyncDevice.issue(user, "Phone")
     original = health_sync_services.lock_plan_aggregate_rows
 
     def add_overlap_then_lock(*args, **kwargs):
         locks = original(*args, **kwargs)
-        day_factory(plan__user=user, day=target_date)
+        day_factory(
+            plan__user=user,
+            plan__start_date=target_date - datetime.timedelta(days=1),
+            day_num=2,
+            day=target_date,
+        )
         return locks
 
     monkeypatch.setattr(

@@ -178,7 +178,7 @@ def test_exercise_mutation_not_found_and_validation_errors(
     )
     with pytest.raises(ValueError, match="Day not found"):
         mutation.create_day_steps(ctx, day_id=999, steps=100)
-    create_steps.assert_called_once()
+    create_steps.assert_not_called()
 
     mocker.patch(
         "apps.exercises.schema.Exercise.objects.get",
