@@ -1,6 +1,7 @@
 """On-demand calendar creation shared by application writers."""
 
 import datetime
+from decimal import Decimal
 
 from django.db import router, transaction
 
@@ -72,7 +73,7 @@ def ensure_week(user: User, date: datetime.date) -> WeekPlan:
                 start_date__lt=start + datetime.timedelta(days=7),
             )
             # A concurrent creator may have committed this exact window while
-            # we waited for the template lock. Reuse it via get_or_create below.
+            # we waited for the template lock. Re-resolve that target below.
             .exclude(start_date=start)
             .exists()
         ):
@@ -82,6 +83,17 @@ def ensure_week(user: User, date: datetime.date) -> WeekPlan:
         if start == template.start_date:
             ensure_week_days(template)
             return template
+        # Re-resolve after waiting for locks: an exact target can have its own
+        # valid settings even when the historical creation defaults are invalid.
+        plan = (
+            WeekPlan.objects.using(using)
+            .select_for_update(of=("self",))
+            .filter(user=user, start_date=start)
+            .first()
+        )
+        if plan is not None:
+            ensure_week_days(plan)
+            return plan
         protein_g_kg, fat_perc, deficit = validated_week_plan_parameters(
             measurement,
             float(template.protein_g_kg),
@@ -113,16 +125,38 @@ def ensure_week_days(plan: WeekPlan) -> None:
         plan = (
             WeekPlan.objects.using(using).select_for_update().get(pk=plan.pk)
         )
-        for num in range(plan.PLAN_LENGTH_DAYS):
-            Day.objects.using(using).get_or_create(
+        existing_dates = set(
+            plan.days.using(using).values_list("day", flat=True)
+        )
+        missing_days = [
+            Day(
                 plan=plan,
                 day=plan.start_date + datetime.timedelta(days=num),
-                defaults={
-                    "day_num": num + 1,
-                    "deficit": plan.deficit
-                    * plan.DEFICIT_DISTRIBUTION[num]
-                    / 100,
-                },
+                day_num=num + 1,
+                deficit=plan.deficit * plan.DEFICIT_DISTRIBUTION[num] / 100,
+            )
+            for num in range(plan.PLAN_LENGTH_DAYS)
+            if plan.start_date + datetime.timedelta(days=num)
+            not in existing_dates
+        ]
+        if not missing_days:
+            return
+        # The plan lock serializes repair with measurement/target updates.
+        # Validate only absent siblings, with their own default tracking mode,
+        # before any insert or signal can change the plan or its survivors.
+        validated_week_plan_parameters(
+            plan.measurement,
+            float(plan.protein_g_kg),
+            float(plan.fat_perc),
+            plan.deficit,
+            [day.tdee for day in missing_days],
+            [Decimal(day.deficit) for day in missing_days],
+        )
+        for day in missing_days:
+            Day.objects.using(using).get_or_create(
+                plan=plan,
+                day=day.day,
+                defaults={"day_num": day.day_num, "deficit": day.deficit},
             )
 
 
