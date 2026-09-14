@@ -3,6 +3,38 @@ import { createRequire } from "node:module";
 import { test } from "vitest";
 
 const require = createRequire(import.meta.url);
+const semver = require("semver");
+
+// Overrides must satisfy ordinary dependency contracts, not only peers/engines.
+// Resolve from each consumer so nested copies cannot hide an incompatible pin.
+test.each([
+  ["vite", "picomatch"],
+  ["vitest", "picomatch"],
+  ["vite", "postcss"],
+  ["micromatch", "picomatch"],
+])("%s resolves a patched %s within its declared dependency range", async (consumer, dependency) => {
+  const consumerPath = require.resolve(`${consumer}/package.json`);
+  const consumerRequire = createRequire(consumerPath);
+  const declaredRange = require(consumerPath).dependencies[dependency];
+  const installedVersion = consumerRequire(`${dependency}/package.json`).version;
+
+  assert.equal(typeof declaredRange, "string");
+  assert.ok(
+    semver.satisfies(installedVersion, declaredRange),
+    `${consumer} requires ${dependency}@${declaredRange}, resolved ${installedVersion}`,
+  );
+
+  const installed = consumerRequire(dependency);
+  if (dependency === "picomatch") {
+    const matches = installed("**/{meal,snack}.*");
+    assert.equal(matches("recipes/meal.js"), true);
+    assert.equal(matches("recipes/snack.ts"), true);
+    assert.equal(matches("recipes/drink.js"), false);
+  } else {
+    const css = await installed([]).process(".meal { color: green; }", { from: undefined });
+    assert.match(css.css, /\.meal/);
+  }
+});
 
 function minimatchFrom(modulePath) {
   const loaded = require(modulePath);
