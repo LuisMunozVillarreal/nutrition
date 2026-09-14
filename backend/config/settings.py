@@ -6,6 +6,7 @@ from warnings import filterwarnings
 
 import dotenv  # type: ignore
 import environ  # type: ignore
+from django.core.exceptions import ImproperlyConfigured
 from google.oauth2 import service_account
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -20,6 +21,19 @@ ENV = environ.Env()
 NUTRITION = "nutrition"
 
 SECRET_KEY = ENV("SECRET_KEY")
+HEALTH_SYNC_TOKEN_PEPPER = ENV("HEALTH_SYNC_TOKEN_PEPPER", default=SECRET_KEY)
+HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS = ENV.list(
+    "HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS", default=[]
+)
+HEALTH_SYNC_TRUSTED_PROXY_COUNT = ENV.int(
+    "HEALTH_SYNC_TRUSTED_PROXY_COUNT", default=0
+)
+HEALTH_SYNC_TRUSTED_PROXY_CIDRS = ENV.list(
+    "HEALTH_SYNC_TRUSTED_PROXY_CIDRS", default=[]
+)
+HEALTH_SYNC_UPLOADS_PER_DEVICE = ENV.int(
+    "HEALTH_SYNC_UPLOADS_PER_DEVICE", default=60
+)
 
 DEBUG = ENV("DEBUG", default=False)
 
@@ -39,6 +53,27 @@ SITE_ID = 1
 
 ENVIRONMENT = ENV("ENVIRONMENT", default="development")
 IS_PRODUCTION = ENVIRONMENT != "development"
+CACHES = {
+    "default": ENV.cache(
+        "CACHE_URL",
+        default="locmemcache://health-sync-development",
+    )
+}
+# Preview environments intentionally reconcile trusted manifests from ``main``
+# while running the PR image. Enforce these deployment-only requirements once
+# the production manifests and image advance atomically; previews still receive
+# an independent pepper through the generated Flux patch below.
+if ENVIRONMENT == "production":
+    if HEALTH_SYNC_TOKEN_PEPPER == SECRET_KEY:
+        raise ImproperlyConfigured(
+            "HEALTH_SYNC_TOKEN_PEPPER must be independent from SECRET_KEY"
+        )
+    if CACHES["default"]["BACKEND"] not in {
+        "django.core.cache.backends.redis.RedisCache"
+    }:
+        raise ImproperlyConfigured(
+            "Production health-sync rate limits require a shared CACHE_URL"
+        )
 if ENVIRONMENT == "development":  # pragma: no cover
     ALLOWED_HOSTS = [
         "192.168.1.101",
@@ -101,6 +136,7 @@ INSTALLED_APPS = [
     "apps.exercises",
     "apps.foods",
     "apps.goals",
+    "apps.health_sync",
     "apps.measurements",
     "apps.plans",
     "apps.users",
