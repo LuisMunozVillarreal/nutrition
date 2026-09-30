@@ -7,6 +7,26 @@ from django.apps import apps
 
 if TYPE_CHECKING:
     from apps.plans.models import Day, WeekPlan
+    from apps.users.models import User
+
+
+def lock_plan_owner(*, using: str, user_id: int) -> "User":
+    """Lock the stable owner row before resolving mutable plan membership.
+
+    Args:
+        using: Database alias on which to acquire the lock.
+        user_id: Stable owner primary key.
+
+    Returns:
+        User: Locked plan owner.
+    """
+    user_model = cast(type["User"], apps.get_model("users", "User"))
+    return cast(
+        "User",
+        user_model.objects.select_for_update(of=("self",))
+        .using(using)
+        .get(pk=user_id),
+    )
 
 
 @dataclass
