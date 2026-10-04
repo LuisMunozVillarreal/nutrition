@@ -176,7 +176,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate, intakeDetails }: { intake
       if (result.product) {
         const params = new URLSearchParams(intakeDetails)
         if (intakeDayId) params.set('dayId', intakeDayId)
-        else if (intakeDayDate) params.set('dayDate', intakeDayDate)
+        else if (intakeDayDate !== null) params.set('dayDate', intakeDayDate)
         params.set('productId', result.product.id)
         navigate(`/intakes/new?${params.toString()}`)
         return
@@ -284,7 +284,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate, intakeDetails }: { intake
       params.set('fromBarcodeScan', '1')
       params.set('fromMealLog', '1')
       if (intakeDayId) params.set('intakeDayId', intakeDayId)
-      else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
+      else if (intakeDayDate !== null) params.set('intakeDayDate', intakeDayDate)
       navigate(`/products/new?${params.toString()}`)
     },
     [intakeDayId, intakeDayDate, intakeDetails, navigate],
@@ -296,7 +296,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate, intakeDetails }: { intake
     params.set('fromBarcodeScan', '1')
     params.set('fromMealLog', '1')
     if (intakeDayId) params.set('intakeDayId', intakeDayId)
-    else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
+    else if (intakeDayDate !== null) params.set('intakeDayDate', intakeDayDate)
     navigate(`/products/new?${params.toString()}`)
   }, [intakeDayId, intakeDayDate, intakeDetails, navigate])
 
@@ -336,7 +336,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate, intakeDetails }: { intake
                   const params = new URLSearchParams(intakeDetails)
                   params.set('servingId', food.servingId)
                   if (intakeDayId) params.set('dayId', intakeDayId)
-                  else if (intakeDayDate) params.set('dayDate', intakeDayDate)
+                  else if (intakeDayDate !== null) params.set('dayDate', intakeDayDate)
                   navigate(`/intakes/new?${params}`)
                 }}
                 className="rounded-lg border border-slate-300 p-3 text-left hover:bg-slate-50"
