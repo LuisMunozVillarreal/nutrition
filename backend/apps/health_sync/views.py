@@ -151,6 +151,32 @@ def _json_body(request: HttpRequest) -> Any:
         raise ValueError("Request body must be valid JSON") from exc
 
 
+def _validation_error_response(exc: ValueError) -> JsonResponse:
+    """Return only fixed public messages, never arbitrary exception text."""
+    for message in (
+        "Request body is too large",
+        "Request body must be valid JSON",
+        "Request body must be a JSON object",
+        "Pairing code is invalid or expired",
+        "device_name must contain 1 to 120 characters",
+        "Too many active health-sync devices",
+        "records must be a list",
+        "records must contain at most 31 items",
+        "each record must be an object",
+        "date must use YYYY-MM-DD",
+        "records must contain unique dates",
+        "date is outside the supported sync window",
+        "date cannot be in the future",
+        "steps must be an integer",
+        "steps must be between 0 and 1000000",
+        "observed_at must be an ISO-8601 timestamp with timezone",
+        "observed_at cannot be in the future",
+    ):
+        if str(exc) == message:
+            return JsonResponse({"error": message}, status=400)
+    return JsonResponse({"error": "Invalid health-sync request"}, status=400)
+
+
 def _device_from_request(request: HttpRequest) -> HealthSyncDevice | None:
     """Authenticate a scoped companion bearer token."""
     header = request.META.get("HTTP_AUTHORIZATION", "")
@@ -195,7 +221,7 @@ def pair_device(request: HttpRequest) -> JsonResponse:
                 name=name.strip(),
             )
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return _validation_error_response(exc)
 
     return JsonResponse(
         {
@@ -229,7 +255,7 @@ def upload_steps(request: HttpRequest) -> JsonResponse:
     try:
         records = parse_records(_json_body(request))
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return _validation_error_response(exc)
     result = sync_records(device, records)
     summary = result["summary"]
     if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
