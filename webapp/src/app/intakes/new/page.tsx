@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+import { localDateInputValue } from '@/lib/dateInput'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { graphqlRequest, gql } from '@/lib/graphql'
@@ -9,11 +11,11 @@ import { buildCustomIntakeVariables } from './intakeVariables'
 
 const CREATE_MUTATION = gql`
   mutation CreateIntake(
-    $dayId: Int!, $meal: String!, $numServings: Float!, $foodId: ID,
+    $dayId: Int, $dayDate: String, $meal: String!, $numServings: Float!, $foodId: ID,
     $energyKcal: Float, $proteinG: Float, $fatG: Float, $carbsG: Float
   ) {
     createIntake(
-      dayId: $dayId, meal: $meal, numServings: $numServings, foodId: $foodId,
+      dayId: $dayId, dayDate: $dayDate, meal: $meal, numServings: $numServings, foodId: $foodId,
       energyKcal: $energyKcal, proteinG: $proteinG, fatG: $fatG, carbsG: $carbsG
     ) { id }
   }
@@ -78,44 +80,25 @@ interface IntakeContextResponse {
   intakeFood?: IntakeFood | null
 }
 
-function localDateKey(): string {
-  const date = new Date()
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-')
-}
-
-function dayLabel(value: string): string {
-  const [year, month, day] = value.split('-').map(Number)
-  return new Intl.DateTimeFormat('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(Date.UTC(year, month - 1, day)))
-}
-
 function NewIntakeForm({
   dayIdFromQuery,
+  dayDateFromQuery,
   productId,
   servingId,
 }: {
   dayIdFromQuery: string | null
+  dayDateFromQuery: string | null
   productId: string | null
   servingId: string | null
 }) {
   const conflictingContext = Boolean(productId && servingId)
   const [form, setForm] = useState(() => ({
-    dayId: '', meal: 'breakfast', numServings: '1.0',
+    dayId: '', dayDate: dayDateFromQuery ?? localDateInputValue(), meal: 'breakfast', numServings: '1.0',
     servingId: '', energyKcal: '', proteinG: '', fatG: '', carbsG: ''
   }))
   const [saving, setSaving] = useState(false)
   const [product, setProduct] = useState<IntakeProduct | null>(null)
   const [intakeFood, setIntakeFood] = useState<IntakeFood | null>(null)
-  const [days, setDays] = useState<DayOption[]>([])
   const [contextLoading, setContextLoading] = useState(!conflictingContext)
   const [contextError, setContextError] = useState<string | null>(
     conflictingContext ? 'Choose either a product or a serving, not both.' : null,
@@ -141,22 +124,18 @@ function NewIntakeForm({
           ).values(),
         ).sort((left, right) => right.day.localeCompare(left.day))
         const requestedDay = uniqueDays.find((day) => day.id === dayIdFromQuery)
-        const today = uniqueDays.find((day) => day.day === localDateKey())
-        const selectedDay = dayIdFromQuery
-          ? requestedDay
-          : today ?? uniqueDays[0]
         const defaultServing = result.foodProduct?.servings.find(
           (candidate) => candidate.servingUnit === 'serving',
         ) ?? result.foodProduct?.servings.find(
           (candidate) => candidate.servingUnit === 'container',
         ) ?? result.foodProduct?.servings[0]
 
-        setDays(uniqueDays)
         setProduct(result.foodProduct ?? null)
         setIntakeFood(result.intakeFood ?? null)
         setForm((current) => ({
           ...current,
-          dayId: selectedDay?.id ?? '',
+          dayId: requestedDay?.id ?? '',
+          dayDate: requestedDay?.day ?? current.dayDate,
           servingId: defaultServing?.id ?? '',
         }))
         if (dayIdFromQuery && !requestedDay) {
@@ -165,8 +144,6 @@ function NewIntakeForm({
           setContextError('Unable to load the scanned product.')
         } else if (servingId && !result.intakeFood) {
           setContextError('Unable to load the selected food.')
-        } else if (!selectedDay) {
-          setContextError('No plan days are available for logging this intake.')
         } else {
           setContextError(null)
         }
@@ -190,10 +167,20 @@ function NewIntakeForm({
   }, [conflictingContext, dayIdFromQuery, productId, servingId])
 
   const handleChange = (name: string, value: string) => {
-    setForm((current) => ({ ...current, [name]: value }))
+    setForm((current) => ({ ...current, [name]: value, ...(name === 'dayDate' ? { dayId: '' } : {}) }))
   }
 
+  const parsedDate = new Date(`${form.dayDate}T00:00:00Z`)
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(form.dayDate)
+    && !form.dayDate.startsWith('0000')
+    && Number.isFinite(parsedDate.getTime())
+    && parsedDate.toISOString().slice(0, 10) === form.dayDate
+  const scanParams = new URLSearchParams({ mode: 'intake' })
+  if (form.dayId) scanParams.set('dayId', form.dayId)
+  else scanParams.set('dayDate', form.dayDate)
+
   const handleSave = async () => {
+    if (!validDate) throw new Error('Enter a valid date.')
     if (conflictingContext) {
       throw new Error('Choose either a product or a serving, not both')
     }
@@ -209,7 +196,7 @@ function NewIntakeForm({
           )
         }
         await graphqlRequest(CREATE_MUTATION, {
-          dayId: parseInt(form.dayId, 10),
+          ...(form.dayId ? { dayId: parseInt(form.dayId, 10) } : { dayDate: form.dayDate }),
           foodId: selectedServingId,
           meal: form.meal,
           numServings: parseFloat(form.numServings),
@@ -227,22 +214,32 @@ function NewIntakeForm({
   return (
     <EntityForm
       title={productId || servingId ? 'New Food Intake' : 'New Custom Intake'}
-      backHref={form.dayId ? `/days/${encodeURIComponent(form.dayId)}` : '/days'}
+      backHref={form.dayId ? `/days/${encodeURIComponent(form.dayId)}` : '/intakes'}
       onSave={handleSave}
       saving={saving}
-      disabled={contextLoading || Boolean(contextError) || !form.dayId}
+      disabled={contextLoading || Boolean(contextError) || !validDate}
       fieldsets={[{
         title: 'Intake Details',
         content: (
           <>
-            <SelectField
-              label="Day"
-              name="dayId"
-              value={form.dayId}
-              onChange={handleChange}
-              options={days.map((day) => ({ value: day.id, label: dayLabel(day.day) }))}
-              required
-            />
+            <div className="form-group">
+              <label className="form-label" htmlFor="dayDate">Date</label>
+              <input
+                className="form-input" id="dayDate" name="dayDate" type="date"
+                value={validDate ? form.dayDate : ''} required disabled={contextLoading}
+                aria-invalid={!validDate} aria-describedby="intake-date-help"
+                onChange={(event) => handleChange('dayDate', event.target.value)}
+              />
+              <p id="intake-date-help" className="text-sm text-slate-500">
+                Missing weeks and days are created when you save. Set up an initial plan first.
+              </p>
+              {!validDate && <p role="alert" className="text-red-600">Enter a valid date.</p>}
+            </div>
+            {!contextLoading && !contextError && validDate && (
+              <Link className="btn btn-secondary mb-4" href={`/scan?${scanParams}`}>
+                Scan a product or choose a frequent food
+              </Link>
+            )}
             <SelectField label="Meal" name="meal" value={form.meal} onChange={handleChange} options={MEAL_CHOICES} required />
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
             {contextLoading && <p role="status">Loading intake details...</p>}
@@ -294,12 +291,14 @@ function NewIntakeForm({
 export default function NewIntakePage() {
   const searchParams = useSearchParams()
   const dayIdFromQuery = searchParams.get('dayId')?.trim() || null
+  const dayDateFromQuery = searchParams.get('dayDate')
   const productId = searchParams.get('productId')?.trim() || null
   const servingId = searchParams.get('servingId')?.trim() || null
   return (
     <NewIntakeForm
-      key={JSON.stringify([dayIdFromQuery, productId, servingId])}
+      key={JSON.stringify([dayIdFromQuery, dayDateFromQuery, productId, servingId])}
       dayIdFromQuery={dayIdFromQuery}
+      dayDateFromQuery={dayDateFromQuery}
       productId={productId}
       servingId={servingId}
     />
