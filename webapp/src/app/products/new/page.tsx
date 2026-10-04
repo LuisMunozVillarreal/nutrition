@@ -142,6 +142,11 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
         if (intakeDayId) params.set('dayId', intakeDayId)
         else if (intakeDayDate) params.set('dayDate', intakeDayDate)
         params.set('productId', result.createFoodProduct.id)
+        // Intake quantity is separate from the product's package numServings.
+        for (const field of ['intakeMeal', 'intakeNumServings']) {
+          const value = searchParams.get(field)
+          if (value !== null) params.set(field, value)
+        }
         return `/intakes/new?${params.toString()}`
       }
     } finally { setSaving(false) }
