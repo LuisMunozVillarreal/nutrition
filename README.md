@@ -34,6 +34,20 @@ internal, non-persistent Redis cache used only for rate limits.
 Samsung Health must be configured to share step data with Health Connect. See
 the companion README for build, pairing, permission, and sync instructions.
 
+Step uploads continue to send `date`, not a day ID. When that date has no owned
+calendar day, the backend calls the shared `ensure_day(user, date)` service to
+create its anchored seven-day week or repair the missing target. Existing days
+are reused without regenerating their siblings or changing their targets.
+Calendar creation and the step import commit or roll back together.
+
+Automatic creation requires a week plan on or before the requested date and an
+eligible historical measurement. It never invents initial targets or backdates a
+measurement. A rejected calendar returns the existing per-date `skipped` receipt
+with `missing_plan_day`, without advancing the sync watermark. Create or repair
+the relevant week plan in the app, check its measurement and targets, resolve any
+overlapping week windows, then retry. Ambiguous existing dates still return
+`ambiguous_plan_day`. Authentication and the existing date limits are unchanged.
+
 ## Deploy to production
 
 Check [these instructions](platform/README.md)
