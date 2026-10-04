@@ -23,6 +23,7 @@ from apps.health_sync.models import (
 )
 from apps.plans.locks import lock_plan_aggregate_rows, lock_plan_owner
 from apps.plans.models import Day
+from apps.plans.services import ensure_day
 
 MAX_RECORDS = 31
 MAX_STEPS_PER_DAY = 1_000_000
@@ -111,6 +112,24 @@ def parse_records(payload: Any) -> list[DailyStepRecord]:
     return parsed
 
 
+def _sync_day_ids(user: Any, date: datetime.date, using: str) -> list[int]:
+    """Reuse owned targets or create one without retaining rejected writes."""
+    day_ids = list(
+        Day.objects.using(using)
+        .filter(plan__user=user, day=date)
+        .values_list("pk", flat=True)[:2]
+    )
+    if day_ids:
+        return day_ids
+    try:
+        # Caller holds owner; calendar locks Measurement -> Plan -> Day.
+        with transaction.atomic(using=using):
+            return [ensure_day(user, date).pk]
+    except ValueError:
+        # Preserve the retryable receipt without exposing internal details.
+        return []
+
+
 def sync_records(
     device: HealthSyncDevice,
     records: list[DailyStepRecord],
@@ -123,14 +142,7 @@ def sync_records(
     for record in records:
         with transaction.atomic(using=using):
             locked_user = lock_plan_owner(using=using, user_id=device.user_id)
-            day_ids = list(
-                Day.objects.using(using)
-                .filter(
-                    plan__user=locked_user,
-                    day=record.date,
-                )
-                .values_list("pk", flat=True)[:2]
-            )
+            day_ids = _sync_day_ids(locked_user, record.date, using)
             if not day_ids:
                 summary["skipped"] += 1
                 results.append(
