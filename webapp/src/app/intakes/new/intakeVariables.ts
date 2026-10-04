@@ -1,5 +1,6 @@
 export interface CustomIntakeForm {
   dayId: string
+  dayDate?: string
   meal: string
   numServings: string
   energyKcal: string
@@ -9,7 +10,8 @@ export interface CustomIntakeForm {
 }
 
 export interface CustomIntakeVariables extends Record<string, unknown> {
-  dayId: number
+  dayId?: number
+  dayDate?: string
   meal: string
   numServings: number
   energyKcal: number
@@ -28,7 +30,7 @@ export function buildCustomIntakeVariables(
   const numServings = Number.parseFloat(form.numServings)
 
   return {
-    dayId: Number.parseInt(form.dayId, 10),
+    ...(form.dayId ? { dayId: Number.parseInt(form.dayId, 10) } : { dayDate: form.dayDate }),
     meal: form.meal,
     numServings,
     energyKcal: destinationTotal(form.energyKcal),

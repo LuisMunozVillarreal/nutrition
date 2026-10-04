@@ -111,7 +111,7 @@ const REQUIRED_NUTRIENTS: Array<
   'energyKcal' | 'proteinG' | 'fatG' | 'carbsG'
 > = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
 
-function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
+function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string | null; intakeDayDate: string | null }) {
   const router = useRouter()
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
@@ -176,6 +176,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       if (result.product) {
         const params = new URLSearchParams()
         if (intakeDayId) params.set('dayId', intakeDayId)
+        else if (intakeDayDate) params.set('dayDate', intakeDayDate)
         params.set('productId', result.product.id)
         navigate(`/intakes/new?${params.toString()}`)
         return
@@ -190,11 +191,11 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
     } finally {
       if (generation === lookupGenerationRef.current) setSearching(false)
     }
-  }, [intakeDayId, navigate])
+  }, [intakeDayId, intakeDayDate, navigate])
 
   useEffect(() => () => {
     lookupGenerationRef.current += 1
-  }, [intakeDayId])
+  }, [intakeDayId, intakeDayDate])
 
   useEffect(() => {
     if (manual) return
@@ -283,9 +284,10 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       params.set('fromBarcodeScan', '1')
       params.set('fromMealLog', '1')
       if (intakeDayId) params.set('intakeDayId', intakeDayId)
+      else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
       navigate(`/products/new?${params.toString()}`)
     },
-    [intakeDayId, navigate],
+    [intakeDayId, intakeDayDate, navigate],
   )
 
   const createFromBarcode = useCallback((barcode: string) => {
@@ -295,8 +297,9 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
       fromMealLog: '1',
     })
     if (intakeDayId) params.set('intakeDayId', intakeDayId)
+    else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
     navigate(`/products/new?${params.toString()}`)
-  }, [intakeDayId, navigate])
+  }, [intakeDayId, intakeDayDate, navigate])
 
   const restart = () => {
     lookupGenerationRef.current += 1
@@ -333,6 +336,7 @@ function ScanPageContent({ intakeDayId }: { intakeDayId: string | null }) {
                 onClick={() => {
                   const params = new URLSearchParams({ servingId: food.servingId })
                   if (intakeDayId) params.set('dayId', intakeDayId)
+                  else if (intakeDayDate) params.set('dayDate', intakeDayDate)
                   navigate(`/intakes/new?${params}`)
                 }}
                 className="rounded-lg border border-slate-300 p-3 text-left hover:bg-slate-50"
@@ -507,10 +511,14 @@ export default function ScanPage() {
   const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
     ? requestedDayId
     : null
+  const intakeDayDate = searchParams.get('mode') === 'intake' && !intakeDayId
+    ? searchParams.get('dayDate')
+    : null
   return (
     <ScanPageContent
-      key={JSON.stringify(intakeDayId ? ['intake', intakeDayId] : ['product'])}
+      key={JSON.stringify([intakeDayId, intakeDayDate])}
       intakeDayId={intakeDayId}
+      intakeDayDate={intakeDayDate}
     />
   )
 }

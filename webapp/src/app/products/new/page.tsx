@@ -93,6 +93,9 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
   const intakeDayId = fromBarcodeScan
     ? searchParams.get('intakeDayId')?.trim() || null
     : null
+  const intakeDayDate = fromBarcodeScan && !intakeDayId
+    ? searchParams.get('intakeDayDate')
+    : null
   const [form, setForm] = useState(() => initialForm(searchParams))
   const [saving, setSaving] = useState(false)
 
@@ -134,9 +137,10 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
         fibreG: form.fibreG ? parseFloat(form.fibreG) : null,
         saltG: form.saltG ? parseFloat(form.saltG) : null,
       })
-      if (fromMealLog || intakeDayId) {
+      if (fromMealLog || intakeDayId || intakeDayDate) {
         const params = new URLSearchParams()
         if (intakeDayId) params.set('dayId', intakeDayId)
+        else if (intakeDayDate) params.set('dayDate', intakeDayDate)
         params.set('productId', result.createFoodProduct.id)
         return `/intakes/new?${params.toString()}`
       }
