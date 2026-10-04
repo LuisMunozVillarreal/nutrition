@@ -593,7 +593,7 @@ test('new intake preserves a requested date and rejects blank or impossible date
   const view = render(React.createElement(NewIntakePage))
   await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
   assert.equal(screen.getByLabelText('Date').value, '2024-02-29')
-  assert.equal(screen.getByRole('link', { name: /Scan a product/ }).getAttribute('href'), '/scan?mode=intake&dayDate=2024-02-29')
+  assert.equal(screen.getByRole('link', { name: /Scan a product/ }).getAttribute('href'), '/scan?mode=intake&dayDate=2024-02-29&intakeMeal=breakfast&intakeNumServings=1.0')
   fireEvent.change(screen.getByLabelText('Date'), { target: { value: '' } })
   assert.equal(screen.getByLabelText('Date').getAttribute('aria-invalid'), 'true')
   assert.match(screen.getByRole('alert').textContent, /Enter a valid date/)

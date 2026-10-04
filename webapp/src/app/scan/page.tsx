@@ -111,7 +111,7 @@ const REQUIRED_NUTRIENTS: Array<
   'energyKcal' | 'proteinG' | 'fatG' | 'carbsG'
 > = ['energyKcal', 'proteinG', 'fatG', 'carbsG']
 
-function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string | null; intakeDayDate: string | null }) {
+function ScanPageContent({ intakeDayId, intakeDayDate, intakeDetails }: { intakeDayId: string | null; intakeDayDate: string | null; intakeDetails: string }) {
   const router = useRouter()
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
@@ -174,7 +174,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
       if (generation !== lookupGenerationRef.current || leavingRef.current) return
       const result = res.foodProductByBarcode
       if (result.product) {
-        const params = new URLSearchParams()
+        const params = new URLSearchParams(intakeDetails)
         if (intakeDayId) params.set('dayId', intakeDayId)
         else if (intakeDayDate) params.set('dayDate', intakeDayDate)
         params.set('productId', result.product.id)
@@ -191,11 +191,11 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
     } finally {
       if (generation === lookupGenerationRef.current) setSearching(false)
     }
-  }, [intakeDayId, intakeDayDate, navigate])
+  }, [intakeDayId, intakeDayDate, intakeDetails, navigate])
 
   useEffect(() => () => {
     lookupGenerationRef.current += 1
-  }, [intakeDayId, intakeDayDate])
+  }, [intakeDayId, intakeDayDate, intakeDetails])
 
   useEffect(() => {
     if (manual) return
@@ -274,7 +274,7 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
 
   const createFromDraft = useCallback(
     (draft: OpenFoodFactsDraft) => {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams(intakeDetails)
       for (const field of DRAFT_QUERY_FIELDS) {
         const value = draft[field]
         if (value !== null && value !== undefined) {
@@ -287,19 +287,18 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
       else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
       navigate(`/products/new?${params.toString()}`)
     },
-    [intakeDayId, intakeDayDate, navigate],
+    [intakeDayId, intakeDayDate, intakeDetails, navigate],
   )
 
   const createFromBarcode = useCallback((barcode: string) => {
-    const params = new URLSearchParams({
-      barcode,
-      fromBarcodeScan: '1',
-      fromMealLog: '1',
-    })
+    const params = new URLSearchParams(intakeDetails)
+    params.set('barcode', barcode)
+    params.set('fromBarcodeScan', '1')
+    params.set('fromMealLog', '1')
     if (intakeDayId) params.set('intakeDayId', intakeDayId)
     else if (intakeDayDate) params.set('intakeDayDate', intakeDayDate)
     navigate(`/products/new?${params.toString()}`)
-  }, [intakeDayId, intakeDayDate, navigate])
+  }, [intakeDayId, intakeDayDate, intakeDetails, navigate])
 
   const restart = () => {
     lookupGenerationRef.current += 1
@@ -334,7 +333,8 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
                 key={food.servingId}
                 type="button"
                 onClick={() => {
-                  const params = new URLSearchParams({ servingId: food.servingId })
+                  const params = new URLSearchParams(intakeDetails)
+                  params.set('servingId', food.servingId)
                   if (intakeDayId) params.set('dayId', intakeDayId)
                   else if (intakeDayDate) params.set('dayDate', intakeDayDate)
                   navigate(`/intakes/new?${params}`)
@@ -507,6 +507,13 @@ function ScanPageContent({ intakeDayId, intakeDayDate }: { intakeDayId: string |
 
 export default function ScanPage() {
   const searchParams = useSearchParams()
+  const intakeDetails = new URLSearchParams()
+  if (searchParams.get('mode') === 'intake') {
+    for (const field of ['intakeMeal', 'intakeNumServings']) {
+      const value = searchParams.get(field)
+      if (value !== null) intakeDetails.set(field, value)
+    }
+  }
   const requestedDayId = searchParams.get('dayId')?.trim()
   const intakeDayId = searchParams.get('mode') === 'intake' && requestedDayId
     ? requestedDayId
@@ -516,9 +523,10 @@ export default function ScanPage() {
     : null
   return (
     <ScanPageContent
-      key={JSON.stringify([intakeDayId, intakeDayDate])}
+      key={JSON.stringify([intakeDayId, intakeDayDate, intakeDetails.toString()])}
       intakeDayId={intakeDayId}
       intakeDayDate={intakeDayDate}
+      intakeDetails={intakeDetails.toString()}
     />
   )
 }

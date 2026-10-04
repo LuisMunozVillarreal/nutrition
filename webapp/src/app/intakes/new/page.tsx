@@ -85,15 +85,20 @@ function NewIntakeForm({
   dayDateFromQuery,
   productId,
   servingId,
+  mealFromQuery,
+  numServingsFromQuery,
 }: {
   dayIdFromQuery: string | null
   dayDateFromQuery: string | null
   productId: string | null
   servingId: string | null
+  mealFromQuery: string | null
+  numServingsFromQuery: string | null
 }) {
   const conflictingContext = Boolean(productId && servingId)
   const [form, setForm] = useState(() => ({
-    dayId: '', dayDate: dayDateFromQuery ?? localDateInputValue(), meal: 'breakfast', numServings: '1.0',
+    dayId: '', dayDate: dayDateFromQuery ?? localDateInputValue(),
+    meal: mealFromQuery ?? 'breakfast', numServings: numServingsFromQuery ?? '1.0',
     servingId: '', energyKcal: '', proteinG: '', fatG: '', carbsG: ''
   }))
   const [saving, setSaving] = useState(false)
@@ -171,6 +176,10 @@ function NewIntakeForm({
   }
 
   const parsedDate = new Date(`${form.dayDate}T00:00:00Z`)
+  const validMeal = MEAL_CHOICES.some((choice) => choice.value === form.meal)
+  const numServings = Number(form.numServings)
+  const validNumServings = /^\d*\.?\d+(?:e[+-]?\d+)?$/i.test(form.numServings)
+    && Number.isFinite(numServings) && numServings >= 0.1
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(form.dayDate)
     && !form.dayDate.startsWith('0000')
     && Number.isFinite(parsedDate.getTime())
@@ -178,9 +187,13 @@ function NewIntakeForm({
   const scanParams = new URLSearchParams({ mode: 'intake' })
   if (form.dayId) scanParams.set('dayId', form.dayId)
   else scanParams.set('dayDate', form.dayDate)
+  scanParams.set('intakeMeal', form.meal)
+  scanParams.set('intakeNumServings', form.numServings)
 
   const handleSave = async () => {
     if (!validDate) throw new Error('Enter a valid date.')
+    if (!validMeal) throw new Error('Select a valid meal.')
+    if (!validNumServings) throw new Error('Enter a valid number of servings (at least 0.1).')
     if (conflictingContext) {
       throw new Error('Choose either a product or a serving, not both')
     }
@@ -199,7 +212,7 @@ function NewIntakeForm({
           ...(form.dayId ? { dayId: parseInt(form.dayId, 10) } : { dayDate: form.dayDate }),
           foodId: selectedServingId,
           meal: form.meal,
-          numServings: parseFloat(form.numServings),
+          numServings,
         })
       } else {
         await graphqlRequest(CREATE_MUTATION, buildCustomIntakeVariables(form))
@@ -217,7 +230,7 @@ function NewIntakeForm({
       backHref={form.dayId ? `/days/${encodeURIComponent(form.dayId)}` : '/intakes'}
       onSave={handleSave}
       saving={saving}
-      disabled={contextLoading || Boolean(contextError) || !validDate}
+      disabled={contextLoading || Boolean(contextError) || !validDate || !validMeal || !validNumServings}
       fieldsets={[{
         title: 'Intake Details',
         content: (
@@ -235,13 +248,15 @@ function NewIntakeForm({
               </p>
               {!validDate && <p role="alert" className="text-red-600">Enter a valid date.</p>}
             </div>
-            {!contextLoading && !contextError && validDate && (
+            {!contextLoading && !contextError && validDate && validMeal && validNumServings && (
               <Link className="btn btn-secondary mb-4" href={`/scan?${scanParams}`}>
                 Scan a product or choose a frequent food
               </Link>
             )}
-            <SelectField label="Meal" name="meal" value={form.meal} onChange={handleChange} options={MEAL_CHOICES} required />
+            <SelectField label="Meal" name="meal" value={validMeal ? form.meal : ''} onChange={handleChange} options={MEAL_CHOICES} required />
+            {!validMeal && <p role="alert" className="text-red-600">Select a valid meal.</p>}
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
+            {!validNumServings && <p role="alert" className="text-red-600">Enter a valid number of servings (at least 0.1).</p>}
             {contextLoading && <p role="status">Loading intake details...</p>}
             {contextError && <p role="alert" className="text-red-600">{contextError}</p>}
             {product && (
@@ -294,13 +309,17 @@ export default function NewIntakePage() {
   const dayDateFromQuery = searchParams.get('dayDate')
   const productId = searchParams.get('productId')?.trim() || null
   const servingId = searchParams.get('servingId')?.trim() || null
+  const mealFromQuery = searchParams.get('intakeMeal')
+  const numServingsFromQuery = searchParams.get('intakeNumServings')
   return (
     <NewIntakeForm
-      key={JSON.stringify([dayIdFromQuery, dayDateFromQuery, productId, servingId])}
+      key={JSON.stringify([dayIdFromQuery, dayDateFromQuery, productId, servingId, mealFromQuery, numServingsFromQuery])}
       dayIdFromQuery={dayIdFromQuery}
       dayDateFromQuery={dayDateFromQuery}
       productId={productId}
       servingId={servingId}
+      mealFromQuery={mealFromQuery}
+      numServingsFromQuery={numServingsFromQuery}
     />
   )
 }
