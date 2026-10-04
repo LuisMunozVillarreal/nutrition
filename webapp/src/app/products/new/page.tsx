@@ -137,10 +137,10 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
         fibreG: form.fibreG ? parseFloat(form.fibreG) : null,
         saltG: form.saltG ? parseFloat(form.saltG) : null,
       })
-      if (fromMealLog || intakeDayId || intakeDayDate) {
+      if (fromMealLog || intakeDayId || intakeDayDate !== null) {
         const params = new URLSearchParams()
         if (intakeDayId) params.set('dayId', intakeDayId)
-        else if (intakeDayDate) params.set('dayDate', intakeDayDate)
+        else if (intakeDayDate !== null) params.set('dayDate', intakeDayDate)
         params.set('productId', result.createFoodProduct.id)
         // Intake quantity is separate from the product's package numServings.
         for (const field of ['intakeMeal', 'intakeNumServings']) {

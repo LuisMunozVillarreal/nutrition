@@ -338,7 +338,7 @@ test('new product prefills the form from scan query parameters', async () => {
   })
 })
 
-test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01']])('new product returns scanned intake %s after creation', async (selector, value, encoded) => {
+test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01'], ['Date', '', '']])('new product returns scanned intake %s after creation', async (selector, value, encoded) => {
   searchParams = new URLSearchParams([
     ['fromBarcodeScan', '1'],
     [`intakeDay${selector}`, value],

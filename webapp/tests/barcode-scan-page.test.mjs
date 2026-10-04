@@ -313,7 +313,7 @@ test('choosing a most-used food invalidates a pending manual lookup', async () =
   assert.deepEqual(push.mock.calls.map(([destination]) => destination), ['/intakes/new?servingId=s1'])
 })
 
-test.each([['dayId', 'day 7', 'day+7'], ['dayDate', '2026-10-01', '2026-10-01']])('most-used food preserves intake scanner %s', async (selector, value, encoded) => {
+test.each([['dayId', 'day 7', 'day+7'], ['dayDate', '2026-10-01', '2026-10-01'], ['dayDate', '', '']])('most-used food preserves intake scanner %s', async (selector, value, encoded) => {
   scanSearchParams = new URLSearchParams([['mode', 'intake'], [selector, value]])
   graphqlImpl = async () => ({
     mostUsedFoods: [{ servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 }],
@@ -371,7 +371,7 @@ test('meal scanner routes a detected local product to the intake form', async ()
   assert.deepEqual(stopCalls, [cameraResult])
 })
 
-test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01']])('intake scan routes a local product directly to the intake form %s', async (selector, value, encoded) => {
+test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01'], ['Date', '', '']])('intake scan routes a local product directly to the intake form %s', async (selector, value, encoded) => {
   scanSearchParams = new URLSearchParams([
     ['mode', 'intake'],
     [`day${selector}`, value],
@@ -616,7 +616,7 @@ test('scan page prefills the new product page from an OFF draft', async () => {
   )
 })
 
-test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01']])('intake scan preserves only its trusted day context for product creation %s', async (selector, value, encoded) => {
+test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01'], ['Date', '', '']])('intake scan preserves only its trusted day context for product creation %s', async (selector, value, encoded) => {
   scanSearchParams = new URLSearchParams([
     ['mode', 'intake'],
     [`day${selector}`, value],
@@ -769,7 +769,7 @@ test('scan page does not offer staff-only product creation to regular users', as
   assert.equal(buttonByText(container, 'Create product from this data'), undefined)
 })
 
-test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01']])('scan page reports unknown barcodes %s', async (selector, value, encoded) => {
+test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01'], ['Date', '', '']])('scan page reports unknown barcodes %s', async (selector, value, encoded) => {
   scanSearchParams = new URLSearchParams([
     ['mode', 'intake'],
     [`day${selector}`, value],
