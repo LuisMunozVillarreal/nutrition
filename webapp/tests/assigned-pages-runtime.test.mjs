@@ -536,12 +536,81 @@ test('edit goal updates, deletes, handles missing state, and logs fetch failures
   assert.deepEqual(consoleError.mock.calls[0], ['Failed to fetch goal', goalError])
 })
 
-test('intakes list is static guidance', async () => {
+test('intakes lists every plan day newest first with meal links and empty/error states', async () => {
+  const row = (id) => ({ id, meal: 'lunch', numServings: 2, energyKcal: 400, proteinG: 20, fatG: 10, carbsG: 30 })
+  responses = [{ weekPlans: [
+    { days: [{ day: '2024-01-01', intakes: [row('old')] }] },
+    { days: [{ day: '2026-10-04', intakes: [row('new')] }] },
+  ] }]
   render(React.createElement(IntakesPage))
-  await screen.findByText('Please browse to a specific Plan > Day to view and manage intakes.')
+  await waitForTableLoaded()
+  assert.equal(screen.getByRole('link', { name: 'Log a meal' }).getAttribute('href'), '/intakes/new')
+  assert.equal(screen.getByTestId('row-new').dataset.href, '/intakes/new')
+  assert.deepEqual(screen.getAllByTestId(/^row-/).map((node) => node.dataset.testid), ['row-new', 'row-old'])
+  assert.match(screen.getByTestId('row-new').textContent, /2026-10-04.*lunch.*2.*400.*20.*10.*30/)
+  assert.equal(screen.queryByText(/Please browse to a specific Plan/), null)
+  cleanup()
+  responses = [{ weekPlans: [] }]
+  render(React.createElement(IntakesPage))
+  await waitForTableLoaded()
+  assert.ok(screen.getByText('No intakes logged yet.'))
+  cleanup()
+  responses = [new Error('offline')]
+  render(React.createElement(IntakesPage))
+  await waitForTableLoaded()
+  assert.equal(screen.getByRole('alert').textContent, 'Unable to load intakes. Please try again.')
 })
 
-test('new intake defaults to today, offers owned days, and submits a selected common serving', async () => {
+test('intakes ignores late successful and failed loads after unmount', async () => {
+  for (const fail of [false, true]) {
+    const pending = deferred()
+    responses = [() => pending.promise]
+    const view = render(React.createElement(IntakesPage))
+    view.unmount()
+    await act(async () => { if (fail) pending.reject(new Error('offline')); else pending.resolve({ weekPlans: [] }) })
+  }
+})
+
+test('new intake logs a selected date without any existing plan days', async () => {
+  responses = [{ intakeDays: [] }, { createIntake: { id: 'new' } }]
+  render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
+  const today = new Date()
+  assert.equal(screen.getByLabelText('Date').value, [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-'))
+  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2025-06-10' } })
+  await act(async () => { await entityProps.onSave() })
+  assert.match(requests[1].operation, /\$dayId: Int, \$dayDate: String/)
+  assert.deepEqual(requests[1].variables, {
+    dayDate: '2025-06-10', meal: 'breakfast', numServings: 1,
+    energyKcal: 0, proteinG: 0, fatG: 0, carbsG: 0,
+  })
+  assert.equal(entityProps.backHref, '/intakes')
+})
+
+test('new intake preserves a requested date and rejects blank or impossible dates', async () => {
+  searchParams = new URLSearchParams({ dayDate: '2024-02-29' })
+  responses = [{ intakeDays: [] }]
+  const view = render(React.createElement(NewIntakePage))
+  await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
+  assert.equal(screen.getByLabelText('Date').value, '2024-02-29')
+  assert.equal(screen.getByRole('link', { name: /Scan a product/ }).getAttribute('href'), '/scan?mode=intake&dayDate=2024-02-29')
+  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '' } })
+  assert.equal(screen.getByLabelText('Date').getAttribute('aria-invalid'), 'true')
+  assert.match(screen.getByRole('alert').textContent, /Enter a valid date/)
+  assert.equal(screen.queryByRole('link', { name: /Scan a product/ }), null)
+  await assert.rejects(entityProps.onSave(), /Enter a valid date/)
+  assert.equal(requests.length, 1)
+  for (const dayDate of ['2025-02-29', '0000-01-01', 'not-a-date']) {
+    searchParams = new URLSearchParams({ dayDate })
+    responses = [{ intakeDays: [] }]
+    await act(async () => { view.rerender(React.createElement(NewIntakePage)) })
+    assert.equal(screen.queryByRole('status'), null)
+    assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
+    await assert.rejects(entityProps.onSave(), /Enter a valid date/)
+  }
+})
+
+test('new intake defaults to today and submits a common serving for the selected date', async () => {
   const today = new Date()
   const localToday = [
     today.getFullYear(),
@@ -565,18 +634,18 @@ test('new intake defaults to today, offers owned days, and submits a selected co
   ]
 
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '7'))
-  assert.match(screen.getByLabelText('Day').selectedOptions[0].textContent, new RegExp(String(today.getFullYear())))
+  await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
+  assert.equal(screen.getByLabelText('Date').value, localToday)
   assert.equal(screen.getByLabelText('Food').value, 'Farm Oats')
   assert.equal(screen.getByLabelText('Serving').value, '40 g')
 
-  fireEvent.change(screen.getByLabelText('Day'), { target: { value: '8' } })
+  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-05' } })
   fireEvent.change(screen.getByLabelText('Meal'), { target: { value: 'lunch' } })
   fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(requests.length, 2))
   assert.deepEqual(requests[1].variables, {
-    dayId: 8,
+    dayDate: '2026-09-05',
     foodId: 'serving/1',
     meal: 'lunch',
     numServings: 2.5,
@@ -614,7 +683,7 @@ test('new intake reports selected-serving, missing-day, and context failures', a
   searchParams = new URLSearchParams()
   responses = [{ weekPlans: [] }]
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.match(screen.getByRole('alert').textContent, /No plan days are available/))
+  await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
 
   cleanup()
   requests.length = 0
@@ -660,13 +729,14 @@ test('new intake renders an unbranded selected serving', async () => {
 })
 
 test('new intake submits parsed custom macro fields', async () => {
+  searchParams = new URLSearchParams({ dayId: '11' })
   const pending = deferred()
   responses = [
     { weekPlans: [{ days: [{ id: '11', day: '2026-09-04' }] }] },
     () => pending.promise,
   ]
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '11'))
+  await waitFor(() => assert.equal(screen.getByLabelText('Date').value, '2026-09-04'))
   fireEvent.change(screen.getByLabelText('Number of Servings'), { target: { value: '2.5' } })
   fireEvent.change(screen.getByLabelText('Energy (kcal)'), { target: { value: '250.5' } })
   fireEvent.change(screen.getByLabelText('Protein (g)'), { target: { value: '20.1' } })
@@ -698,7 +768,7 @@ test('new intake submits parsed custom macro fields', async () => {
     { createIntake: { id: 'i11' } },
   ]
   render(React.createElement(NewIntakePage))
-  await waitFor(() => assert.equal(screen.getByLabelText('Day').value, '7'))
+  await waitFor(() => assert.equal(screen.getByLabelText('Date').value, '2026-09-04'))
   fireEvent.submit(document.querySelector('form'))
   await waitFor(() => assert.equal(requests.length, 2))
   assert.equal(requests[1].variables.dayId, 7)
@@ -773,7 +843,7 @@ test('new intake remounts its trusted day and product context when query paramet
     ['productId', 'p2'],
   ])
   view.rerender(React.createElement(NewIntakePage))
-  assert.equal(screen.getByLabelText('Day').value, '')
+  assert.equal(screen.getByLabelText('Date').disabled, true)
   assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, true)
   assert.equal(screen.queryByText(/First/), null)
 

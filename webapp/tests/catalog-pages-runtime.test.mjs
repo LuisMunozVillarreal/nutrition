@@ -338,10 +338,10 @@ test('new product prefills the form from scan query parameters', async () => {
   })
 })
 
-test('new product returns scanned intake context after creation', async () => {
+test.each([['Id', 'day 7', 'day+7'], ['Date', '2026-10-01', '2026-10-01']])('new product returns scanned intake %s after creation', async (selector, value, encoded) => {
   searchParams = new URLSearchParams([
     ['fromBarcodeScan', '1'],
-    ['intakeDayId', 'day 7'],
+    [`intakeDay${selector}`, value],
     ['returnTo', 'https://attacker.example/'],
     ['barcode', '3017620422003'],
     ['name', 'Oats'],
@@ -364,7 +364,7 @@ test('new product returns scanned intake context after creation', async () => {
   })
   assert.equal(
     destination,
-    '/intakes/new?dayId=day+7&productId=product%2F1',
+    `/intakes/new?day${selector}=${encoded}&productId=product%2F1`,
   )
   assert.doesNotMatch(destination, /returnTo|attacker/)
 })
