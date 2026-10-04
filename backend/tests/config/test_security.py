@@ -236,6 +236,10 @@ def test_production_csrf_origins_derive_from_allowed_hosts():
         "ALLOWED_HOSTS": "example.com",
         "CSRF_TRUSTED_ORIGINS": "",
         "SECRET_KEY": "local-security-regression-key-with-plenty-of-entropy",
+        "HEALTH_SYNC_TOKEN_PEPPER": (
+            "independent-health-sync-regression-pepper-with-enough-entropy"
+        ),
+        "CACHE_URL": "redis://localhost:6379/1",
         "GEMINI_API_KEY": "local-test-key",
         "DATABASE_URL": "sqlite:///tmp/nutrition-settings-check.sqlite3",
         "COVERAGE_PROCESS_START": str(coverage_config),
