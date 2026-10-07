@@ -28,11 +28,9 @@
     <string name="account_connection_title">Nutrition account</string>
     <string name="health_permissions_title">Health Connect permissions</string>
     <string name="endpoint_label">Server address</string>
-    <string name="endpoint_helper">Enter the HTTPS address of your Nutrition website. Pairing calls /api/health-sync/pair/ on this server.</string>
-    <string name="pairing_code_label">Pairing code</string>
-    <string name="pairing_code_helper">On the Nutrition website, open Devices and select Pair Android phone. Enter the 12-digit code shown there; it expires after 10 minutes.</string>
+    <string name="endpoint_helper">Enter the HTTPS address of your Nutrition website. Sign in securely in your browser; automatic sync stays signed in.</string>
     <string name="device_name_label">Device name</string>
-    <string name="button_pair">Connect account</string>
+    <string name="button_pair">Sign in with Nutrition</string>
     <string name="button_health_settings">Open Health Connect</string>
     <string name="button_steps_permission">Allow step access</string>
     <string name="button_background_permission">Enable automatic sync</string>
@@ -41,9 +39,9 @@
     <string name="button_cancel">Cancel</string>
     <string name="button_confirm_unpair">Disconnect</string>
     <string name="unpair_title">Disconnect this device?</string>
-    <string name="unpair_message">Automatic sync will stop. You will need a new pairing code to connect this device again.</string>
+    <string name="unpair_message">This revokes access on the server and stops automatic sync. An internet connection is required. Sign in again to reconnect.</string>
     <string name="privacy_title">Privacy and permissions</string>
-    <string name="privacy_message">Nutrition currently reads only daily step totals from Health Connect. It sends the date, step total, and observation time; it does not send individual events or other health data. Background access is optional. The device token is encrypted with Android Keystore. You can revoke access in Health Connect or disconnect this device from Health data setup.</string>
+    <string name="privacy_message">Nutrition currently reads only daily step totals from Health Connect. It sends the date, step total, and observation time; it does not send individual events or other health data. Background access is optional. Sign-in opens your system browser. Short-lived access and renewable credentials are encrypted with Android Keystore, excluded from backups, and renewed silently for sync. You can revoke access in Health Connect or disconnect this device from Health data setup.</string>
     <string name="about_message">Nutrition connects Health Connect to your Nutrition account. This version syncs daily step totals, with support for more health data planned.\n\n%1$s</string>
     <string name="message_steps_granted">Step access allowed</string>
     <string name="message_steps_denied">Step access was not allowed</string>
