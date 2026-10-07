@@ -152,7 +152,7 @@ class HealthSyncDevice(BaseModel):
                 token_prefix=raw_token[:12],
                 revoked_at=None,
                 expires_at__gt=timezone.now(),
-            )
+            ).exclude(auth_grant__access_expires_at__lte=timezone.now())
         )
         peppers = [
             str(settings.HEALTH_SYNC_TOKEN_PEPPER),
@@ -190,6 +190,31 @@ class HealthSyncDevice(BaseModel):
         """Revoke this device credential."""
         self.revoked_at = timezone.now()
         self.save(update_fields=["revoked_at", "updated_at"])
+
+
+class HealthSyncAuthorization(BaseModel):
+    """Bind a single-use browser authorization to its initiating app."""
+
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    code_hash = models.CharField(max_length=64, unique=True)
+    challenge = models.CharField(max_length=43)
+    redirect_uri = models.CharField(max_length=120)
+    issuer = models.CharField(max_length=255)
+    device_name = models.CharField(max_length=120)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True)
+
+
+class HealthSyncGrant(BaseModel):
+    """Keep only hashed renewal credentials and bounded retry metadata."""
+
+    device = models.OneToOneField(
+        HealthSyncDevice, on_delete=models.CASCADE, related_name="auth_grant"
+    )
+    access_expires_at = models.DateTimeField()
+    refresh_hash = models.CharField(max_length=64, unique=True)
+    previous_refresh_hash = models.CharField(max_length=64, blank=True)
+    issuer = models.CharField(max_length=255)
 
 
 class StepImport(BaseModel):
