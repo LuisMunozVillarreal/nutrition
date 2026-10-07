@@ -148,12 +148,17 @@ afterEach(async () => {
 })
 
 test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
-  ['dayId', 'dayDate'].map((dayKey) => [path, dayKey]),
-))('meal and quantity survive the %s selection journey with %s', async (path, dayKey) => {
+  ['dayId', 'dayDate', 'today', 'continuation'].map((dayKey) => [path, dayKey]),
+))('food-first %s journey opens the details form with %s', async (path, dayKey) => {
   const { default: IntakePage } = await import('../src/app/intakes/new/page.tsx')
   const { default: ScanPage } = await import('../src/app/scan/page.tsx')
   const { default: ProductPage } = await import('../src/app/products/new/page.tsx')
-  scanSearchParams = new URLSearchParams({ [dayKey]: dayKey === 'dayId' ? '7' : '2026-10-01' })
+  scanSearchParams = new URLSearchParams({ mode: 'intake' })
+  if (dayKey !== 'today') scanSearchParams.set(dayKey === 'continuation' ? 'dayDate' : dayKey, dayKey === 'dayId' ? '7' : '2026-10-01')
+  if (dayKey === 'continuation') {
+    scanSearchParams.set('intakeMeal', 'dinner')
+    scanSearchParams.set('intakeNumServings', '3')
+  }
   const food = { servingId: 's1', foodId: 'f1', name: 'Oats', brand: null, servingSize: 40, servingUnit: 'g', useCount: 8 }
   const product = { id: 'p1', name: 'Oats', brand: null, size: 200, sizeUnit: 'g', servings: [{ id: 's1', servingSize: 40, servingUnit: 'serving' }] }
   graphqlImpl = async (operation) => {
@@ -169,14 +174,11 @@ test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
     if (operation.includes('CreateFoodProduct')) return { createFoodProduct: { id: 'p1' } }
     return { createIntake: { id: 'i1' } }
   }
-  mountedView = render(React.createElement(IntakePage))
+  mountedView = render(React.createElement(ScanPage))
   const container = mountedView.container
-  await settle(() => assert.ok(container.querySelector('a[href^="/scan?"]')))
-  fireEvent.change(container.querySelector('#meal'), { target: { value: 'lunch' } })
-  fireEvent.change(container.querySelector('#numServings'), { target: { value: '2' } })
-  const scanUrl = container.querySelector('a[href^="/scan?"]').getAttribute('href')
-  scanSearchParams = new URL(scanUrl).searchParams
-  await act(async () => { mountedView.rerender(React.createElement(ScanPage)) })
+  await settle(() => assert.ok(buttonByText(container, 'Oats')))
+  assert.equal(container.querySelector('h1').textContent, 'Log a meal')
+  assert.equal(container.querySelector('#dayDate'), null)
   if (path === 'frequent') {
     await act(async () => { buttonByText(container, 'Oats').click() })
   } else {
@@ -197,11 +199,23 @@ test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
   }
   scanSearchParams = new URL(push.mock.calls.at(-1)[0]).searchParams
   await act(async () => { mountedView.rerender(React.createElement(IntakePage)) })
+  const today = new Date()
+  const expectedDate = dayKey === 'today'
+    ? [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-')
+    : '2026-10-01'
+  assert.equal(container.querySelector('#dayDate').value, expectedDate)
+  assert.equal(container.querySelector('#meal').value, dayKey === 'continuation' ? 'dinner' : 'breakfast')
+  assert.equal(container.querySelector('#numServings').value, dayKey === 'continuation' ? '3' : '1.0')
+  assert.equal(container.querySelector('a[href^="/scan?"]') === null, true)
+  assert.doesNotMatch(container.textContent, /Scan a product or choose a frequent food/)
+  fireEvent.change(container.querySelector('#meal'), { target: { value: 'lunch' } })
+  fireEvent.change(container.querySelector('#numServings'), { target: { value: '2' } })
   // Assert the submitted mutation, not just query-string propagation.
   await act(async () => { fireEvent.submit(container.querySelector('form')) })
   assert.deepEqual(graphqlCalls.find(([operation]) => operation.includes('mutation CreateIntake'))[1], {
-    [dayKey]: dayKey === 'dayId' ? 7 : '2026-10-01', foodId: 's1', meal: 'lunch', numServings: 2,
+    ...(dayKey === 'dayId' ? { dayId: 7 } : { dayDate: expectedDate }), foodId: 's1', meal: 'lunch', numServings: 2,
   })
+  assert.equal(push.mock.calls.at(-1)[0], dayKey === 'dayId' ? '/days/7' : '/intakes')
 })
 
 test.each([
@@ -230,6 +244,77 @@ test.each([
   const variables = graphqlCalls.find(([operation]) => operation.includes('mutation CreateIntake'))[1]
   assert.equal(variables.meal, field === 'intakeMeal' ? 'dinner' : 'lunch')
   assert.equal(variables.numServings, field === 'intakeMeal' ? 2 : 2.5)
+})
+
+test.each([
+  [{}, 'unsupported'],
+  [{ dayId: '7', intakeMeal: 'dinner', intakeNumServings: '2' }, 'pending'],
+  [{ dayDate: '2026-10-01' }, 'unknown'],
+  [{ dayDate: '' }, 'unsupported'],
+])('meal chooser offers custom intake with context %j when camera is %s', async (context, camera) => {
+  session = { user: { isStaff: false } }
+  scanSearchParams = new URLSearchParams({ mode: 'intake', ...context })
+  supported = camera !== 'unsupported'
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  let resolveScan
+  scanResult = camera === 'pending' ? new Promise((resolve) => { resolveScan = resolve }) : '123'
+  graphqlImpl = async (operation) => {
+    if (operation.includes('MostUsedFoods')) return { mostUsedFoods: [] }
+    if (operation.includes('FoodProductByBarcode')) return { foodProductByBarcode: { product: null, openFoodFacts: null } }
+    if (operation.includes('IntakeContext')) return { intakeDays: [{ id: '7', day: '2026-10-01' }] }
+    return { createIntake: { id: 'i1' } }
+  }
+  const container = await mount()
+  await settle(() => assert.match(container.textContent, camera === 'pending' ? /Point the camera/ : camera === 'unknown' ? /No product found/ : /Camera barcode scanning is not available/))
+  const customButton = buttonByText(container, 'Enter a custom intake')
+  assert.ok(customButton)
+  await act(async () => { customButton.click() })
+  const destination = new URL(push.mock.calls.at(-1)[0])
+  assert.equal(destination.pathname, '/intakes/new')
+  assert.deepEqual(Object.fromEntries(destination.searchParams), context)
+  if (camera === 'pending') {
+    assert.equal(scanSignals[0].aborted, true)
+    assert.deepEqual(stopCalls, [cameraResult])
+    await act(async () => { resolveScan('123') })
+    assert.equal(push.mock.calls.length, 1)
+  }
+  scanSearchParams = destination.searchParams
+  const { default: IntakePage } = await import('../src/app/intakes/new/page.tsx')
+  await act(async () => { mountedView.rerender(React.createElement(IntakePage)) })
+  assert.ok(container.querySelector('#energyKcal'))
+  assert.equal(container.querySelector('a[href^="/scan?"]') === null, true)
+  if (context.dayDate === '') {
+    assert.equal(container.querySelector('#dayDate').value, '')
+    assert.equal(container.querySelector('[data-testid="save-btn"]').disabled, true)
+    await act(async () => { fireEvent.submit(container.querySelector('form')) })
+    assert.equal(graphqlCalls.some(([operation]) => operation.includes('mutation CreateIntake')), false)
+  } else {
+    const date = container.querySelector('#dayDate').value
+    fireEvent.change(container.querySelector('#energyKcal'), { target: { value: '250' } })
+    await act(async () => { fireEvent.submit(container.querySelector('form')) })
+    assert.deepEqual(graphqlCalls.find(([operation]) => operation.includes('mutation CreateIntake'))[1], {
+      ...(context.dayId ? { dayId: 7 } : { dayDate: date }),
+      meal: context.intakeMeal ?? 'breakfast', numServings: Number(context.intakeNumServings ?? 1),
+      energyKcal: 250, proteinG: 0, fatG: 0, carbsG: 0,
+    })
+  }
+})
+
+test('meal entry titles the existing chooser without changing the standalone scanner title', async () => {
+  const container = await mount()
+  await act(async () => {})
+  assert.equal(container.querySelector('h1').textContent, 'Scan Barcode')
+  assert.equal(buttonByText(container, 'Enter a custom intake'), undefined)
+  scanSearchParams = new URLSearchParams({ mode: 'intake' })
+  const { default: Page } = await import('../src/app/scan/page.tsx')
+  await act(async () => { mountedView.rerender(React.createElement(Page)) })
+  assert.equal(container.querySelector('h1').textContent, 'Log a meal')
+  assert.match(container.textContent, /Your most-used foods/)
+  assert.ok(container.querySelector('[data-testid="scanner-panel"]'))
+  assert.equal(container.querySelector('#dayDate'), null)
+  assert.equal(container.querySelector('#meal'), null)
+  assert.equal(container.querySelector('#numServings'), null)
 })
 
 test('meal scanner shows the three most-used foods above a half-width camera panel', async () => {

@@ -140,8 +140,8 @@ export default function EditDayPage() {
           columns={intakeColumns}
           data={intakes}
           rowHref={(r) => `/intakes/${r.id}`}
-          addHref={`/intakes/new?dayId=${encodeURIComponent(id)}`}
-          addLabel="Log Intake"
+          addHref={`/scan?mode=intake&dayId=${encodeURIComponent(id)}`}
+          addLabel="Log a meal"
           emptyMessage="No intakes logged for this day."
         />
       </div>

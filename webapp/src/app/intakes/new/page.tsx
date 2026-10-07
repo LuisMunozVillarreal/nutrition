@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { localDateInputValue } from '@/lib/dateInput'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -184,11 +183,6 @@ function NewIntakeForm({
     && !form.dayDate.startsWith('0000')
     && Number.isFinite(parsedDate.getTime())
     && parsedDate.toISOString().slice(0, 10) === form.dayDate
-  const scanParams = new URLSearchParams({ mode: 'intake' })
-  if (form.dayId) scanParams.set('dayId', form.dayId)
-  else scanParams.set('dayDate', form.dayDate)
-  scanParams.set('intakeMeal', form.meal)
-  scanParams.set('intakeNumServings', form.numServings)
 
   const handleSave = async () => {
     if (!validDate) throw new Error('Enter a valid date.')
@@ -248,11 +242,6 @@ function NewIntakeForm({
               </p>
               {!validDate && <p role="alert" className="text-red-600">Enter a valid date.</p>}
             </div>
-            {!contextLoading && !contextError && validDate && validMeal && validNumServings && (
-              <Link className="btn btn-secondary mb-4" href={`/scan?${scanParams}`}>
-                Scan a product or choose a frequent food
-              </Link>
-            )}
             <SelectField label="Meal" name="meal" value={validMeal ? form.meal : ''} onChange={handleChange} options={MEAL_CHOICES} required />
             {!validMeal && <p role="alert" className="text-red-600">Select a valid meal.</p>}
             <FormField label="Number of Servings" name="numServings" type="number" step="0.1" min="0.1" value={form.numServings} onChange={handleChange} required />
