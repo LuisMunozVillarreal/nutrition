@@ -68,7 +68,7 @@ export default function IntakesPage() {
       <DataTable
         columns={columns} data={rows} loading={loading}
         rowHref={(row) => `/intakes/${encodeURIComponent(row.id)}`}
-        addHref="/intakes/new" addLabel="Log a meal"
+        addHref="/scan?mode=intake" addLabel="Log a meal"
         emptyMessage={error ? 'Intakes could not be loaded.' : 'No intakes logged yet.'}
       />
     </div>

@@ -732,7 +732,7 @@ test('Dashboard skips fetching while unauthenticated and shows fallback empty st
   assert.match(document.body.textContent, /CurrentNot set/)
   assert.match(document.body.textContent, /GoalNot set/)
   assert.match(document.body.textContent, /No plan day found for today/)
-  assert.equal(screen.getByRole('link', { name: /Log a meal/ }).getAttribute('href'), '/intakes/new')
+  assert.equal(screen.getByRole('link', { name: /Log a meal/ }).getAttribute('href'), '/scan?mode=intake')
 
   // A dashboard payload with no body composition values shows the empty state.
   cleanup()
@@ -788,7 +788,7 @@ test('Dashboard renders today nutrition with a progress bar and scanner meal act
   assert.equal(screen.getByRole('progressbar').getAttribute('aria-valuemax'), '2000')
   assert.match(document.body.textContent, /4 entries logged today/)
   const mealLink = screen.getAllByRole('link').find(
-    (link) => link.getAttribute('href') === '/intakes/new?dayId=day-7',
+    (link) => link.getAttribute('href') === '/scan?mode=intake&dayId=day-7',
   )
   assert.ok(mealLink)
   assert.match(mealLink.textContent, /Log a meal/)

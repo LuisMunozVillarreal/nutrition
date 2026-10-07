@@ -309,7 +309,7 @@ test('day edit updates tracked flag, handles missing day, and logs fetch failure
   assert.deepEqual(requests[1].variables, { id: '42', tracked: true })
   assert.equal(screen.getByTestId('row-i1').dataset.href, '/intakes/i1')
   assert.equal(screen.queryByRole('link', { name: 'Scan Product' }), null)
-  assert.equal(screen.getByRole('link', { name: 'Log Intake' }).getAttribute('href'), '/intakes/new?dayId=42')
+  assert.equal(screen.getByRole('link', { name: 'Log a meal' }).getAttribute('href'), '/scan?mode=intake&dayId=42')
   cleanup()
   requests.length = 0
   responses = [{ day: null }, { updateDay: { id: '1' } }]
@@ -544,7 +544,7 @@ test('intakes lists every plan day newest first with meal links and empty/error 
   ] }]
   render(React.createElement(IntakesPage))
   await waitForTableLoaded()
-  assert.equal(screen.getByRole('link', { name: 'Log a meal' }).getAttribute('href'), '/intakes/new')
+  assert.equal(screen.getByRole('link', { name: 'Log a meal' }).getAttribute('href'), '/scan?mode=intake')
   assert.equal(screen.getByTestId('row-new').dataset.href, '/intakes/new')
   assert.deepEqual(screen.getAllByTestId(/^row-/).map((node) => node.dataset.testid), ['row-new', 'row-old'])
   assert.match(screen.getByTestId('row-new').textContent, /2026-10-04.*lunch.*2.*400.*20.*10.*30/)
@@ -593,7 +593,7 @@ test('new intake preserves a requested date and rejects blank or impossible date
   const view = render(React.createElement(NewIntakePage))
   await waitFor(() => assert.equal(screen.getByRole('button', { name: 'Save' }).disabled, false))
   assert.equal(screen.getByLabelText('Date').value, '2024-02-29')
-  assert.equal(screen.getByRole('link', { name: /Scan a product/ }).getAttribute('href'), '/scan?mode=intake&dayDate=2024-02-29&intakeMeal=breakfast&intakeNumServings=1.0')
+  assert.equal(screen.queryByRole('link', { name: /Scan a product/ }), null)
   fireEvent.change(screen.getByLabelText('Date'), { target: { value: '' } })
   assert.equal(screen.getByLabelText('Date').getAttribute('aria-invalid'), 'true')
   assert.match(screen.getByRole('alert').textContent, /Enter a valid date/)

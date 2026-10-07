@@ -131,8 +131,8 @@ export default function Dashboard() {
   const today = summary?.todayNutrition ?? null
   const todayIsCurrent = today !== null && isCurrentLocalDate(today.day)
   const mealLogHref = today && todayIsCurrent
-    ? `/intakes/new?${new URLSearchParams({ dayId: today.id })}`
-    : '/intakes/new'
+    ? `/scan?${new URLSearchParams({ mode: 'intake', dayId: today.id })}`
+    : '/scan?mode=intake'
   const currentWeight = latestMeasurement?.weight ?? summary?.latestWeight ?? null
   const currentBodyFat = latestMeasurement?.bodyFatPerc ?? summary?.latestBodyFat ?? null
   const firstName = response?.me?.firstName || session?.user?.name?.split(' ')[0] || 'Athlete'
