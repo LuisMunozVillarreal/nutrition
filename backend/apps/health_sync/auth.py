@@ -75,15 +75,26 @@ def authorize_device(request: HttpRequest) -> JsonResponse:
         return _response({"error": "Too many requests"}, 429)
     try:
         payload = _payload(request)
+        if not all(
+            isinstance(payload.get(key), str)
+            for key in (
+                "redirect_uri",
+                "code_challenge_method",
+                "code_challenge",
+                "state",
+                "device_name",
+            )
+        ):
+            raise ValueError("Invalid request")
         if (
             request.headers.get("Origin") != payload["issuer"]
             or payload.get("redirect_uri") not in REDIRECTS
             or payload.get("code_challenge_method") != "S256"
             or not OPAQUE.fullmatch(str(payload.get("code_challenge", "")))
-            or not OPAQUE.fullmatch(str(payload.get("state", "")))
-            or not isinstance(payload.get("device_name"), str)
-            or not 1 <= len(payload["device_name"].strip()) <= 120
+            or not OPAQUE.fullmatch(payload["state"])
         ):
+            raise ValueError("Invalid request")
+        if not 1 <= len(payload["device_name"].strip()) <= 120:
             raise ValueError("Invalid request")
         code = secrets.token_urlsafe(32)
         with transaction.atomic():

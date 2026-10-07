@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.core.content.edit
+import com.nutrition.healthsync.auth.PendingSignIn
 import com.nutrition.healthsync.network.HealthSyncJson
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -44,13 +44,16 @@ data class Pairing(
     val baseUrl: String,
     val token: String,
     val lastReceipt: SyncReceipt? = null,
+    val refreshToken: String? = null,
+    val accessExpiresAt: Long = 0,
+    val pendingRefreshToken: String? = null,
 )
 
 class SecurePairingStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     @SuppressLint("ApplySharedPref", "UseKtx")
-    fun save(pairing: Pairing) {
+    fun save(pairing: Pairing) = synchronized(STORE_LOCK) {
         require(pairing.token.isNotBlank()) { "The token cannot be empty" }
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
             init(Cipher.ENCRYPT_MODE, getOrCreateKey())
@@ -66,9 +69,10 @@ class SecurePairingStore(context: Context) {
         ) { "Could not save the pairing" }
     }
 
-    fun load(): Pairing? {
-        val iv = preferences.getString(KEY_IV, null) ?: return null
-        val ciphertext = preferences.getString(KEY_CIPHERTEXT, null) ?: return null
+    fun load(): Pairing? = synchronized(STORE_LOCK) {
+        val snapshot = preferences.all
+        val iv = snapshot[KEY_IV] as? String ?: return null
+        val ciphertext = snapshot[KEY_CIPHERTEXT] as? String ?: return null
         return runCatching {
             val cipher = Cipher.getInstance(TRANSFORMATION).apply {
                 init(
@@ -82,7 +86,7 @@ class SecurePairingStore(context: Context) {
             HealthSyncJson.codec.decodeFromString(Pairing.serializer(), plaintext)
                 .takeIf { it.baseUrl.isNotBlank() && it.token.isNotBlank() }
         }.getOrElse {
-            clear()
+            // A transient Keystore failure is not evidence of lost authorization.
             null
         }
     }
@@ -100,11 +104,39 @@ class SecurePairingStore(context: Context) {
         .map { load()?.lastReceipt }
         .flowOn(Dispatchers.IO)
 
-    fun clear() {
-        preferences.edit { clear() }
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    fun savePending(pending: PendingSignIn?) = synchronized(STORE_LOCK) {
+        val editor = preferences.edit()
+        if (pending == null) {
+            editor.remove("auth_iv").remove("auth_ciphertext")
+        } else {
+            val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+            }
+            val plaintext = HealthSyncJson.codec.encodeToString(PendingSignIn.serializer(), pending)
+            editor.putString("auth_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            editor.putString("auth_ciphertext", Base64.encodeToString(cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP))
+        }
+        check(editor.commit()) { "Could not save sign-in state" }
     }
 
-    private fun getOrCreateKey(): SecretKey {
+    fun pending(): PendingSignIn? = synchronized(STORE_LOCK) {
+        val snapshot = preferences.all
+        val iv = snapshot["auth_iv"] as? String ?: return null
+        val ciphertext = snapshot["auth_ciphertext"] as? String ?: return null
+        val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+            init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)))
+        }
+        val plaintext = cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)).toString(Charsets.UTF_8)
+        HealthSyncJson.codec.decodeFromString(PendingSignIn.serializer(), plaintext)
+    }
+
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    fun clear() = synchronized(STORE_LOCK) {
+        check(preferences.edit().clear().commit()) { "Could not remove saved sign-in" }
+    }
+
+    private fun getOrCreateKey(): SecretKey = synchronized(KEY_LOCK) {
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
 
@@ -124,6 +156,8 @@ class SecurePairingStore(context: Context) {
     }
 
     private companion object {
+        val STORE_LOCK = Any()
+        val KEY_LOCK = Any()
         const val PREFERENCES = "secure_health_sync_pairing"
         const val KEY_IV = "iv"
         const val KEY_CIPHERTEXT = "ciphertext"
