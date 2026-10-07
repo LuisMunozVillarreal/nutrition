@@ -8,6 +8,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TokenRenewalTest {
+    @Test fun `failed credential commit is recoverable by a fresh renewal instance`() = runBlocking {
+        var saved = Pairing("https://example.com", "old-access", refreshToken = "r".repeat(43))
+        var serverReplacement: String? = null
+        var failCommit = true
+        val exchange: suspend (Pairing, String) -> TokenResponse = { _, replacement ->
+            serverReplacement?.let { assertEquals(it, replacement) }
+            serverReplacement = replacement
+            TokenResponse("new-access", replacement, 900, "Bearer", "health-sync:steps")
+        }
+        fun renew() = TokenRenewal({ saved }, {
+            if (it.pendingRefreshToken == null && failCommit) throw IllegalStateException("Disk unavailable")
+            saved = it
+        }, exchange, { 1000 })
+        try { renew().active(); fail("Expected commit failure") } catch (_: IllegalStateException) { }
+        assertEquals(serverReplacement, saved.pendingRefreshToken)
+        assertEquals("r".repeat(43), saved.refreshToken)
+        failCommit = false
+        val result = renew().active()
+        assertEquals(serverReplacement, result.refreshToken)
+        assertNull(result.pendingRefreshToken)
+    }
+
+    @Test fun `failed pending commit prevents any server rotation`() = runBlocking {
+        var called = false
+        val renew = TokenRenewal(
+            { Pairing("https://example.com", "old", refreshToken = "r".repeat(43)) },
+            { throw IllegalStateException("Disk unavailable") },
+            { _, _ -> called = true; error("Must not send") }, { 1000 },
+        )
+        try { renew.active(); fail("Expected commit failure") } catch (_: IllegalStateException) { }
+        assertFalse(called)
+    }
+
     @Test fun `lost response preserves the exact durable replacement for a later retry`() = runBlocking {
         var saved = Pairing("https://example.com", "old-access", refreshToken = "r".repeat(43), accessExpiresAt = 0)
         var calls = 0

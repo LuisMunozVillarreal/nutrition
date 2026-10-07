@@ -49,19 +49,21 @@ servers so production configuration and scheduled sync remain untouched.
 
 Si los pasos no aparecen, actualiza Samsung Health y Health Connect, vuelve a comprobar los permisos y espera a que Samsung Health publique sus datos en Health Connect. Esta app no accede directamente al SDK privado de Samsung Health: Samsung Health es la fuente y Health Connect es la capa interoperable.
 
-## Vinculación
+## Browser sign-in
 
-La pantalla solicita:
+Enter the HTTPS server address and device name in Settings, then select **Sign in with Nutrition**. The server address must not contain `/api`, paths, a query, a fragment, or credentials. Reserved example: `https://example.com`.
 
-- URL base HTTPS, sin `/api`, rutas, consulta, fragmento ni credenciales. Ejemplo reservado: `https://example.com`.
-- Código numérico de vinculación de 12 dígitos y un solo uso.
-- Nombre del dispositivo.
+The system browser opens the Nutrition login page and then asks for explicit consent to upload daily step totals. It returns a single-use, five-minute code to this app. PKCE S256, a random state, the exact callback URI and the server origin bind the response to the initiating app. The app never receives the account password. Cancel in the browser consent page to decline access.
 
-Contrato de red:
+The app keeps pending sign-in state and credentials encrypted with Android Keystore, outside backups. Access tokens last 15 minutes. Before sync, the app silently rotates its narrowly scoped renewal credential. Renewal extends the device lifetime to 180 days from that renewal. A replacement is committed locally before the request; a lost response or failed final save can retry that exact replacement, including after process recreation. Sync, renewal and disconnect share a process-wide mutex. A lost initial code-exchange response requires starting sign-in again because authorization codes are single-use.
 
-- `POST {base}/api/health-sync/pair/`
-  - JSON: `{"code":"…","device_name":"…"}`
-  - Respuesta: `{"token":"…"}`; se ignoran metadatos adicionales.
+The production and sandbox apps use different callback schemes and separate encrypted storage. Existing manual-pairing credentials continue to sync without renewal; reconnect through browser sign-in to obtain renewable credentials. The legacy pairing endpoint remains available for older clients.
+
+Network contract:
+
+- `POST {base}/api/health-sync/authorize/`: explicit browser consent, account bearer authentication, matching Origin and S256 challenge.
+- `POST {base}/api/health-sync/token/`: code plus PKCE verifier, or renewal credential plus a durable replacement. Credentials are sent only in POST bodies.
+- `POST {base}/api/health-sync/revoke/`: revoke this device's access and renewal credentials.
 - `POST {base}/api/health-sync/steps/`
   - Cabecera: `Authorization: Bearer <token-limitado>`
   - JSON: `{"records":[{"date":"YYYY-MM-DD","steps":1234,"observed_at":"ISO-8601"}]}`
@@ -94,8 +96,6 @@ La aplicación:
 - permite eliminar la vinculación local y cancelar el trabajo periódico;
 - permite revocar permisos desde Health Connect.
 
-Eliminar la vinculación en el teléfono borra el token local, pero no revoca su
-registro en el servidor. Para una revocación completa, usa también
-**Disconnect** en la página de pasos de la aplicación web.
+For browser-connected devices, **Disconnect account** revokes both server credentials before clearing local data and cancelling periodic sync. It requires connectivity. You can also revoke the individual phone from **Devices** on the Nutrition website. Legacy manual-pairing credentials can only be removed locally by the phone; revoke their server record in **Devices** as well.
 
 Para publicación en Google Play, declara exactamente estos usos de datos y permisos en **Data safety** y en el formulario de acceso a Health Connect. La actividad de justificación atiende tanto `androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE` (Android 13) como `android.intent.action.VIEW_PERMISSION_USAGE` con la categoría `HEALTH_PERMISSIONS` (Android 14 o posterior).
