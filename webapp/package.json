@@ -66,7 +66,7 @@
       "serialize-javascript": "7.0.7"
     },
     "next": {
-      "sharp": "0.35.4"
+      "sharp": "0.35.5"
     }
   }
 }
