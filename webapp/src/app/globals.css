@@ -379,6 +379,11 @@ textarea.form-input {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .page-header {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
   .mobile-header {
     position: fixed;
     inset: 0 0 auto 0;

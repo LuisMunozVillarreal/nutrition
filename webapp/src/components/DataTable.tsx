@@ -76,7 +76,7 @@ export default function DataTable<T extends { id: string | number }>({
         </div>
       )}
 
-      <div className="glass-card rounded-xl overflow-hidden">
+      <div className="glass-card rounded-xl overflow-x-auto">
         {loading ? (
           <div className="p-12 text-center text-slate-500">Loading...</div>
         ) : sortedData.length === 0 ? (
