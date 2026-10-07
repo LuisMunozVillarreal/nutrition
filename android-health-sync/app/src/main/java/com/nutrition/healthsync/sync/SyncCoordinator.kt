@@ -1,6 +1,13 @@
 package com.nutrition.healthsync.sync
 
 import android.content.Context
+import com.nutrition.healthsync.BuildConfig
+import com.nutrition.healthsync.auth.BrowserSignIn
+import com.nutrition.healthsync.auth.TokenRenewal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 import com.nutrition.healthsync.domain.EndpointConfig
 import com.nutrition.healthsync.health.HealthConnectDataSource
@@ -59,7 +66,46 @@ class SyncCoordinator(context: Context) {
     private val pairingGuard = PairingOperationGuard()
     private val statusStore = applicationContext.getSharedPreferences(STATUS_PREFERENCES, Context.MODE_PRIVATE)
 
-    suspend fun pair(baseUrlInput: String, code: String, deviceName: String): Pairing {
+    private suspend fun <T> sessionOperation(block: suspend () -> T): T =
+        SESSION_MUTEX.withLock { withContext(Dispatchers.IO) { block() } }
+
+    private fun renewal() = TokenRenewal(pairingStore::load, pairingStore::save, api::refresh) { Instant.now().epochSecond }
+
+    suspend fun beginSignIn(origin: String, name: String): String = sessionOperation {
+        val pending = BrowserSignIn.start(origin, name, BuildConfig.APPLICATION_ID, Instant.now().epochSecond)
+        pairingStore.savePending(pending)
+        BrowserSignIn.browserUrl(pending)
+    }
+
+    suspend fun finishSignIn(callback: String): Boolean = sessionOperation {
+        val pending = pairingStore.pending() ?: throw SyncException("No sign-in is in progress. Start again.")
+        val code = BrowserSignIn.complete(pending, callback, Instant.now().epochSecond)
+        if (code == null) {
+            pairingStore.savePending(null)
+            return@sessionOperation false
+        }
+        val tokens = api.exchangeCode(pending, code)
+        pairingStore.save(Pairing(
+            pending.baseUrl, tokens.accessToken, refreshToken = tokens.refreshToken,
+            accessExpiresAt = Instant.now().epochSecond + tokens.expiresIn,
+        ))
+        pairingStore.savePending(null)
+        true
+    }
+
+    suspend fun disconnect() = sessionOperation {
+        val pairing = pairingStore.load()
+        if (pairing?.refreshToken != null) {
+            // Finish an ambiguous rotation first so revocation uses the current credential.
+            val active = if (pairing.pendingRefreshToken != null) renewal().active() else pairing
+            try { api.revoke(active) } catch (error: ApiException) {
+                if (error.statusCode != 400 && error.statusCode != 401) throw error
+            }
+        }
+        clearPairing()
+    }
+
+    suspend fun pair(baseUrlInput: String, code: String, deviceName: String): Pairing = sessionOperation {
         val operation = pairingGuard.snapshot()
         val baseUrl = EndpointConfig.normalize(baseUrlInput)
         require(code.trim().matches(Regex("\\d{12}"))) {
@@ -70,11 +116,11 @@ class SyncCoordinator(context: Context) {
         if (!pairingGuard.isCurrent(operation)) {
             throw SyncException("Pairing was cancelled before it completed")
         }
-        return Pairing(baseUrl, response.token).also(pairingStore::save)
+        Pairing(baseUrl, response.token).also(pairingStore::save)
     }
 
-    suspend fun syncNow(requireBackgroundPermission: Boolean = false): SyncResult {
-        val pairing = pairingStore.load() ?: throw SyncException("Connect this device first")
+    suspend fun syncNow(requireBackgroundPermission: Boolean = false): SyncResult = sessionOperation {
+        var pairing = pairingStore.load() ?: throw SyncException("Connect this device first")
         if (!health.isAvailable()) throw SyncException("Health Connect is unavailable")
         val granted = health.grantedPermissions()
         if (HealthConnectDataSource.READ_STEPS !in granted) {
@@ -87,10 +133,18 @@ class SyncCoordinator(context: Context) {
         val observedAt = Instant.now()
         val records = health.readDailySteps().map { it.toUploadRecord(observedAt) }
         val response = try {
-            api.uploadSteps(pairing.baseUrl, pairing.token, records)
+            pairing = renewal().active()
+            try {
+                api.uploadSteps(pairing.baseUrl, pairing.token, records)
+            } catch (error: ApiException) {
+                if (error.statusCode != 401 || pairing.refreshToken == null) throw error
+                pairing = renewal().active(force = true)
+                api.uploadSteps(pairing.baseUrl, pairing.token, records)
+            }
         } catch (error: ApiException) {
-            if (error.statusCode == 401) {
-                clearPairing()
+            if (error.statusCode == 401 || error.statusCode == 400) {
+                // Retain the encrypted credential/receipt. An ambiguous transport or
+                // persistence failure must not permanently destroy authorization.
                 PeriodicSyncScheduler.cancel(applicationContext)
                 throw SyncException(
                     "Pairing expired or was revoked. Connect this device again.",
@@ -121,12 +175,12 @@ class SyncCoordinator(context: Context) {
             putString(KEY_LAST_SYNC, receipt.acknowledgedAt)
             putInt(KEY_LAST_COUNT, response.summary.processed)
         }
-        return SyncResult(response.summary.processed, response.summary.skipped, observedAt)
+        SyncResult(response.summary.processed, response.summary.skipped, observedAt)
     }
 
     fun pairing(): Pairing? = pairingStore.load()
 
-    fun clearPairing() {
+    private fun clearPairing() {
         pairingGuard.invalidate()
         pairingStore.clear()
         statusStore.edit { clear() }
@@ -143,6 +197,7 @@ class SyncCoordinator(context: Context) {
     )
 
     private companion object {
+        val SESSION_MUTEX = Mutex()
         const val STATUS_PREFERENCES = "health_sync_status"
         const val KEY_LAST_SYNC = "last_sync"
         const val KEY_LAST_COUNT = "last_count"

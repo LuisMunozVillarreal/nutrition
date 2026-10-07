@@ -42,7 +42,6 @@ class SettingsActivity : ComponentActivity() {
 
     private lateinit var rootView: View
     private lateinit var endpointInput: EditText
-    private lateinit var codeInput: EditText
     private lateinit var deviceNameInput: EditText
     private lateinit var progress: LinearProgressIndicator
     private lateinit var healthSettingsButton: MaterialButton
@@ -69,7 +68,6 @@ class SettingsActivity : ComponentActivity() {
         setContentView(R.layout.activity_settings)
         rootView = findViewById(android.R.id.content)
         endpointInput = findViewById(R.id.input_endpoint)
-        codeInput = findViewById(R.id.input_pairing_code)
         deviceNameInput = findViewById<EditText>(R.id.input_device_name).apply {
             imeOptions = EditorInfo.IME_ACTION_DONE
         }
@@ -110,12 +108,13 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
         }
-        pairButton.setOnClickListener { pairDevice() }
+        pairButton.setOnClickListener { signIn() }
         unpairButton.setOnClickListener { confirmUnpair() }
         findViewById<MaterialButton>(R.id.btn_privacy).setOnClickListener { showPrivacy() }
         findViewById<MaterialButton>(R.id.btn_about).setOnClickListener { showAbout() }
 
         if (intent.action == ACTION_SHOW_PERMISSIONS_RATIONALE) showPrivacy()
+        handleSignInIntent(intent)
     }
 
     override fun onResume() {
@@ -143,23 +142,42 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
-    private fun pairDevice() {
-        val endpoint = endpointInput.text.toString()
-        val code = codeInput.text.toString()
-        val deviceName = deviceNameInput.text.toString()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSignInIntent(intent)
+    }
+
+    private fun handleSignInIntent(incoming: Intent) {
+        if (incoming.action != Intent.ACTION_VIEW) return
+        val callback = incoming.dataString ?: return
+        // Do not retain authorization codes in Activity state or later intents.
+        incoming.data = null
         lifecycleScope.launch {
             setBusy(true)
-            runCatching { coordinator.pair(endpoint, code, deviceName) }
-                .onSuccess {
-                    codeInput.text?.clear()
-                    PeriodicSyncScheduler.reconcile(this@SettingsActivity)
-                    setBusy(false)
-                    refreshState(getString(R.string.message_paired))
-                }
-                .onFailure { error ->
-                    setBusy(false)
-                    refreshState(pairingFailureMessage(error, endpoint))
-                }
+            try {
+                val connected = coordinator.finishSignIn(callback)
+                PeriodicSyncScheduler.reconcile(this@SettingsActivity)
+                refreshState(if (connected) getString(R.string.message_paired) else "Sign-in cancelled")
+            } catch (_: Exception) {
+                showMessage("Sign-in could not finish. Return to Settings and try again.")
+            } finally { setBusy(false) }
+        }
+    }
+
+    private fun signIn() {
+        val endpoint = endpointInput.text.toString()
+        val name = deviceNameInput.text.toString()
+        lifecycleScope.launch {
+            setBusy(true)
+            try {
+                val url = coordinator.beginSignIn(endpoint, name)
+                // ACTION_VIEW uses the system browser, never a credential-collecting WebView.
+                startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE))
+                showMessage("Finish sign-in in your browser. You can return here to cancel or retry.")
+            } catch (_: Exception) {
+                showMessage("Could not open sign-in. Check the HTTPS server address and device name.")
+            } finally { setBusy(false) }
         }
     }
 
@@ -169,9 +187,16 @@ class SettingsActivity : ComponentActivity() {
             .setMessage(R.string.unpair_message)
             .setNegativeButton(R.string.button_cancel, null)
             .setPositiveButton(R.string.button_confirm_unpair) { _, _ ->
-                coordinator.clearPairing()
-                PeriodicSyncScheduler.cancel(this)
-                refreshState(getString(R.string.message_unpaired))
+                lifecycleScope.launch {
+                    setBusy(true)
+                    try {
+                        coordinator.disconnect()
+                        PeriodicSyncScheduler.cancel(this@SettingsActivity)
+                        refreshState(getString(R.string.message_unpaired))
+                    } catch (_: Exception) {
+                        showMessage("Could not disconnect on the server. Retry when online, or revoke this phone in Nutrition Devices.")
+                    } finally { setBusy(false) }
+                }
             }
             .show()
     }

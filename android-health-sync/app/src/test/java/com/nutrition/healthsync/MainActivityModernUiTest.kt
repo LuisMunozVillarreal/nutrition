@@ -85,7 +85,8 @@ class MainActivityModernUiTest {
 
         assertEquals("Settings", toolbar.title)
         assertTrue(activity.findViewById<View>(R.id.input_endpoint) is EditText)
-        assertTrue(activity.findViewById<View>(R.id.input_pairing_code) is EditText)
+        assertNull(activity.findViewById<View>(R.id.input_pairing_code))
+        assertEquals("Sign in with Nutrition", activity.findViewById<MaterialButton>(R.id.btn_pair).text)
         activity.findViewById<MaterialButton>(R.id.btn_about).performClick()
         val aboutDialog = requireNotNull(ShadowDialog.getLatestDialog())
         val message = aboutDialog.findViewById<TextView>(android.R.id.message).text.toString()
@@ -97,17 +98,12 @@ class MainActivityModernUiTest {
         val activity = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
 
         val endpointInput = activity.findViewById<EditText>(R.id.input_endpoint)
-        val pairingInput = activity.findViewById<EditText>(R.id.input_pairing_code)
         val endpointLayout = endpointInput.parent.parent as TextInputLayout
-        val pairingLayout = pairingInput.parent.parent as TextInputLayout
         assertEquals("Server address", endpointLayout.hint)
         assertEquals(endpointLayout.hint, endpointInput.hint)
-        assertEquals(pairingLayout.hint, pairingInput.hint)
         assertFalse(endpointInput.hint.toString().contains("example.com"))
-        assertTrue(endpointLayout.helperText.toString().contains("/api/health-sync/pair/"))
-        assertFalse(pairingInput.hint.toString().contains("12 digits"))
-        assertTrue(pairingLayout.helperText.toString().contains("Devices"))
-        assertTrue(pairingLayout.helperText.toString().contains("Pair Android phone"))
+        assertTrue(endpointLayout.helperText.toString().contains("browser"))
+        assertNull(activity.findViewById<EditText>(R.id.input_pairing_code))
     }
 
     @Test

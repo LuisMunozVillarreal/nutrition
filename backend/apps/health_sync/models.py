@@ -150,6 +150,7 @@ class HealthSyncDevice(BaseModel):
         devices = list(
             cls.objects.filter(
                 token_prefix=raw_token[:12],
+                user__is_active=True,
                 revoked_at=None,
                 expires_at__gt=timezone.now(),
             ).exclude(auth_grant__access_expires_at__lte=timezone.now())

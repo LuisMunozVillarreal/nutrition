@@ -30,7 +30,15 @@
 
         <activity
             android:name=".SettingsActivity"
+            android:launchMode="singleTask"
             android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Native OAuth callbacks have no host. BrowserSignIn validates the exact path. -->
+                <data android:scheme="${applicationId}" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>

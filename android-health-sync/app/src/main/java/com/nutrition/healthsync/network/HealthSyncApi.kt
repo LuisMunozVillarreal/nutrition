@@ -1,5 +1,7 @@
 package com.nutrition.healthsync.network
 
+import com.nutrition.healthsync.auth.PendingSignIn
+import com.nutrition.healthsync.storage.Pairing
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -30,12 +32,42 @@ object HealthSyncRequestFactory {
 
 class HealthSyncApi(
     private val client: OkHttpClient = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .callTimeout(45, TimeUnit.SECONDS)
         .build(),
 ) {
+    private fun authRequest(baseUrl: String, action: String, payload: Map<String, String>): Request = Request.Builder()
+        .url("$baseUrl/api/health-sync/$action/")
+        .post(HealthSyncJson.codec.encodeToString(payload).toRequestBody("application/json; charset=utf-8".toMediaType()))
+        .build()
+
+    private suspend fun token(baseUrl: String, payload: Map<String, String>): TokenResponse =
+        execute(authRequest(baseUrl, "token", payload + ("issuer" to baseUrl))) { body ->
+            val response = HealthSyncJson.codec.decodeFromString<TokenResponse>(body)
+            response.validate()
+            response
+        }
+
+    suspend fun exchangeCode(pending: PendingSignIn, code: String): TokenResponse = token(pending.baseUrl, mapOf(
+        "grant_type" to "authorization_code", "code" to code,
+        "code_verifier" to pending.verifier, "redirect_uri" to pending.redirectUri,
+    ))
+
+    suspend fun refresh(pairing: Pairing, replacement: String): TokenResponse = token(pairing.baseUrl, mapOf(
+        "grant_type" to "refresh_token", "refresh_token" to checkNotNull(pairing.refreshToken),
+        "next_refresh_token" to replacement,
+    ))
+
+    suspend fun revoke(pairing: Pairing) {
+        execute(authRequest(pairing.baseUrl, "revoke", mapOf(
+            "issuer" to pairing.baseUrl, "refresh_token" to checkNotNull(pairing.refreshToken),
+        ))) { Unit }
+    }
+
     suspend fun pair(baseUrl: String, code: String, deviceName: String): PairResponse {
         val request = HealthSyncRequestFactory.pair(
             baseUrl,

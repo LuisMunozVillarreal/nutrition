@@ -22,6 +22,22 @@ data class PairRequest(
 data class PairResponse(val token: String)
 
 @Serializable
+class TokenResponse(
+    @SerialName("access_token") val accessToken: String,
+    @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("expires_in") val expiresIn: Long,
+    @SerialName("token_type") val tokenType: String,
+    val scope: String,
+) {
+    fun validate() {
+        require(accessToken.startsWith("nhs_") && refreshToken.matches(Regex("[A-Za-z0-9_-]{43}")) &&
+            expiresIn in 1..900 && tokenType == "Bearer" && scope == "health-sync:steps") {
+            "The server returned invalid sign-in credentials"
+        }
+    }
+}
+
+@Serializable
 data class StepsUploadRequest(val records: List<StepUploadRecord>)
 
 @Serializable
