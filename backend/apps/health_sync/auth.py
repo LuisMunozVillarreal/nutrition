@@ -23,6 +23,7 @@ from apps.health_sync.models import (
     HealthSyncAuthorization,
     HealthSyncDevice,
     HealthSyncGrant,
+    HealthSyncSpentRefresh,
     _pairing_digest,
     _token_digest,
     device_token_expiry,
@@ -188,6 +189,14 @@ def _token_hashes(token: str) -> dict[str, str]:
     }
 
 
+def _spent_digest(token: str) -> str:
+    """Fingerprint a high-entropy spent token independently of pepper rotation."""
+    # These fingerprints only detect reuse; they can never authorize a refresh.
+    return hashlib.sha256(
+        ("spent-refresh:" + token).encode("ascii")
+    ).hexdigest()
+
+
 def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
     """Rotate atomically, allowing only the identical durable replacement retry."""
     old = payload.get("refresh_token", "")
@@ -204,7 +213,12 @@ def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
     with transaction.atomic():
         candidate = HealthSyncGrant.objects.get(
             Q(refresh_hash__in=old_hashes)
-            | Q(previous_refresh_hash__in=old_hashes),
+            | Q(previous_refresh_hash__in=old_hashes)
+            | Q(
+                pk__in=HealthSyncSpentRefresh.objects.filter(
+                    token_hash__in=(*old_hashes, _spent_digest(old))
+                ).values("grant_id")
+            ),
             issuer=payload["issuer"],
         )
         User.objects.select_for_update().get(
@@ -220,6 +234,20 @@ def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
             pk=candidate.pk
         )
         if grant.refresh_hash in old_hashes:
+            if (
+                grant.previous_refresh_hash in new_hashes
+                or grant.spent_refreshes.filter(
+                    token_hash__in=(*new_hashes, _spent_digest(new))
+                ).exists()
+            ):
+                raise ValueError("Invalid grant")
+            # Keep every spent generation, including a predecessor created by
+            # the older schema. The family locks serialize history and rotation.
+            for digest in (_spent_digest(old), grant.previous_refresh_hash):
+                if digest:
+                    HealthSyncSpentRefresh.objects.get_or_create(
+                        grant=grant, token_hash=digest
+                    )
             grant.previous_refresh_hash = _token_digest(old)
             grant.refresh_hash = _token_digest(new)
         elif not (

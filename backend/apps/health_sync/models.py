@@ -162,24 +162,31 @@ class HealthSyncDevice(BaseModel):
                 for value in settings.HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS
             ],
         ]
-        matched: tuple[Self, str] | None = None
+        matched: Self | None = None
         for pepper in peppers:
             candidate = _token_digest(raw_token, pepper)
             for device in devices:
                 if hmac.compare_digest(device.token_hash, candidate):
-                    matched = (device, pepper)
+                    matched = device
         if matched is None:
             return None
 
-        device, matched_pepper = matched
-        rehash = matched_pepper != str(settings.HEALTH_SYNC_TOKEN_PEPPER)
-        if rehash:
-            device.token_hash = _token_digest(raw_token)
-        device.last_seen_at = timezone.now()
-        update_fields = ["last_seen_at", "updated_at"]
-        if rehash:
-            update_fields.append("token_hash")
-        device.save(update_fields=update_fields)
+        device = matched
+        current_hash = _token_digest(raw_token)
+        now = timezone.now()
+        # Compare-and-swap on the device row, not an unconditional stale save.
+        # Another authenticator may already have migrated this same credential;
+        # a refresh or revocation must instead win and reject this stale request.
+        if not cls.objects.filter(
+            pk=device.pk,
+            token_hash__in=(device.token_hash, current_hash),
+            revoked_at=None,
+            expires_at__gt=now,
+        ).update(token_hash=current_hash, last_seen_at=now, updated_at=now):
+            return None
+        device.token_hash = current_hash
+        device.last_seen_at = now
+        device.updated_at = now
         return device
 
     def mark_sync_success(self) -> None:
@@ -216,6 +223,25 @@ class HealthSyncGrant(BaseModel):
     refresh_hash = models.CharField(max_length=64, unique=True)
     previous_refresh_hash = models.CharField(max_length=64, blank=True)
     issuer = models.CharField(max_length=255)
+
+
+class HealthSyncSpentRefresh(BaseModel):
+    """Retain consumed credential digests until their device family is deleted."""
+
+    grant = models.ForeignKey(
+        HealthSyncGrant,
+        on_delete=models.CASCADE,
+        related_name="spent_refreshes",
+    )
+    token_hash = models.CharField(max_length=64, db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["grant", "token_hash"],
+                name="unique_spent_refresh_per_grant",
+            )
+        ]
 
 
 class StepImport(BaseModel):
