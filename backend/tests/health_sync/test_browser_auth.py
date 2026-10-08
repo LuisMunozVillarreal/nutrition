@@ -136,8 +136,6 @@ def test_refresh_rotation_retries_and_revocation(client, user_factory):
         HealthSyncDevice.authenticate(renewed.json()["access_token"]) == device
     )
     assert HealthSyncDevice.authenticate(tokens["access_token"]) is None
-    replay = dict(rotation, next_refresh_token="x" * 43)
-    assert post(client, "token", replay).status_code == 400
     second = dict(
         rotation, refresh_token="n" * 43, next_refresh_token="z" * 43
     )

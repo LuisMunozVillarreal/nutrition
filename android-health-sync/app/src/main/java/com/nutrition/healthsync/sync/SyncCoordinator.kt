@@ -4,6 +4,7 @@ import android.content.Context
 import com.nutrition.healthsync.BuildConfig
 import com.nutrition.healthsync.auth.BrowserSignIn
 import com.nutrition.healthsync.auth.TokenRenewal
+import com.nutrition.healthsync.auth.RenewalRejectedException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -94,13 +95,13 @@ class SyncCoordinator(context: Context) {
     }
 
     suspend fun disconnect() = sessionOperation {
-        val pairing = pairingStore.load()
+        val pairing = pairingStore.loadForDisconnect()
         if (pairing?.refreshToken != null) {
             // Finish an ambiguous rotation first so revocation uses the current credential.
             val active = if (pairing.pendingRefreshToken != null && !pairing.signInRequired) renewal().active() else pairing
-            try { api.revoke(active) } catch (error: ApiException) {
-                if (error.statusCode != 400 && error.statusCode != 401) throw error
-            }
+            // An unrecognized credential does not prove that its grant family
+            // was revoked. Keep local recovery state unless revocation succeeds.
+            api.revoke(active)
         }
         clearPairing()
     }
@@ -147,7 +148,7 @@ class SyncCoordinator(context: Context) {
                 // Renewal may already have persisted a newer credential snapshot.
                 pairingStore.load()?.let { pairingStore.save(it.copy(signInRequired = true)) }
             }
-            if (error.statusCode == 401 || error.statusCode == 400) {
+            if (error.statusCode == 401 || error is RenewalRejectedException) {
                 // Retain the encrypted credential/receipt. An ambiguous transport or
                 // persistence failure must not permanently destroy authorization.
                 PeriodicSyncScheduler.cancel(applicationContext)
