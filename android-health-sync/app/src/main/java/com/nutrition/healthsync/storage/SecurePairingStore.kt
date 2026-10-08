@@ -9,6 +9,8 @@ import android.util.Base64
 import com.nutrition.healthsync.auth.PendingSignIn
 import com.nutrition.healthsync.network.HealthSyncJson
 import java.security.KeyStore
+import java.util.UUID
+import java.util.WeakHashMap
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -64,16 +66,14 @@ class SecurePairingStore(context: Context) {
         val plaintext = HealthSyncJson.codec.encodeToString(Pairing.serializer(), pairing)
             .toByteArray(Charsets.UTF_8)
         val encrypted = cipher.doFinal(plaintext)
-        check(
-            preferences.edit()
-                .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-                .putString(KEY_CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .commit(),
-        ) { "Could not save the pairing" }
+        commitSnapshot(snapshot() + mapOf(
+            KEY_IV to Base64.encodeToString(cipher.iv, Base64.NO_WRAP),
+            KEY_CIPHERTEXT to Base64.encodeToString(encrypted, Base64.NO_WRAP),
+        ))
     }
 
     fun load(): Pairing? = synchronized(STORE_LOCK) {
-        val snapshot = preferences.all
+        val snapshot = snapshot()
         val iv = snapshot[KEY_IV] as? String ?: return null
         val ciphertext = snapshot[KEY_CIPHERTEXT] as? String ?: return null
         return runCatching {
@@ -94,12 +94,20 @@ class SecurePairingStore(context: Context) {
         }
     }
 
+    fun loadForDisconnect(): Pairing? = synchronized(STORE_LOCK) {
+        val pairing = load()
+        check(pairing != null || (!snapshot().containsKey(KEY_IV) && !snapshot().containsKey(KEY_CIPHERTEXT))) {
+            "Saved credentials are unavailable. Retry disconnect when they can be read, or revoke this device on the website."
+        }
+        pairing
+    }
+
     fun accountConnection(): AccountConnection = synchronized(STORE_LOCK) {
         val pairing = load()
         when {
             pairing?.signInRequired == true -> AccountConnection.SIGN_IN_REQUIRED
             pairing != null -> AccountConnection.CONNECTED
-            preferences.contains(KEY_IV) || preferences.contains(KEY_CIPHERTEXT) -> AccountConnection.UNAVAILABLE
+            snapshot().containsKey(KEY_IV) || snapshot().containsKey(KEY_CIPHERTEXT) -> AccountConnection.UNAVAILABLE
             else -> AccountConnection.DISCONNECTED
         }
     }
@@ -125,22 +133,23 @@ class SecurePairingStore(context: Context) {
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun savePending(pending: PendingSignIn?) = synchronized(STORE_LOCK) {
-        val editor = preferences.edit()
+        val values = snapshot().toMutableMap()
         if (pending == null) {
-            editor.remove("auth_iv").remove("auth_ciphertext")
+            values.remove("auth_iv")
+            values.remove("auth_ciphertext")
         } else {
             val cipher = Cipher.getInstance(TRANSFORMATION).apply {
                 init(Cipher.ENCRYPT_MODE, getOrCreateKey())
             }
             val plaintext = HealthSyncJson.codec.encodeToString(PendingSignIn.serializer(), pending)
-            editor.putString("auth_iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            editor.putString("auth_ciphertext", Base64.encodeToString(cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP))
+            values["auth_iv"] = Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
+            values["auth_ciphertext"] = Base64.encodeToString(cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
         }
-        check(editor.commit()) { "Could not save sign-in state" }
+        commitSnapshot(values)
     }
 
     fun pending(): PendingSignIn? = synchronized(STORE_LOCK) {
-        val snapshot = preferences.all
+        val snapshot = snapshot()
         val iv = snapshot["auth_iv"] as? String ?: return null
         val ciphertext = snapshot["auth_ciphertext"] as? String ?: return null
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
@@ -152,7 +161,23 @@ class SecurePairingStore(context: Context) {
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun clear() = synchronized(STORE_LOCK) {
-        check(preferences.edit().clear().commit()) { "Could not remove saved sign-in" }
+        commitSnapshot(emptyMap<String, String>())
+    }
+
+    // SharedPreferences publishes memory even when commit() fails. All store
+    // instances must keep reading the last confirmed snapshot in that process.
+    private fun snapshot(): Map<String, *> = failedWrites[preferences] ?: preferences.all.toMap()
+
+    @SuppressLint("ApplySharedPref", "UseKtx")
+    private fun commitSnapshot(values: Map<String, *>) {
+        failedWrites[preferences] = snapshot()
+        val editor = preferences.edit().clear()
+        values.forEach { (key, value) -> editor.putString(key, value as String) }
+        // Force disk I/O even if a failed commit already put these values in
+        // memory, including retrying a clear whose in-memory map is empty.
+        editor.putString("write_id", UUID.randomUUID().toString())
+        check(editor.commit()) { "Could not save sign-in state" }
+        failedWrites.remove(preferences)
     }
 
     private fun getOrCreateKey(): SecretKey = synchronized(KEY_LOCK) {
@@ -176,6 +201,7 @@ class SecurePairingStore(context: Context) {
 
     private companion object {
         val STORE_LOCK = Any()
+        val failedWrites = WeakHashMap<SharedPreferences, Map<String, *>>()
         val KEY_LOCK = Any()
         const val PREFERENCES = "secure_health_sync_pairing"
         const val KEY_IV = "iv"

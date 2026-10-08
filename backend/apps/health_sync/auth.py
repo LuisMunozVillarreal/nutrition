@@ -11,6 +11,7 @@ import secrets
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest, JsonResponse
@@ -27,6 +28,7 @@ from apps.health_sync.models import (
     device_token_expiry,
 )
 from apps.health_sync.views import _json_body, _pairing_rate_limited
+from apps.users.models import User
 from config.middleware import authenticated_request_user
 
 REDIRECTS = frozenset(
@@ -139,15 +141,24 @@ def _exchange(payload: dict[str, Any]) -> dict[str, Any]:
         .rstrip("=")
     )
     with transaction.atomic():
-        authorization = (
-            HealthSyncAuthorization.objects.select_for_update().get(
-                code_hash=_pairing_digest(str(payload.get("code", ""))),
-                issuer=payload["issuer"],
-                redirect_uri=payload.get("redirect_uri", ""),
-                consumed_at=None,
-                expires_at__gt=timezone.now(),
-                user__is_active=True,
-            )
+        # Resolve only the immutable owner before locking. Consent deletes codes
+        # under the owner lock, so revalidate the authorization after waiting.
+        candidate = HealthSyncAuthorization.objects.get(
+            code_hash=_pairing_digest(str(payload.get("code", ""))),
+            issuer=payload["issuer"],
+        )
+        user = User.objects.select_for_update().get(
+            pk=candidate.user_id, is_active=True
+        )
+        authorization = HealthSyncAuthorization.objects.select_for_update(
+            of=("self",)
+        ).get(
+            code_hash=_pairing_digest(str(payload.get("code", ""))),
+            issuer=payload["issuer"],
+            redirect_uri=payload.get("redirect_uri", ""),
+            consumed_at=None,
+            expires_at__gt=timezone.now(),
+            user_id=user.pk,
         )
         if not hmac.compare_digest(challenge, authorization.challenge):
             raise ValueError("Invalid grant")
@@ -166,7 +177,18 @@ def _exchange(payload: dict[str, Any]) -> dict[str, Any]:
         return _credentials(access, refresh)
 
 
-def _refresh(payload: dict[str, Any]) -> dict[str, Any]:
+def _token_hashes(token: str) -> dict[str, str]:
+    """Map accepted digests to the pepper needed for identical retry output."""
+    return {
+        _token_digest(token, str(pepper)): str(pepper)
+        for pepper in (
+            settings.HEALTH_SYNC_TOKEN_PEPPER,
+            *settings.HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS,
+        )
+    }
+
+
+def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
     """Rotate atomically, allowing only the identical durable replacement retry."""
     old = payload.get("refresh_token", "")
     new = payload.get("next_refresh_token", "")
@@ -178,13 +200,17 @@ def _refresh(payload: dict[str, Any]) -> dict[str, Any]:
         or old == new
     ):
         raise ValueError("Invalid grant")
-    old_hash, new_hash = _token_digest(old), _token_digest(new)
+    old_hashes, new_hashes = _token_hashes(old), _token_hashes(new)
     with transaction.atomic():
         candidate = HealthSyncGrant.objects.get(
-            Q(refresh_hash=old_hash) | Q(previous_refresh_hash=old_hash),
+            Q(refresh_hash__in=old_hashes)
+            | Q(previous_refresh_hash__in=old_hashes),
             issuer=payload["issuer"],
         )
-        device = HealthSyncDevice.objects.select_for_update().get(
+        User.objects.select_for_update().get(
+            pk=candidate.device.user_id, is_active=True
+        )
+        device = HealthSyncDevice.objects.select_for_update(of=("self",)).get(
             pk=candidate.device_id,
             revoked_at=None,
             expires_at__gt=timezone.now(),
@@ -193,17 +219,24 @@ def _refresh(payload: dict[str, Any]) -> dict[str, Any]:
         grant = HealthSyncGrant.objects.select_for_update().get(
             pk=candidate.pk
         )
-        if hmac.compare_digest(grant.refresh_hash, old_hash):
-            grant.previous_refresh_hash = old_hash
-            grant.refresh_hash = new_hash
+        if grant.refresh_hash in old_hashes:
+            grant.previous_refresh_hash = _token_digest(old)
+            grant.refresh_hash = _token_digest(new)
         elif not (
-            hmac.compare_digest(grant.previous_refresh_hash, old_hash)
-            and hmac.compare_digest(grant.refresh_hash, new_hash)
+            grant.previous_refresh_hash in old_hashes
+            and grant.refresh_hash in new_hashes
         ):
-            raise ValueError("Invalid grant")
+            # A recognized spent token proposing a different successor signals
+            # compromise. Return normally so the revocation is not rolled back.
+            device.revoke()
+            return None
         # A keyed PRF reproduces the access credential after a lost response;
         # neither the raw refresh nor the access token is stored server-side.
-        access = "nhs_" + _token_digest("access:" + new)
+        # Keep retry hashes at their original pepper until an actual rotation:
+        # changing them here would change the access credential on the next retry.
+        access = "nhs_" + _token_digest(
+            "access:" + new, new_hashes[grant.refresh_hash]
+        )
         device.token_hash = _token_digest(access)
         device.token_prefix = access[:12]
         device.expires_at = device_token_expiry()
@@ -236,7 +269,9 @@ def revoke_device(request: HttpRequest) -> JsonResponse:
     try:
         payload = _payload(request)
         grant = HealthSyncGrant.objects.get(
-            refresh_hash=_token_digest(str(payload.get("refresh_token", ""))),
+            refresh_hash__in=_token_hashes(
+                str(payload.get("refresh_token", ""))
+            ),
             issuer=payload["issuer"],
         )
         # UPDATE serializes with refresh's device lock. Revocation is monotonic.
@@ -259,12 +294,16 @@ def exchange_token(request: HttpRequest) -> JsonResponse:
         if payload.get("grant_type") == "authorization_code":
             return _response(_exchange(payload))
         if payload.get("grant_type") == "refresh_token":
-            return _response(_refresh(payload))
+            credentials = _refresh(payload)
+            if credentials is None:
+                return _response({"error": "invalid_grant"}, 400)
+            return _response(credentials)
         raise ValueError("Invalid grant")
     except (
         ValueError,
         HealthSyncAuthorization.DoesNotExist,
         HealthSyncGrant.DoesNotExist,
         HealthSyncDevice.DoesNotExist,
+        User.DoesNotExist,
     ):
         return _response({"error": "invalid_grant"}, 400)

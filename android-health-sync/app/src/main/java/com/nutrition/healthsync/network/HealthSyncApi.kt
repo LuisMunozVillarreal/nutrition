@@ -128,7 +128,7 @@ class HealthSyncApi(
         }
 }
 
-class ApiException(
+open class ApiException(
     message: String,
     val statusCode: Int? = null,
     val retryable: Boolean = false,

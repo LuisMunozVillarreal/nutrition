@@ -4,6 +4,11 @@ import com.nutrition.healthsync.network.TokenResponse
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.storage.Pairing
 
+/** A rejection at the token endpoint, not an upload validation failure. */
+class RenewalRejectedException(cause: ApiException) : ApiException(
+    "The renewal grant is no longer valid", cause.statusCode, cause = cause,
+)
+
 /** Caller holds the process-wide session mutex through refresh, upload and receipt commit. */
 class TokenRenewal(
     private val load: () -> Pairing?,
@@ -28,6 +33,7 @@ class TokenRenewal(
             // rate limits and server failures do not prove that access was revoked.
             if (error.statusCode == 400 || error.statusCode == 401) {
                 save(pairing.copy(signInRequired = true))
+                throw RenewalRejectedException(error)
             }
             throw error
         }
