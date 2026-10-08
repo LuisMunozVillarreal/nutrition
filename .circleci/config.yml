@@ -105,6 +105,12 @@ commands:
         type: string
     steps:
       - run:
+          name: Main deployment preflight
+          command: |
+            python3 .circleci/scripts/deployment_preflight.py \
+              --kustomization "<< parameters.kustomization_name >>" \
+              --namespace "<< parameters.target_namespace >>"
+      - run:
           name: Patch backend image first
           command: |
             set -Eeuo pipefail
@@ -318,6 +324,9 @@ jobs:
       - image: cimg/python:3.12
     steps:
       - checkout
+      - run:
+          name: Run main deployment preflight tests
+          command: python3 -m unittest discover -s .circleci/scripts -p 'test_deployment_preflight.py'
       - run:
           name: Run Helm chart contract tests
           working_directory: ~/project/backend
