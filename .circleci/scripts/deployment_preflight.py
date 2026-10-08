@@ -10,8 +10,10 @@ import base64
 import binascii
 import ipaddress
 import json
-import subprocess
+import subprocess  # nosec B404: Fixed kubectl argv; no shell invocation.
 import sys
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 REQUIRED_SECRET_KEYS = {
     "nutrition-gemini-api-key": ("gemini-api-key",),
@@ -30,13 +32,26 @@ class PreflightError(Exception):
     """An operator-facing diagnostic containing no resource values."""
 
 
-def read_resource(kind, name, namespace):
-    """Capture all kubectl output; never propagate raw errors or JSON."""
+def read_resource(kind: str, name: str, namespace: str) -> dict[str, Any]:
+    """Capture all kubectl output; never propagate raw errors or JSON.
+
+    Args:
+        kind: Resource kind selected by the preflight contract.
+        name: Resource name selected by the contract or CLI choices.
+        namespace: Namespace selected by the contract or CLI choices.
+
+    Returns:
+        The parsed resource object, whose nested fields need validation.
+
+    Raises:
+        PreflightError: If kubectl fails or returns an invalid resource object.
+    """
     message = (
         f"Cannot read {kind}/{name}; check existence and read permissions."
     )
     try:
-        result = subprocess.run(
+        # The executable and argv structure are fixed; callers use known names.
+        result = subprocess.run(  # nosec B603, B607
             [
                 "kubectl",
                 "get",
@@ -63,8 +78,20 @@ def read_resource(kind, name, namespace):
     return resource
 
 
-def decode_key(data, name, key):
-    """Decode only expected keys, reporting identifiers rather than values."""
+def decode_key(data: Mapping[str, Any], name: str, key: str) -> str:
+    """Decode only expected keys, reporting identifiers rather than values.
+
+    Args:
+        data: Unvalidated secret data from the resource JSON.
+        name: Secret identifier used in sanitized diagnostics.
+        key: Required key to decode.
+
+    Returns:
+        The nonempty UTF-8 value decoded from base64.
+
+    Raises:
+        PreflightError: If the key is absent, incorrectly encoded, or empty.
+    """
     if key not in data:
         raise PreflightError(f"Secret {name} is missing required key {key}.")
     try:
@@ -78,8 +105,16 @@ def decode_key(data, name, key):
     return value
 
 
-def check_preflight(kustomization, namespace):
-    """Fail before rollout mutations; resuming reconciliation is operator-owned."""
+def check_preflight(kustomization: str, namespace: str) -> None:
+    """Fail before rollout mutations; leave reconciliation resumes to operators.
+
+    Args:
+        kustomization: Main Flux target selected by the CLI choices.
+        namespace: Matching main namespace containing the required secrets.
+
+    Raises:
+        PreflightError: If resource reads, suspension, or secret checks fail.
+    """
     flux = read_resource(
         "kustomizations.kustomize.toolkit.fluxcd.io",
         kustomization,
@@ -111,17 +146,20 @@ def check_preflight(kustomization, namespace):
         values[name] = {key: decode_key(data, name, key) for key in keys}
 
     health = values["nutrition-health-sync-secrets"]
-    if (
-        health["token-pepper"]
-        == values["nutrition-django-secret-key"]["secret-key"]
-    ):
+    django_key = values["nutrition-django-secret-key"]["secret-key"]
+    if health["token-pepper"].startswith("$") or django_key.startswith("$"):
+        raise PreflightError(
+            "Health-sync token-pepper and Django secret-key must be literal "
+            "values, not environment references."
+        )
+    if health["token-pepper"] == django_key:
         raise PreflightError(
             "Health-sync token-pepper must be independent of Django secret-key."
         )
     try:
         for entry in health["trusted-proxy-cidrs"].split(","):
             cidr = entry.strip()
-            if "/" not in cidr or "%" in cidr:
+            if cidr != entry or "/" not in cidr or "%" in cidr:
                 raise ValueError
             network = ipaddress.ip_network(cidr)
             if network.prefixlen == 0:
@@ -133,8 +171,15 @@ def check_preflight(kustomization, namespace):
         ) from None
 
 
-def main(argv=None):
-    """Run preflight with fixed main targets and sanitized diagnostics."""
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run preflight with fixed main targets and sanitized diagnostics.
+
+    Args:
+        argv: CLI arguments, or None to use the process arguments.
+
+    Returns:
+        Zero when preflight passes, or one for a sanitized preflight failure.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kustomization", required=True, choices=MAIN_TARGETS)
     parser.add_argument("--namespace", required=True, choices=MAIN_TARGETS)
