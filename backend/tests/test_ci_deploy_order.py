@@ -14,7 +14,7 @@ def _run_first_patch(
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     """Run the real first-patch shell block against a fake kubectl."""
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
-    command = config["commands"]["rollout-compatible-images"]["steps"][0][
+    command = config["commands"]["rollout-compatible-images"]["steps"][1][
         "run"
     ]["command"]
     command = command.replace(
@@ -75,6 +75,12 @@ def test_stable_deploys_roll_backend_before_nullable_webapp():
     """Stable environments keep the old webapp until the backend is ready."""
     config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
     rollout = config["commands"]["rollout-compatible-images"]["steps"]
+    assert len(rollout) == 5
+    preflight = rollout[0]["run"]
+    assert preflight["name"] == "Main deployment preflight"
+    assert "deployment_preflight.py" in preflight["command"]
+    assert "kubectl patch" not in preflight["command"]
+    rollout = rollout[1:]
 
     first_patch = rollout[0]["run"]
     assert first_patch["name"] == "Patch backend image first"
