@@ -12,8 +12,8 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
-from django.db.models import Q
+from django.db import IntegrityError, transaction
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -23,6 +23,7 @@ from apps.health_sync.models import (
     HealthSyncAuthorization,
     HealthSyncDevice,
     HealthSyncGrant,
+    HealthSyncRefreshClaim,
     HealthSyncSpentRefresh,
     _pairing_digest,
     _token_digest,
@@ -169,6 +170,9 @@ def _exchange(payload: dict[str, Any]) -> dict[str, Any]:
             authorization.user, authorization.device_name
         )
         refresh = secrets.token_urlsafe(32)
+        if _refresh_candidates(refresh, _token_hashes(refresh)).exists():
+            raise ValueError("Invalid grant")
+        _claim_refresh(device, refresh)
         HealthSyncGrant.objects.create(
             device=device,
             refresh_hash=_token_digest(refresh),
@@ -197,6 +201,68 @@ def _spent_digest(token: str) -> str:
     ).hexdigest()
 
 
+def _refresh_candidates(
+    token: str, hashes: dict[str, str]
+) -> QuerySet[HealthSyncGrant]:
+    """Resolve every known family, including historical pre-upgrade ambiguity."""
+    return HealthSyncGrant.objects.filter(
+        Q(refresh_hash__in=hashes)
+        | Q(previous_refresh_hash__in=hashes)
+        | Q(
+            device_id__in=HealthSyncRefreshClaim.objects.filter(
+                fingerprint=_spent_digest(token)
+            ).values("device_id")
+        )
+        | Q(
+            pk__in=HealthSyncSpentRefresh.objects.filter(
+                token_hash__in=(*hashes, _spent_digest(token))
+            ).values("grant_id")
+        )
+    )
+
+
+def _claim_refresh(device: HealthSyncDevice, token: str) -> None:
+    """Arbitrate concurrent fresh claims without locking another family."""
+    try:
+        with transaction.atomic():
+            HealthSyncRefreshClaim.objects.create(
+                device=device, fingerprint=_spent_digest(token)
+            )
+    except IntegrityError as exc:
+        # Roll back the savepoint before translating; the caller also rolls
+        # back its rotation/code consumption, even inside an outer transaction.
+        raise ValueError("Invalid grant") from exc
+
+
+def _locked_refresh_grants(
+    token: str, hashes: dict[str, str], issuer: str
+) -> list[HealthSyncGrant]:
+    """Lock immutable family owners, devices, then grants in primary-key order."""
+    candidates = list(
+        _refresh_candidates(token, hashes)
+        .filter(issuer=issuer)
+        .values_list("pk", "device_id", "device__user_id")
+    )
+    # New writers reject known credentials globally, so they cannot expand this
+    # family set while we wait. Never acquire another owner's lock downstream.
+    list(
+        User.objects.select_for_update()
+        .filter(pk__in=[row[2] for row in candidates])
+        .order_by("pk")
+    )
+    list(
+        HealthSyncDevice.objects.select_for_update(of=("self",))
+        .filter(pk__in=[row[1] for row in candidates])
+        .order_by("pk")
+    )
+    return list(
+        HealthSyncGrant.objects.select_for_update(of=("self",))
+        .filter(pk__in=[row[0] for row in candidates])
+        .select_related("device__user")
+        .order_by("pk")
+    )
+
+
 def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
     """Rotate atomically, allowing only the identical durable replacement retry."""
     old = payload.get("refresh_token", "")
@@ -211,36 +277,25 @@ def _refresh(payload: dict[str, Any]) -> dict[str, Any] | None:
         raise ValueError("Invalid grant")
     old_hashes, new_hashes = _token_hashes(old), _token_hashes(new)
     with transaction.atomic():
-        candidate = HealthSyncGrant.objects.get(
-            Q(refresh_hash__in=old_hashes)
-            | Q(previous_refresh_hash__in=old_hashes)
-            | Q(
-                pk__in=HealthSyncSpentRefresh.objects.filter(
-                    token_hash__in=(*old_hashes, _spent_digest(old))
-                ).values("grant_id")
-            ),
-            issuer=payload["issuer"],
-        )
-        User.objects.select_for_update().get(
-            pk=candidate.device.user_id, is_active=True
-        )
-        device = HealthSyncDevice.objects.select_for_update(of=("self",)).get(
-            pk=candidate.device_id,
-            revoked_at=None,
-            expires_at__gt=timezone.now(),
-            user__is_active=True,
-        )
-        grant = HealthSyncGrant.objects.select_for_update().get(
-            pk=candidate.pk
-        )
+        grants = _locked_refresh_grants(old, old_hashes, payload["issuer"])
+        if len(grants) != 1:
+            # Ambiguous legacy ownership is compromise, not a lookup error.
+            # Commit every matching revocation, including inactive owners.
+            for ambiguous in grants:
+                ambiguous.device.revoke()
+            return None
+        grant = grants[0]
+        device = grant.device
+        if (
+            not device.user.is_active
+            or device.revoked_at is not None
+            or device.expires_at <= timezone.now()
+        ):
+            raise ValueError("Invalid grant")
         if grant.refresh_hash in old_hashes:
-            if (
-                grant.previous_refresh_hash in new_hashes
-                or grant.spent_refreshes.filter(
-                    token_hash__in=(*new_hashes, _spent_digest(new))
-                ).exists()
-            ):
+            if _refresh_candidates(new, new_hashes).exists():
                 raise ValueError("Invalid grant")
+            _claim_refresh(device, new)
             # Keep every spent generation, including a predecessor created by
             # the older schema. The family locks serialize history and rotation.
             for digest in (_spent_digest(old), grant.previous_refresh_hash):
@@ -296,16 +351,18 @@ def revoke_device(request: HttpRequest) -> JsonResponse:
         return _response({"error": "Too many requests"}, 429)
     try:
         payload = _payload(request)
-        grant = HealthSyncGrant.objects.get(
-            refresh_hash__in=_token_hashes(
-                str(payload.get("refresh_token", ""))
-            ),
-            issuer=payload["issuer"],
-        )
-        # UPDATE serializes with refresh's device lock. Revocation is monotonic.
-        HealthSyncDevice.objects.filter(pk=grant.device_id).update(
-            revoked_at=timezone.now(), updated_at=timezone.now()
-        )
+        token = str(payload.get("refresh_token", ""))
+        hashes = _token_hashes(token)
+        with transaction.atomic():
+            grants = _locked_refresh_grants(token, hashes, payload["issuer"])
+            if len(grants) != 1:
+                for ambiguous in grants:
+                    ambiguous.device.revoke()
+                return _response({"error": "invalid_grant"}, 400)
+            grant = grants[0]
+            if grant.refresh_hash not in hashes:
+                raise ValueError("Invalid grant")
+            grant.device.revoke()
         return _response({"revoked": True})
     except (ValueError, HealthSyncGrant.DoesNotExist):
         return _response({"error": "invalid_grant"}, 400)
@@ -329,6 +386,7 @@ def exchange_token(request: HttpRequest) -> JsonResponse:
         raise ValueError("Invalid grant")
     except (
         ValueError,
+        IntegrityError,
         HealthSyncAuthorization.DoesNotExist,
         HealthSyncGrant.DoesNotExist,
         HealthSyncDevice.DoesNotExist,
