@@ -244,6 +244,17 @@ class HealthSyncSpentRefresh(BaseModel):
         ]
 
 
+class HealthSyncRefreshClaim(BaseModel):
+    """Reserve each issued refresh fingerprint for one family until deletion."""
+
+    device = models.ForeignKey(
+        HealthSyncDevice,
+        on_delete=models.CASCADE,
+        related_name="refresh_claims",
+    )
+    fingerprint = models.CharField(max_length=64, unique=True)
+
+
 class StepImport(BaseModel):
     """Provenance and freshness metadata for an imported daily step total."""
 
