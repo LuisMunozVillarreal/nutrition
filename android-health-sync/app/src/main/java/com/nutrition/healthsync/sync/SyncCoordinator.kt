@@ -97,7 +97,7 @@ class SyncCoordinator(context: Context) {
         val pairing = pairingStore.load()
         if (pairing?.refreshToken != null) {
             // Finish an ambiguous rotation first so revocation uses the current credential.
-            val active = if (pairing.pendingRefreshToken != null) renewal().active() else pairing
+            val active = if (pairing.pendingRefreshToken != null && !pairing.signInRequired) renewal().active() else pairing
             try { api.revoke(active) } catch (error: ApiException) {
                 if (error.statusCode != 400 && error.statusCode != 401) throw error
             }
@@ -121,6 +121,7 @@ class SyncCoordinator(context: Context) {
 
     suspend fun syncNow(requireBackgroundPermission: Boolean = false): SyncResult = sessionOperation {
         var pairing = pairingStore.load() ?: throw SyncException("Connect this device first")
+        if (pairing.signInRequired) throw SyncException("Sign in again to connect this device")
         if (!health.isAvailable()) throw SyncException("Health Connect is unavailable")
         val granted = health.grantedPermissions()
         if (HealthConnectDataSource.READ_STEPS !in granted) {
@@ -142,6 +143,10 @@ class SyncCoordinator(context: Context) {
                 api.uploadSteps(pairing.baseUrl, pairing.token, records)
             }
         } catch (error: ApiException) {
+            if (error.statusCode == 401) {
+                // Renewal may already have persisted a newer credential snapshot.
+                pairingStore.load()?.let { pairingStore.save(it.copy(signInRequired = true)) }
+            }
             if (error.statusCode == 401 || error.statusCode == 400) {
                 // Retain the encrypted credential/receipt. An ambiguous transport or
                 // persistence failure must not permanently destroy authorization.
@@ -178,7 +183,11 @@ class SyncCoordinator(context: Context) {
         SyncResult(response.summary.processed, response.summary.skipped, observedAt)
     }
 
-    fun pairing(): Pairing? = pairingStore.load()
+    fun savedServerAddress(): String? = pairingStore.load()?.baseUrl
+
+    fun pairing(): Pairing? = pairingStore.load()?.takeUnless { it.signInRequired }
+
+    fun accountConnectionUpdates() = pairingStore.accountConnectionUpdates()
 
     private fun clearPairing() {
         pairingGuard.invalidate()
