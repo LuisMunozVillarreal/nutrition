@@ -94,6 +94,35 @@ class MainActivityModernUiTest {
     }
 
     @Test
+    fun `account card exposes a readable disconnected status before sign in`() {
+        val activity = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
+        val statusId = activity.resources.getIdentifier("text_account_status", "id", activity.packageName)
+        val status = activity.findViewById<TextView>(statusId)
+        org.junit.Assert.assertNotNull("Account status must be visible without relying on color", status)
+        awaitAccountStatus(activity, "Disconnected")
+        assertEquals(View.ACCESSIBILITY_LIVE_REGION_POLITE, status.accessibilityLiveRegion)
+        assertEquals("Sign in with Nutrition", activity.findViewById<MaterialButton>(R.id.btn_pair).text)
+        assertFalse(activity.findViewById<MaterialButton>(R.id.btn_unpair).isEnabled)
+    }
+
+    @Test
+    fun `unreadable saved credentials never appear connected or erase the envelope`() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = context.getSharedPreferences("secure_health_sync_pairing", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("iv", "broken-envelope").putString("ciphertext", "retain-me").commit()
+        try {
+            val controller = Robolectric.buildActivity(SettingsActivity::class.java).setup()
+            val activity = controller.get()
+            awaitAccountStatus(activity, "Unavailable")
+            assertEquals("retain-me", prefs.getString("ciphertext", null))
+            assertFalse(activity.findViewById<MaterialButton>(R.id.btn_unpair).isEnabled)
+            controller.pause().stop().destroy()
+        } finally {
+            prefs.edit().clear().commit()
+        }
+    }
+
+    @Test
     fun `settings fields use labels without overlapping edit text hints`() {
         val activity = Robolectric.buildActivity(SettingsActivity::class.java).setup().get()
 

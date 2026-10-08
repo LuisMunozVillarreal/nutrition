@@ -74,5 +74,7 @@ class TokenRenewalTest {
         saved = saved.copy(refreshToken = "r".repeat(43))
         try { renew.active(); fail("Expected rejection") } catch (_: ApiException) { }
         assertEquals("r".repeat(43), saved.refreshToken)
+        val persisted = com.nutrition.healthsync.network.HealthSyncJson.codec.encodeToString(Pairing.serializer(), saved)
+        assertTrue("Rejected renewal must persist a sign-in-required state", persisted.contains("\"signInRequired\":true"))
     }
 }

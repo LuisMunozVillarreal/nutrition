@@ -26,6 +26,12 @@
     <string name="settings_title">Health data setup</string>
     <string name="settings_subtitle">Connect this app to Nutrition and choose how Health Connect can share data.</string>
     <string name="account_connection_title">Nutrition account</string>
+    <string name="account_connected">Connected</string>
+    <string name="account_disconnected">Disconnected</string>
+    <string name="account_unavailable">Unavailable</string>
+    <string name="account_sign_in_required_description">Nutrition sign-in expired or was revoked. Sign in again to reconnect.</string>
+    <string name="account_unavailable_description">Saved Nutrition sign-in could not be read. Reopen Settings to retry or sign in again.</string>
+    <string name="button_sign_in_again">Sign in again</string>
     <string name="health_permissions_title">Health Connect permissions</string>
     <string name="endpoint_label">Server address</string>
     <string name="endpoint_helper">Enter the HTTPS address of your Nutrition website. Sign in securely in your browser; automatic sync stays signed in.</string>

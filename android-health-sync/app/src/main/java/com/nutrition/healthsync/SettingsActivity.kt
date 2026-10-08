@@ -8,6 +8,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
@@ -16,6 +17,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -25,6 +28,7 @@ import com.nutrition.healthsync.health.HealthConnectDataSource
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
+import com.nutrition.healthsync.storage.AccountConnection
 import kotlinx.coroutines.launch
 
 internal fun pairingFailureMessage(error: Throwable, baseUrlInput: String): String {
@@ -50,6 +54,7 @@ class SettingsActivity : ComponentActivity() {
     private lateinit var pairButton: MaterialButton
     private lateinit var unpairButton: MaterialButton
     private var busy = false
+    private var accountConnection = AccountConnection.DISCONNECTED
 
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
@@ -84,7 +89,7 @@ class SettingsActivity : ComponentActivity() {
         toolbar.setNavigationOnClickListener { finish() }
 
         if (savedInstanceState == null) {
-            coordinator.pairing()?.let { endpointInput.setText(it.baseUrl) }
+            coordinator.savedServerAddress()?.let { endpointInput.setText(it) }
             deviceNameInput.setText(
                 listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").trim(),
             )
@@ -113,6 +118,11 @@ class SettingsActivity : ComponentActivity() {
         findViewById<MaterialButton>(R.id.btn_privacy).setOnClickListener { showPrivacy() }
         findViewById<MaterialButton>(R.id.btn_about).setOnClickListener { showAbout() }
 
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                coordinator.accountConnectionUpdates().collect(::renderAccountConnection)
+            }
+        }
         if (intent.action == ACTION_SHOW_PERMISSIONS_RATIONALE) showPrivacy()
         handleSignInIntent(intent)
     }
@@ -126,7 +136,6 @@ class SettingsActivity : ComponentActivity() {
         lifecycleScope.launch {
             val available = health.availability() == HealthConnectClient.SDK_AVAILABLE
             val permissions = if (available) health.grantedPermissions() else emptySet()
-            val paired = coordinator.pairing() != null
             val supportsBackground = available && health.supportsBackgroundRead()
             val hasSteps = HealthConnectDataSource.READ_STEPS in permissions
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
@@ -135,11 +144,39 @@ class SettingsActivity : ComponentActivity() {
             backgroundPermissionButton.isEnabled = !busy && supportsBackground && !hasBackground
             backgroundPermissionButton.visibility = if (supportsBackground) View.VISIBLE else View.GONE
             pairButton.isEnabled = !busy
-            unpairButton.isEnabled = !busy && paired
+            updateAccountActions()
             healthSettingsButton.isEnabled = !busy
             PeriodicSyncScheduler.reconcile(this@SettingsActivity)
             message?.let(::showMessage)
         }
+    }
+
+    private fun renderAccountConnection(connection: AccountConnection) {
+        accountConnection = connection
+        val paired = connection == AccountConnection.CONNECTED
+        findViewById<TextView>(R.id.text_account_status).apply {
+            setText(when (connection) {
+                AccountConnection.CONNECTED -> R.string.account_connected
+                AccountConnection.DISCONNECTED -> R.string.account_disconnected
+                AccountConnection.UNAVAILABLE -> R.string.account_unavailable
+                AccountConnection.SIGN_IN_REQUIRED -> R.string.account_disconnected
+            })
+            contentDescription = getString(when (connection) {
+                AccountConnection.CONNECTED -> R.string.server_connected
+                AccountConnection.DISCONNECTED -> R.string.server_not_connected
+                AccountConnection.UNAVAILABLE -> R.string.account_unavailable_description
+                AccountConnection.SIGN_IN_REQUIRED -> R.string.account_sign_in_required_description
+            })
+            setTextColor(getColor(if (paired) R.color.account_connected else R.color.on_surface_variant))
+        }
+        updateAccountActions()
+    }
+
+    private fun updateAccountActions() {
+        pairButton.setText(if (accountConnection != AccountConnection.DISCONNECTED) R.string.button_sign_in_again else R.string.button_pair)
+        unpairButton.isEnabled = !busy && accountConnection in setOf(
+            AccountConnection.CONNECTED, AccountConnection.SIGN_IN_REQUIRED,
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -243,7 +280,7 @@ class SettingsActivity : ComponentActivity() {
         stepsPermissionButton.isEnabled = !value
         backgroundPermissionButton.isEnabled = !value
         healthSettingsButton.isEnabled = !value
-        unpairButton.isEnabled = !value && coordinator.pairing() != null
+        updateAccountActions()
     }
 
     private fun showMessage(message: String) {
