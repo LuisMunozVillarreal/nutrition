@@ -91,9 +91,8 @@ spec:
                   key: token-pepper-fallbacks
                   name: nutrition-health-sync-secrets
                   optional: true
-            # Traefik forwards to container-local nginx, which appends its peer.
             - name: HEALTH_SYNC_TRUSTED_PROXY_COUNT
-              value: "2"
+              value: "1"
             - name: HEALTH_SYNC_TRUSTED_PROXY_CIDRS
               valueFrom:
                 secretKeyRef:
