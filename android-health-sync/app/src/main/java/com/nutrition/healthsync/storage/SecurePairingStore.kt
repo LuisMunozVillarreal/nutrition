@@ -47,7 +47,10 @@ data class Pairing(
     val refreshToken: String? = null,
     val accessExpiresAt: Long = 0,
     val pendingRefreshToken: String? = null,
+    val signInRequired: Boolean = false,
 )
+
+enum class AccountConnection { CONNECTED, DISCONNECTED, UNAVAILABLE, SIGN_IN_REQUIRED }
 
 class SecurePairingStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -91,9 +94,27 @@ class SecurePairingStore(context: Context) {
         }
     }
 
-    fun receiptUpdates(): Flow<SyncReceipt?> = callbackFlow {
+    fun accountConnection(): AccountConnection = synchronized(STORE_LOCK) {
+        val pairing = load()
+        when {
+            pairing?.signInRequired == true -> AccountConnection.SIGN_IN_REQUIRED
+            pairing != null -> AccountConnection.CONNECTED
+            preferences.contains(KEY_IV) || preferences.contains(KEY_CIPHERTEXT) -> AccountConnection.UNAVAILABLE
+            else -> AccountConnection.DISCONNECTED
+        }
+    }
+
+    fun accountConnectionUpdates(): Flow<AccountConnection> = credentialChanges()
+        .map { accountConnection() }
+        .flowOn(Dispatchers.IO)
+
+    fun receiptUpdates(): Flow<SyncReceipt?> = credentialChanges()
+        .map { load()?.lastReceipt }
+        .flowOn(Dispatchers.IO)
+
+    private fun credentialChanges(): Flow<Unit> = callbackFlow {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == KEY_IV || key == KEY_CIPHERTEXT) trySend(Unit)
+            if (key == null || key == KEY_IV || key == KEY_CIPHERTEXT) trySend(Unit)
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
         trySend(Unit)
@@ -101,8 +122,6 @@ class SecurePairingStore(context: Context) {
             preferences.unregisterOnSharedPreferenceChangeListener(listener)
         }
     }.conflate()
-        .map { load()?.lastReceipt }
-        .flowOn(Dispatchers.IO)
 
     @SuppressLint("ApplySharedPref", "UseKtx")
     fun savePending(pending: PendingSignIn?) = synchronized(STORE_LOCK) {

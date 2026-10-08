@@ -45,7 +45,8 @@ object PeriodicSyncScheduler {
         val applicationContext = context.applicationContext
         val workManager = WorkManager.getInstance(applicationContext)
         val health = HealthConnectDataSource(applicationContext)
-        val paired = SecurePairingStore(applicationContext).load() != null
+        val paired = SecurePairingStore(applicationContext).accountConnection() ==
+            com.nutrition.healthsync.storage.AccountConnection.CONNECTED
         val canRun = paired && health.supportsBackgroundRead() &&
             health.grantedPermissions().containsAll(
                 setOf(
