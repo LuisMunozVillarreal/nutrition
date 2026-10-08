@@ -69,6 +69,84 @@ def test_credential_writers_lock_user_before_children(
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", ["refresh", "revoke", "rehash"])
+def test_access_rehash_cannot_overwrite_concurrent_credentials(
+    client, user_factory, settings, operation
+):
+    """Pause a real connection's stale write while another changes the device."""
+    if connection.vendor != "postgresql":
+        pytest.skip("PostgreSQL concurrency required")
+    settings.HEALTH_SYNC_TOKEN_PEPPER = "old-test-pepper"
+    settings.HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS = []
+    tokens = credentials(client, user_factory())
+    unrelated = credentials(client, user_factory())
+    settings.HEALTH_SYNC_TOKEN_PEPPER = "new-test-pepper"
+    settings.HEALTH_SYNC_TOKEN_PEPPER_FALLBACKS = ["old-test-pepper"]
+    selected = threading.Event()
+    resume = threading.Event()
+    authentication_pid = []
+
+    def authenticate():
+        def checkpoint(execute, sql, params, many, context):
+            if sql.startswith('UPDATE "health_sync_healthsyncdevice"'):
+                selected.set()
+                assert resume.wait(10)
+            return execute(sql, params, many, context)
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '8s'")
+                cursor.execute("SELECT pg_backend_pid()")
+                authentication_pid.append(cursor.fetchone()[0])
+            with connection.execute_wrapper(checkpoint):
+                return HealthSyncDevice.authenticate(tokens["access_token"])
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(authenticate)
+        try:
+            assert selected.wait(5)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_backend_pid()")
+                assert authentication_pid != [cursor.fetchone()[0]]
+            if operation == "refresh":
+                winner = rotate(client, tokens["refresh_token"], "b" * 43)
+                assert winner.status_code == 200
+            elif operation == "revoke":
+                response = post(
+                    client,
+                    "revoke",
+                    {
+                        "issuer": ISSUER,
+                        "refresh_token": tokens["refresh_token"],
+                    },
+                )
+                assert response.status_code == 200
+            else:
+                assert HealthSyncDevice.authenticate(tokens["access_token"])
+        finally:
+            resume.set()
+        result = future.result(timeout=10)
+
+    if operation == "refresh":
+        assert HealthSyncDevice.authenticate(winner.json()["access_token"])
+        assert result is None
+        assert HealthSyncDevice.authenticate(tokens["access_token"]) is None
+        assert (
+            rotate(client, tokens["refresh_token"], "b" * 43).json()
+            == winner.json()
+        )
+    elif operation == "revoke":
+        assert result is None
+        assert HealthSyncDevice.authenticate(tokens["access_token"]) is None
+    else:
+        assert result is not None
+        assert HealthSyncDevice.authenticate(tokens["access_token"])
+    assert HealthSyncDevice.authenticate(unrelated["access_token"])
+
+
+@pytest.mark.django_db(transaction=True)
 def test_consent_and_exchange_serialize_on_postgresql(client, user_factory):
     """Hold consent's owner lock until exchange blocks on another connection."""
     if connection.vendor != "postgresql":
