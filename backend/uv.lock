@@ -1222,7 +1222,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=11.1.0" },
     { name = "pint", specifier = ">=0.24.4" },
     { name = "psycopg2", specifier = ">=2.9.10" },
-    { name = "redis", specifier = ">=5,<7" },
+    { name = "redis", specifier = ">=5,<9" },
     { name = "requests", specifier = ">=2.33.0" },
     { name = "strawberry-django-auth", specifier = ">=0.378.4" },
     { name = "strawberry-graphql", extras = ["django"], specifier = ">=0.288.1" },
@@ -2116,7 +2116,7 @@ wheels = [
 
 [[package]]
 name = "strawberry-graphql"
-version = "0.315.7"
+version = "0.327.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cross-web" },
@@ -2125,9 +2125,9 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ae/6a/49ea67e9419d934c505835fdb8cae63eb13bf4a99575e1c0e91c3b239eeb/strawberry_graphql-0.315.7.tar.gz", hash = "sha256:cce4c30b22686d4420eef1da640c8644d03478489181da505acf93a48bb4a629", size = 223087, upload-time = "2026-05-19T16:50:26.284Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/bc/46565ecb8b814f41beaa8428dad5c9b4a6e21d78caea2936e03a579d8d6d/strawberry_graphql-0.327.2.tar.gz", hash = "sha256:ea9ce282d7407939650d6db252c85f100ccfcc608e5a8a4233ab77df24da52a2", size = 243537, upload-time = "2026-09-03T06:43:41.719Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/1e/2266df7e27a809de2eb610b644553b8d4cfb888c77db8c06b59d9378b6f7/strawberry_graphql-0.315.7-py3-none-any.whl", hash = "sha256:859c21b06c328357d935f5b735601e9f06342967033c9f1afe1db968aeabff24", size = 325535, upload-time = "2026-05-19T16:50:23.834Z" },
+    { url = "https://files.pythonhosted.org/packages/be/f9/5cd9c0d46c341f2006253b4c0bb14a7d7c9e142c5677c6b0a82a11f2133e/strawberry_graphql-0.327.2-py3-none-any.whl", hash = "sha256:fb058028319367032aeb91d8620222c581e85e9de2a2d69309579332632b8c4a", size = 347496, upload-time = "2026-09-03T06:43:40.436Z" },
 ]
 
 [package.optional-dependencies]
