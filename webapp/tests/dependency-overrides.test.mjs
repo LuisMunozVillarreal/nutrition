@@ -36,22 +36,23 @@ test.each([
   }
 });
 
-function minimatchFrom(modulePath) {
-  const loaded = require(modulePath);
-  return loaded.minimatch ?? loaded;
-}
+test("patched brace expansion remains compatible with every minimatch consumer", () => {
+  const lock = require("../package-lock.json");
+  const consumers = Object.entries(lock.packages).filter(
+    ([, metadata]) => metadata.dependencies?.minimatch,
+  );
+  assert.ok(consumers.length > 0, "the lockfile must contain minimatch consumers");
 
-test("patched brace expansion remains compatible with every legacy minimatch consumer", () => {
-  const consumers = [
-    minimatchFrom("minimatch"),
-    minimatchFrom("find-cypress-specs/node_modules/minimatch"),
-    minimatchFrom("mocha/node_modules/minimatch"),
-  ];
-
-  for (const minimatch of consumers) {
-    assert.equal(minimatch("alpha.js", "{alpha,beta}.js"), true);
-    assert.equal(minimatch("beta.js", "{alpha,beta}.js"), true);
-    assert.equal(minimatch("gamma.js", "{alpha,beta}.js"), false);
+  for (const [packagePath] of consumers) {
+    // Resolve like the actual consumer, regardless of npm's hoisting layout.
+    const consumerRequire = createRequire(
+      new URL(`../${packagePath}/package.json`, import.meta.url),
+    );
+    const loaded = consumerRequire("minimatch");
+    const minimatch = loaded.minimatch ?? loaded;
+    assert.equal(minimatch("alpha.js", "{alpha,beta}.js"), true, packagePath);
+    assert.equal(minimatch("beta.js", "{alpha,beta}.js"), true, packagePath);
+    assert.equal(minimatch("gamma.js", "{alpha,beta}.js"), false, packagePath);
   }
 });
 
