@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { test } from "vitest";
 
 const require = createRequire(import.meta.url);
@@ -36,6 +40,29 @@ test.each([
   }
 });
 
+test.each(["nanoid", "diff", "js-yaml", "serialize-javascript"])(
+  "%s overrides satisfy every installed consumer's declared range",
+  (dependency) => {
+    const lock = require("../package-lock.json");
+    const consumers = Object.entries(lock.packages).filter(
+      ([, metadata]) => metadata.dependencies?.[dependency],
+    );
+    assert.ok(consumers.length > 0, `the lockfile must contain ${dependency} consumers`);
+
+    for (const [packagePath] of consumers) {
+      const consumerPath = new URL(`../${packagePath}/package.json`, import.meta.url);
+      const consumerRequire = createRequire(consumerPath);
+      const consumer = consumerRequire(consumerPath.pathname);
+      const declaredRange = consumer.dependencies[dependency];
+      const installedVersion = consumerRequire(`${dependency}/package.json`).version;
+      assert.ok(
+        semver.satisfies(installedVersion, declaredRange),
+        `${consumer.name} requires ${dependency}@${declaredRange}, resolved ${installedVersion}`,
+      );
+    }
+  },
+);
+
 test("patched brace expansion remains compatible with every minimatch consumer", () => {
   const lock = require("../package-lock.json");
   const consumers = Object.entries(lock.packages).filter(
@@ -53,6 +80,51 @@ test("patched brace expansion remains compatible with every minimatch consumer",
     assert.equal(minimatch("alpha.js", "{alpha,beta}.js"), true, packagePath);
     assert.equal(minimatch("beta.js", "{alpha,beta}.js"), true, packagePath);
     assert.equal(minimatch("gamma.js", "{alpha,beta}.js"), false, packagePath);
+  }
+});
+
+test("YAML overrides preserve legacy ESLint and modern config loaders", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nutrition-yaml-"));
+  try {
+    const configPath = path.join(directory, "config.yaml");
+    writeFileSync(configPath, "rules:\n  eqeqeq: error\n");
+    const { Legacy } = require("@eslint/eslintrc");
+    const configs = new Legacy.ConfigArrayFactory().loadFile(configPath);
+    assert.equal(configs[0].rules.eqeqeq, "error");
+
+    const { cosmiconfigSync } = require("cosmiconfig");
+    const loaded = cosmiconfigSync("nutrition").load(configPath);
+    assert.equal(loaded.config.rules.eqeqeq, "error");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Mocha loads YAML and renders assertion diffs from parallel workers", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "nutrition-mocha-"));
+  try {
+    const configPath = path.join(directory, ".mocharc.yaml");
+    const testPath = path.join(directory, "probe.cjs");
+    writeFileSync(configPath, "reporter: spec\ncolor: false\n");
+    writeFileSync(testPath, [
+      'const assert = require("node:assert/strict");',
+      'it("passes in a worker", () => assert.equal(1, 1));',
+      'it("renders a diff", () => assert.equal("actual meal", "expected meal"));',
+    ].join("\n"));
+    const result = spawnSync(process.execPath, [
+      require.resolve("mocha/bin/mocha.js"),
+      "--config", configPath,
+      "--parallel", "--jobs", "2",
+      testPath,
+    ], { cwd: directory, encoding: "utf8", timeout: 20_000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stdout, /1 passing/);
+    assert.match(result.stdout, /1 failing/);
+    assert.match(result.stdout, /-actual meal/);
+    assert.match(result.stdout, /\+expected meal/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

@@ -50,21 +50,17 @@
     "brace-expansion@>=3": "5.0.9",
     "find-cypress-specs": "1.54.12",
     "flatted": "3.4.4",
-    "js-yaml": "4.3.0",
+    "js-yaml@4": "4.3.2",
     "lodash": "4.18.1",
     "picomatch@2": "2.3.2",
     "picomatch@>=3": "4.0.7",
     "postcss": "8.5.31",
-    "nanoid": "3.3.18",
+    "nanoid": "3.3.20",
     "systeminformation": "5.33.1",
     "tmp": "0.2.7",
     "tsx": "4.23.1",
     "@actions/http-client": {
       "undici": "6.28.0"
-    },
-    "mocha": {
-      "diff": "8.0.4",
-      "serialize-javascript": "7.0.7"
     },
     "next": {
       "sharp": "0.35.5"
