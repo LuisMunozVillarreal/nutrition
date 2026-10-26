@@ -40,7 +40,7 @@ test.each([
   }
 });
 
-test.each(["nanoid", "diff", "js-yaml", "serialize-javascript"])(
+test.each(["nanoid", "diff", "js-yaml", "serialize-javascript", "eslint-plugin-react-hooks"])(
   "%s overrides satisfy every installed consumer's declared range",
   (dependency) => {
     const lock = require("../package-lock.json");

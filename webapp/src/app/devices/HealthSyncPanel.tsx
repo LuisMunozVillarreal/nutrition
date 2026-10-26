@@ -51,16 +51,10 @@ export default function HealthSyncPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadDevices = useCallback(async () => {
-    try {
-      const data = await graphqlRequest<{ healthSyncDevices: HealthSyncDevice[] }>(
-        DEVICES_QUERY,
-      )
-      setDevices(data.healthSyncDevices)
-    } catch {
-      setError('Could not load paired health devices.')
-    }
-  }, [])
+  const loadDevices = useCallback(() =>
+    graphqlRequest<{ healthSyncDevices: HealthSyncDevice[] }>(DEVICES_QUERY)
+      .then((data) => { setDevices(data.healthSyncDevices) })
+      .catch(() => { setError('Could not load paired health devices.') }), [])
 
   useEffect(() => { void loadDevices() }, [loadDevices])
 

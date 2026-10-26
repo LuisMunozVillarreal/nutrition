@@ -105,7 +105,6 @@ export default function Sidebar() {
     // Intentional reset: the drawer must close when navigation changes the
     // route. This is a response to an external change (usePathname), not a
     // cascading render, so the effect is the correct synchronization point.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMenuOpen(false)
     focusMainContent()
   }, [pathname])

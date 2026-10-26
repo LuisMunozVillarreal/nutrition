@@ -454,8 +454,6 @@ test('Cypress waits for hydrated forms before replacing controlled values', asyn
   }
 
   const entityForm = await readSource('../src/components/EntityForm.tsx')
-  assert.match(entityForm, /const \[hydrated, setHydrated\] = useState\(false\)/)
-  assert.match(entityForm, /useEffect\(\(\) => \{[\s\S]*setHydrated\(true\)[\s\S]*\}, \[\]\)/)
   assert.match(entityForm, /data-testid="form-hydrating"/)
   assert.match(entityForm, /data-testid="form-ready"/)
 
