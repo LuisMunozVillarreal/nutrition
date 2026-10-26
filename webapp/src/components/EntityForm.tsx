@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, ReactNode, FormEvent } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, ReactNode, FormEvent } from 'react'
 import { Save, ArrowLeft, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface FieldsetConfig {
@@ -32,6 +32,10 @@ function errorMessage(error: unknown, fallback = 'An error occurred'): string {
   return fallback
 }
 
+const subscribeToHydration = () => () => {}
+const clientHydrationSnapshot = () => true
+const serverHydrationSnapshot = () => false
+
 export default function EntityForm({
   title,
   backHref,
@@ -43,14 +47,13 @@ export default function EntityForm({
   children,
 }: EntityFormProps) {
   const router = useRouter()
-  const [hydrated, setHydrated] = useState(false)
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientHydrationSnapshot, serverHydrationSnapshot)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const activeRef = useRef(false)
 
   useEffect(() => {
     activeRef.current = true
-    setHydrated(true)
     return () => { activeRef.current = false }
   }, [])
 

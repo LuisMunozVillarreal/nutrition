@@ -115,6 +115,32 @@ vi.doMock('graphql-request', () => ({
   },
 }))
 
+test('entity form hydrates its server loading state without a mismatch', async () => {
+  const { renderToString } = await import('react-dom/server')
+  const { hydrateRoot } = await import('react-dom/client')
+  const element = React.createElement(EntityForm, {
+    title: 'Hydrated form', backHref: '/items', onSave: async () => {}, fieldsets: [],
+  })
+  const container = document.createElement('div')
+  container.innerHTML = renderToString(element)
+  assert.ok(container.querySelector('[data-testid="form-hydrating"]'))
+  assert.equal(container.querySelector('form'), null)
+  document.body.append(container)
+  const errors = []
+  let root
+  try {
+    await act(async () => {
+      root = hydrateRoot(container, element, { onRecoverableError: (error) => errors.push(error) })
+    })
+    assert.ok(container.querySelector('[data-testid="form-ready"]'))
+    assert.equal(container.querySelector('[data-testid="form-hydrating"]'), null)
+    assert.deepEqual(errors, [])
+  } finally {
+    await act(async () => root?.unmount())
+    container.remove()
+  }
+})
+
 let DataTable, EntityForm, fields, Sidebar, AppShell, Dashboard, HomeClient, Providers, Home, RootLayout, metadata, LoginPage, TestPage
 
 beforeAll(async () => {
