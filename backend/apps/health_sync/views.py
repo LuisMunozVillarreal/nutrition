@@ -176,6 +176,22 @@ def _validation_error_response(exc: ValueError) -> JsonResponse:
         "steps must be between 0 and 1000000",
         "observed_at must be an ISO-8601 timestamp with timezone",
         "observed_at cannot be in the future",
+        "records must contain at most 100 items",
+        "source_record_id must be a string of 1 to 255 characters",
+        "records must contain unique source_record_id values",
+        "source_modified_at must be an ISO-8601 timestamp with timezone",
+        "source_modified_at cannot be in the future",
+        "start_time must be an ISO-8601 timestamp with timezone",
+        "end_time must be an ISO-8601 timestamp with timezone",
+        "start_time must be before end_time",
+        "duration must not exceed 24 hours",
+        "activity cannot be in the future",
+        "type must be one of: walk, run, cycle, gym",
+        "active_kcals must be an integer",
+        "active_kcals must be between 0 and 100000",
+        "distance_km must be a finite number",
+        "distance_km must be greater than or equal to 0",
+        "distance_km must be less than or equal to 99999999.99",
     ):
         if str(exc) == message:
             return JsonResponse({"error": message}, status=400)
@@ -290,7 +306,7 @@ def upload_activities(request: HttpRequest) -> JsonResponse:
     try:
         records = parse_activity_records(_json_body(request))
     except ValueError as exc:
-        return JsonResponse({"error": str(exc)}, status=400)
+        return _validation_error_response(exc)
     result = sync_activity_records(device, records)
     summary = result["summary"]
     if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
