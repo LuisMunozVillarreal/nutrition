@@ -36,6 +36,7 @@ class GitOpsContracts(unittest.TestCase):
             spec = app["spec"]
             self.assertEqual(spec["sourceRef"]["name"], "nutrition")
             self.assertNotIn("images", spec, "CI owns image tags")
+            self.assertNotIn("suspend", spec, "preserve operator suspension during adoption")
             self.assertEqual(
                 spec["postBuild"]["substituteFrom"][0]["name"],
                 "cluster-settings",
@@ -44,6 +45,18 @@ class GitOpsContracts(unittest.TestCase):
             {d["metadata"]["name"] for d in documents if d["kind"] == "Namespace"},
             {"nutrition-production", "nutrition-staging"},
         )
+
+    def test_documented_bootstrap_and_preview_cutover(self):
+        """The operator entry point cannot bypass the image/credential gates."""
+        text = " ".join((ROOT / "platform/README.md").read_text().split())
+        steps = [text.index(token) for token in (
+            "platform/bootstrap.py create", "platform/bootstrap.py seed",
+            "platform/bootstrap.py resume", "allowing normal CI deployments",
+        )]
+        self.assertEqual(steps, sorted(steps))
+        self.assertIn("rebase or update every active preview branch", text)
+        self.assertIn("Do not rerun historical pipelines", text)
+        self.assertIn("generate_flux_preview.py", text)
 
     def test_overlays_render_without_cluster_components(self):
         """Both overlays retain app storage and the ingress middleware."""

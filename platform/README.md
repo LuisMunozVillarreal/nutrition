@@ -57,13 +57,61 @@ Choose one owner for the app entry points:
   `nutrition-apps`, whose path is `./platform/flux/apps`. Follow that repository's
   activation runbook; do not also reconcile the combined entry from another root.
 - For an independently operated cluster with all prerequisites already met,
-  an authorized operator can run `kubectl apply -k platform/flux` and then let
-  the two app Kustomizations reconcile. No cluster bootstrap is installed by it.
+  install only the source first with
+  `kubectl --context "$KUBE_CONTEXT" apply -f platform/flux/source.yaml`.
+  Wait for `nutrition` to be Ready at the approved main revision. Do not apply
+  the combined entry point to an empty cluster: absent image overrides would
+  allow the workload manifests' `latest` images to run.
 
-Before the first rollout, select the approved image SHA via the existing CI
-process. App entry manifests omit `spec.images` deliberately; CircleCI owns both
-image tags and patches the same Kustomization names. No image automation is added.
-Do not assume an absent image override means an approved version was selected.
+### Fresh-install image bootstrap
+
+This is an explicitly authorized operator procedure, not a CI deployment.
+Use Python 3, PyYAML and kubectl from the approved Nutrition checkout. Confirm
+`KUBE_CONTEXT` privately. Keep CI frozen and `nutrition-apps` suspended, if
+present. No other reconciler may create the children during this procedure.
+Provision the prerequisites and Secrets above before proceeding.
+
+Select already-published, approved backend and webapp images. Supply their full
+40-character lowercase commit SHA tags as `BACKEND_SHA` and `WEBAPP_SHA` through
+the operator environment. Verify registry provenance and that these SHA tags are
+immutable; the helper validates tag syntax, not registry contents. Never use
+`latest`, a branch tag, or republish different images under the approved SHA tags.
+
+```sh
+python3 platform/bootstrap.py create --context "$KUBE_CONTEXT"
+python3 platform/bootstrap.py seed --context "$KUBE_CONTEXT" \
+  --backend-sha "$BACKEND_SHA" --webapp-sha "$WEBAPP_SHA"
+```
+
+`create` refuses existing children and creates both with `spec.suspend: true`
+from their first API write. `seed` checks both are bootstrap-created and suspended,
+patches both image overrides, then reads back and verifies both children. Neither
+command resumes them. Existing installations must use the migration runbook,
+not this helper. The normal entry manifests deliberately omit both `spec.images`
+and `spec.suspend` to preserve CI image ownership and operator suspension during
+adoption; do not add permanent bootstrap defaults to those manifests.
+
+With htpc-flux, now enable the parent using its installation runbook while the
+children remain suspended. Verify adoption retained suspension and both image
+fields. On a standalone cluster no parent activation is needed. Then explicitly
+approve the first rollout and run:
+
+```sh
+python3 platform/bootstrap.py resume --context "$KUBE_CONTEXT" \
+  --backend-sha "$BACKEND_SHA" --webapp-sha "$WEBAPP_SHA"
+```
+
+`resume` verifies both children's exact approved overrides before any resume
+write, uses resource-version guards, then reads back the resulting state.
+Any failure requires private state inspection; creation or resume can partially
+succeed across the two resources. Keep CI frozen, do not delete/recreate children,
+and do not blindly retry or bypass verification after a partial failure.
+
+Verify Ready conditions, source revision and actual workload images before
+allowing normal CI deployments. Normal CI preflight intentionally rejects
+suspended children and cannot seed this bootstrap. After explicit resumption,
+CI continues patching the same `spec.images` SHA tags; no image automation or
+CI auto-resume is introduced.
 
 ## Existing-cluster migration warning
 
@@ -80,7 +128,14 @@ Preview GitRepositories still track their own PR branches. They now authenticate
 with `nutrition-git`, not the cluster bootstrap key. Existing previews must have
 their Secret reference migrated before the old key is replaced. Namespace-scoped
 preview RBAC, target namespaces, settings substitution and image selection are
-unchanged. Keep `KUBECONFIG_DATA_BASE64` in CircleCI and the branch-cleanup GitHub
+unchanged. Before unfreezing deployments, rebase or update every active preview
+branch so its `.circleci/scripts/generate_flux_preview.py` uses `nutrition-git`.
+Inspect the generator at each branch's exact deployment commit, not just main.
+Patching live sources alone is insufficient: an old branch can recreate the
+`flux-system` credential reference on its next deployment. Do not rerun historical
+pipelines whose checked-out generator uses `flux-system`; start a new pipeline
+from the verified updated commit instead. Keep superseded queued jobs cancelled.
+Keep `KUBECONFIG_DATA_BASE64` in CircleCI and the branch-cleanup GitHub
 Action's external secret store, not in either repository.
 
 The migration branch is published with `[skip ci]` to avoid an unauthorized live
