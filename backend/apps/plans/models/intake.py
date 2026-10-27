@@ -7,9 +7,14 @@ from typing import Any, Iterator, cast
 
 from django.apps import apps
 from django.db import models, router, transaction
+from django.utils import timezone
 
 from apps.foods.models.nutrients import NUTRIENT_LIST, Nutrients
-from apps.plans.locks import PlanAggregateLocks, lock_plan_aggregate_rows
+from apps.plans.locks import (
+    PlanAggregateLocks,
+    lock_plan_aggregate_rows,
+    lock_plan_owner,
+)
 
 
 class _IntakeOwnerChanged(Exception):
@@ -80,6 +85,7 @@ def lock_intake_deletion_rows(
     targets: models.QuerySet,
     using: str,
     cupboard_item_ids: tuple[int, ...] = (),
+    aggregate_locks: PlanAggregateLocks | None = None,
 ) -> IntakeDeletionLocks:
     """Lock all target plans, days, and intakes in canonical PK order.
 
@@ -88,6 +94,7 @@ def lock_intake_deletion_rows(
         using (str): Database alias used by the deletion.
         cupboard_item_ids: Additional stock rows reached by an outer
             serving or food cascade.
+        aggregate_locks: Complete calendar locks already held by a cascade.
 
     Returns:
         IntakeDeletionLocks: Locked hierarchy exposed to collector signals.
@@ -95,7 +102,10 @@ def lock_intake_deletion_rows(
     target_rows = list(targets.order_by().values_list("pk", "day_id"))
     intake_ids = tuple(sorted(row[0] for row in target_rows))
     day_ids = tuple(sorted({row[1] for row in target_rows}))
-    aggregate_locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
+    if aggregate_locks is None:
+        aggregate_locks = lock_plan_aggregate_rows(
+            using=using, day_ids=day_ids
+        )
     intakes = tuple(
         intake
         for intake in targets.model.objects.select_for_update(of=("self",))
@@ -189,28 +199,67 @@ class IntakeManager(
     """Manager exposing deletion-safe intake querysets."""
 
 
-def intake_targets_for_cascade(
-    targets: models.QuerySet, using: str
-) -> models.QuerySet:
-    """Return intakes cascaded by a Day or WeekPlan deletion target.
+@contextmanager
+def calendar_deletion(targets: models.QuerySet, using: str) -> Iterator[None]:
+    """Lock calendar roots and deactivate their imports before collection.
 
     Args:
-        targets (models.QuerySet): Day or WeekPlan roots being deleted.
-        using (str): Database alias used by the deletion.
-
-    Returns:
-        models.QuerySet: Complete cascaded intake selection.
+        targets: Day, WeekPlan or Measurement roots in an outer transaction.
+        using: Database alias for the entire deletion.
     """
+    day_model = apps.get_model("plans", "Day")
+    plan_model = apps.get_model("plans", "WeekPlan")
+    measurement_model = apps.get_model("measurements", "Measurement")
     intake_model = apps.get_model("plans", "Intake")
-    if targets.model._meta.label_lower == "plans.day":
-        return intake_model.objects.using(using).filter(
-            day_id__in=targets.order_by().values("pk")
+    import_model = apps.get_model("health_sync", "ActivityImport")
+    roots = targets.order_by().values("pk")
+    if targets.model is day_model:
+        days = day_model.objects.using(using).filter(pk__in=roots)
+        plans = plan_model.objects.using(using).filter(
+            pk__in=days.values("plan_id")
         )
-    if targets.model._meta.label_lower == "plans.weekplan":
-        return intake_model.objects.using(using).filter(
-            day__plan_id__in=targets.order_by().values("pk")
+    else:
+        plans = plan_model.objects.using(using).filter(
+            **(
+                {"measurement_id__in": roots}
+                if targets.model is measurement_model
+                else {"pk__in": roots}
+            )
         )
-    return intake_model.objects.using(using).none()
+        days = day_model.objects.using(using).filter(
+            plan_id__in=plans.values("pk")
+        )
+    owner_ids = set(plans.values_list("user_id", flat=True))
+    if targets.model is measurement_model:
+        owner_ids.update(targets.values_list("user_id", flat=True))
+    # Lock the complete sorted owner set before any root, aggregate, import or
+    # collector write. Bulk deletes must not acquire owners per child signal.
+    for owner_id in sorted(owner_ids):
+        lock_plan_owner(using=using, user_id=owner_id)
+    if targets.model is measurement_model:
+        list(targets.select_for_update(of=("self",)).order_by("pk"))
+    locks = lock_plan_aggregate_rows(
+        using=using,
+        plan_ids=plans.values_list("pk", flat=True),
+        day_ids=days.values_list("pk", flat=True),
+    )
+    try:
+        intake_locks = lock_intake_deletion_rows(
+            intake_model.objects.using(using).filter(
+                day_id__in=locks.days_by_pk
+            ),
+            using,
+            aggregate_locks=locks,
+        )
+        # Only calendar-root deletions claim manual ownership. Importer
+        # relocation deletes an Exercise directly and never enters here.
+        import_model.objects.using(using).filter(
+            exercise__day_id__in=locks.days_by_pk,
+        ).update(is_active=False, updated_at=timezone.now())
+        with activate_intake_deletion_locks(intake_locks):
+            yield
+    finally:
+        locks.clear_markers()
 
 
 class IntakeCascadeQuerySet(models.QuerySet):
@@ -223,16 +272,9 @@ class IntakeCascadeQuerySet(models.QuerySet):
             tuple[int, dict[str, int]]: Total and per-model deletion counts.
         """
         using = self.db
-        intake_targets = intake_targets_for_cascade(self, using)
-        if not intake_targets.exists():
-            return super().delete()
         with transaction.atomic(using=using):
-            locks = lock_intake_deletion_rows(intake_targets, using)
-            try:
-                with activate_intake_deletion_locks(locks):
-                    return super().delete()
-            finally:
-                locks.aggregate_locks.clear_markers()
+            with calendar_deletion(self, using):
+                return super().delete()
 
 
 class IntakeCascadeManager(
@@ -260,17 +302,10 @@ class IntakeCascadeDeletionMixin:
             model, instance=instance
         )
         manager = cast(Any, model).objects
-        targets = manager.using(using).filter(pk=instance.pk)
-        intake_targets = intake_targets_for_cascade(targets, using)
-        if not intake_targets.exists():
-            return models.Model.delete(instance, *args, **kwargs)
         with transaction.atomic(using=using):
-            locks = lock_intake_deletion_rows(intake_targets, using)
-            try:
-                with activate_intake_deletion_locks(locks):
-                    return models.Model.delete(instance, *args, **kwargs)
-            finally:
-                locks.aggregate_locks.clear_markers()
+            targets = manager.using(using).filter(pk=instance.pk)
+            with calendar_deletion(targets, using):
+                return models.Model.delete(instance, *args, **kwargs)
 
 
 class Intake(Nutrients):
