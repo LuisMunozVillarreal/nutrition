@@ -109,6 +109,8 @@ def test_calendar_delete_is_atomic_and_owner_first(
         result = original_fetch(queryset)
         if queryset.query.select_for_update:
             if queryset.model is User:
+                assert queryset.query.select_for_no_key_update
+                assert queryset.query.select_for_update_of == ("self",)
                 owners.update(obj.pk for obj in queryset._result_cache)
             elif queryset.model in (Day, WeekPlan, Measurement):
                 assert exercise.day.plan.user_id in owners
