@@ -88,51 +88,54 @@ class HealthConnectDataSource(private val context: Context) {
             RecordPage(response.records, response.pageToken)
         }
 
-        return mapValidNonOverlapping(
-            sessions,
-            transform = activity@{ session ->
-                val type = GarminExerciseType.toNutritionType(session.exerciseType)
-                    ?: return@activity null
-                val duration = Duration.between(session.startTime, session.endTime)
-                if (duration <= Duration.ZERO || duration > MAX_ACTIVITY_DURATION) {
-                    return@activity null
-                }
-                val totals = client().aggregate(
-                    AggregateRequest(
-                        metrics = setOf(
-                            ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
-                            DistanceRecord.DISTANCE_TOTAL,
-                        ),
-                        timeRangeFilter = TimeRangeFilter.between(
-                            session.startTime,
-                            session.endTime,
-                        ),
-                        dataOriginFilter = setOf(session.metadata.dataOrigin),
+        // The server retains the first accepted overlapping envelope across reads.
+        // Send every valid candidate so a newly discovered envelope cannot hide it.
+        return sessions.sortedWith(
+            compareBy(ExerciseSessionRecord::startTime)
+                .thenBy(ExerciseSessionRecord::endTime).thenBy { it.metadata.id },
+        ).mapNotNull activity@{ session ->
+            val type = GarminExerciseType.toNutritionType(session.exerciseType)
+                ?: return@activity null
+            val duration = Duration.between(session.startTime, session.endTime)
+            if (duration <= Duration.ZERO || duration > MAX_ACTIVITY_DURATION) {
+                return@activity null
+            }
+            val totals = client().aggregate(
+                AggregateRequest(
+                    metrics = setOf(
+                        ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
+                        DistanceRecord.DISTANCE_TOTAL,
                     ),
+                    timeRangeFilter = TimeRangeFilter.between(
+                        session.startTime,
+                        session.endTime,
+                    ),
+                    dataOriginFilter = setOf(session.metadata.dataOrigin),
+                ),
+            )
+            val activeKcals = totals[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
+                ?.inKilocalories
+                ?.roundToInt()
+                ?: return@activity null
+            runCatching {
+                HealthActivity(
+                    sourceRecordId = session.metadata.id,
+                    sourceModifiedAt = session.metadata.lastModifiedTime,
+                    // Order aggregate observations independently of the session version.
+                    // Capture before any reads, not when a delayed upload completes.
+                    observedAt = endExclusive,
+                    startTime = session.startTime,
+                    endTime = session.endTime,
+                    type = type,
+                    activeKcals = activeKcals,
+                    distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
+                    startZoneOffset = session.startZoneOffset
+                        ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
+                    endZoneOffset = session.endZoneOffset
+                        ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
                 )
-                val activeKcals = totals[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]
-                    ?.inKilocalories
-                    ?.roundToInt()
-                    ?: return@activity null
-                runCatching {
-                    HealthActivity(
-                        sourceRecordId = session.metadata.id,
-                        sourceModifiedAt = session.metadata.lastModifiedTime,
-                        startTime = session.startTime,
-                        endTime = session.endTime,
-                        type = type,
-                        activeKcals = activeKcals,
-                        distanceKm = totals[DistanceRecord.DISTANCE_TOTAL]?.inKilometers,
-                        startZoneOffset = session.startZoneOffset
-                            ?: ZoneId.systemDefault().rules.getOffset(session.startTime),
-                        endZoneOffset = session.endZoneOffset
-                            ?: ZoneId.systemDefault().rules.getOffset(session.endTime),
-                    )
-                }.getOrNull()
-            },
-            startOf = HealthActivity::startTime,
-            endOf = HealthActivity::endTime,
-        )
+            }.getOrNull()
+        }
     }
 
     companion object {

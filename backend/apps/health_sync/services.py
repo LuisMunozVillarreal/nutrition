@@ -14,6 +14,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
 from django.db import router, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -394,6 +395,9 @@ class ActivityRecord:  # pylint: disable=too-many-instance-attributes
     exercise_type: str
     active_kcals: int
     distance: Decimal | None
+    start_time: datetime.datetime
+    end_time: datetime.datetime
+    observed_at: datetime.datetime | None = None
 
 
 def _parse_aware_timestamp(raw: Any, field_name: str) -> datetime.datetime:
@@ -477,6 +481,14 @@ def parse_activity_records(  # pylint: disable=too-many-branches
         if source_modified_at > timezone.now() + datetime.timedelta(minutes=5):
             raise ValueError("source_modified_at cannot be in the future")
 
+        observed_at = None
+        if "observed_at" in raw:
+            observed_at = _parse_aware_timestamp(
+                raw["observed_at"], "observed_at"
+            )
+            if observed_at > timezone.now() + datetime.timedelta(minutes=5):
+                raise ValueError("observed_at cannot be in the future")
+
         start_time = _parse_aware_timestamp(
             raw.get("start_time"), "start_time"
         )
@@ -520,6 +532,9 @@ def parse_activity_records(  # pylint: disable=too-many-branches
                 exercise_type=exercise_type,
                 active_kcals=active_kcals,
                 distance=distance,
+                observed_at=observed_at,
+                start_time=start_time,
+                end_time=end_time,
             )
         )
     return parsed
@@ -545,14 +560,37 @@ def _save_import(
     exercise: Exercise | None = None,
 ) -> None:
     """Advance import provenance to the accepted record without extra writes."""
-    update_fields = ["device", "source_modified_at", "is_active", "updated_at"]
+    update_fields = [
+        "device",
+        "source_modified_at",
+        "observed_at",
+        "start_time",
+        "end_time",
+        "is_active",
+        "updated_at",
+    ]
     if exercise is not None:
         import_row.exercise = exercise
         update_fields.append("exercise")
     import_row.device = device
     import_row.source_modified_at = record.source_modified_at
+    import_row.observed_at = record.observed_at
+    import_row.start_time = record.start_time
+    import_row.end_time = record.end_time
     import_row.is_active = True
     import_row.save(using=using, update_fields=update_fields)
+
+
+def _activity_is_stale(
+    import_row: ActivityImport, record: ActivityRecord
+) -> bool:
+    """Order session versions first, then observations within that version."""
+    if record.source_modified_at != import_row.source_modified_at:
+        return record.source_modified_at < import_row.source_modified_at
+    return record.observed_at is None or (
+        import_row.observed_at is not None
+        and record.observed_at <= import_row.observed_at
+    )
 
 
 # pylint: disable=too-many-branches,too-many-statements
@@ -637,6 +675,19 @@ def sync_activity_records(
                     )
                     .first()
                 )
+                if (
+                    import_row is not None
+                    and import_row.start_time is None
+                    and record.source_modified_at
+                    == import_row.source_modified_at
+                ):
+                    # A same-version replay can restore missing interval metadata,
+                    # including tombstones, without changing user data or freshness.
+                    import_row.start_time = record.start_time
+                    import_row.end_time = record.end_time
+                    import_row.save(
+                        using=using, update_fields=["start_time", "end_time"]
+                    )
                 if import_row is not None and not import_row.is_active:
                     summary["unchanged"] += 1
                     results.append(
@@ -646,16 +697,48 @@ def sync_activity_records(
                         }
                     )
                     continue
-                if (
-                    import_row is not None
-                    and record.source_modified_at
-                    <= import_row.source_modified_at
+                if import_row is not None and _activity_is_stale(
+                    import_row, record
                 ):
                     summary["unchanged"] += 1
                     results.append(
                         {
                             "source_record_id": record.source_record_id,
                             "status": "unchanged",
+                        }
+                    )
+                    continue
+
+                # Owner lock serializes reservations across devices and chunks.
+                # Retain intervals even for inactive manual-override tombstones.
+                if (
+                    ActivityImport.objects.using(using)
+                    .filter(
+                        Q(
+                            start_time__lt=record.end_time,
+                            end_time__gt=record.start_time,
+                        )
+                        # Historical rows discarded the offset. Until replayed,
+                        # reserve nearby local days conservatively: legal offsets
+                        # are under 24h and supported sessions last at most 24h.
+                        | Q(
+                            start_time__isnull=True,
+                            exercise__day__day__range=(
+                                record.date - datetime.timedelta(days=3),
+                                record.date + datetime.timedelta(days=3),
+                            ),
+                        ),
+                        user_id=device.user_id,
+                        source=ActivityImport.SOURCE_GARMIN_HEALTH_CONNECT,
+                    )
+                    .exclude(source_record_id=record.source_record_id)
+                    .exists()
+                ):
+                    summary["skipped"] += 1
+                    results.append(
+                        {
+                            "source_record_id": record.source_record_id,
+                            "status": "skipped",
                         }
                     )
                     continue
@@ -699,6 +782,9 @@ def sync_activity_records(
                             ),
                             source_record_id=record.source_record_id,
                             source_modified_at=record.source_modified_at,
+                            observed_at=record.observed_at,
+                            start_time=record.start_time,
+                            end_time=record.end_time,
                             is_active=True,
                         )
                     else:

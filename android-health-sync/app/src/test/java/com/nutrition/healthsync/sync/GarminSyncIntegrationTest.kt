@@ -7,6 +7,7 @@ import com.nutrition.healthsync.domain.DailySteps
 import com.nutrition.healthsync.domain.HealthActivity
 import com.nutrition.healthsync.health.HealthConnectDataSource
 import com.nutrition.healthsync.network.HealthSyncApi
+import com.nutrition.healthsync.network.HealthSyncJson
 import com.nutrition.healthsync.storage.Pairing
 import com.nutrition.healthsync.storage.SecurePairingStore
 import java.security.Security
@@ -15,6 +16,10 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.coroutines.Continuation
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okio.Buffer
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
@@ -43,6 +48,7 @@ class GarminSyncIntegrationTest {
         GarminHealthData.permissions = HealthConnectDataSource.REQUIRED_READ_PERMISSIONS
         GarminHealthData.stepReads = 0
         GarminHealthData.activityReads = 0
+        GarminHealthData.activityRecords = 1
     }
 
     @After fun cleanup() {
@@ -89,10 +95,25 @@ class GarminSyncIntegrationTest {
         assertEquals(123L, store.load()!!.lastReceipt!!.records.single().steps)
     }
 
-    private fun coordinator(calls: MutableList<String>): SyncCoordinator {
+    @Test fun `activity chunks preserve all identities and the original observation`() = runBlocking {
+        GarminHealthData.permissions = HealthConnectDataSource.ACTIVITY_READ_PERMISSIONS
+        GarminHealthData.activityRecords = 101
+        val calls = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        coordinator(calls, bodies).syncNow()
+        assertEquals(List(2) { "/api/health-sync/activities/" }, calls)
+        val batches = bodies.map { HealthSyncJson.codec.parseToJsonElement(it).jsonObject["records"]!!.jsonArray }
+        assertEquals(listOf(100, 1), batches.map { it.size })
+        val records = batches.flatten().map { it.jsonObject }
+        assertEquals((1..101).map { "garmin-$it" }.toSet(), records.map { it["source_record_id"]!!.jsonPrimitive.content }.toSet())
+        assertEquals(1, records.map { it["observed_at"]!!.jsonPrimitive.content }.toSet().size)
+    }
+
+    private fun coordinator(calls: MutableList<String>, bodies: MutableList<String> = mutableListOf()): SyncCoordinator {
         val api = HealthSyncApi(OkHttpClient.Builder().addInterceptor { chain ->
             val path = chain.request().url.encodedPath
             calls.add(path)
+            bodies.add(Buffer().also { chain.request().body!!.writeTo(it) }.readUtf8())
             val records = if (path.endsWith("/steps/")) {
                 """, "records":[{"date":"${LocalDate.now()}","status":"created"}]"""
             } else ""
@@ -120,11 +141,14 @@ class GarminHealthData {
         activityReads++
         check(permissions.containsAll(HealthConnectDataSource.ACTIVITY_READ_PERMISSIONS))
         val now = Instant.now()
-        return listOf(HealthActivity("garmin-1", now, now.minusSeconds(3600), now.minusSeconds(1800), "run", 300, 5.0, ZoneOffset.UTC, ZoneOffset.UTC))
+        return (1..activityRecords).map { index ->
+            HealthActivity("garmin-$index", now, now.minusSeconds(index * 3600L), now.minusSeconds(index * 3600L - 1800), "run", 300, 5.0, ZoneOffset.UTC, ZoneOffset.UTC, observedAt = now)
+        }
     }
     companion object {
         var permissions = emptySet<String>()
         var stepReads = 0
         var activityReads = 0
+        var activityRecords = 1
     }
 }
