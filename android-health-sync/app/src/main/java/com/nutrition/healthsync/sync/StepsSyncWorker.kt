@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.storage.SecurePairingStore
 import java.util.concurrent.TimeUnit
@@ -48,12 +49,7 @@ object PeriodicSyncScheduler {
         val paired = SecurePairingStore(applicationContext).accountConnection() ==
             com.nutrition.healthsync.storage.AccountConnection.CONNECTED
         val canRun = paired && health.supportsBackgroundRead() &&
-            health.grantedPermissions().containsAll(
-                setOf(
-                    HealthConnectDataSource.READ_STEPS,
-                    HealthConnectDataSource.READ_IN_BACKGROUND,
-                ),
-            )
+            HealthReadPermissions.canRunInBackground(health.grantedPermissions())
 
         if (!canRun) {
             workManager.cancelUniqueWork(UNIQUE_WORK_NAME)

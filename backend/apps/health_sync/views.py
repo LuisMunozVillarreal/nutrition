@@ -23,7 +23,12 @@ from apps.health_sync.models import (
     HealthSyncDevice,
     HealthSyncPairingCode,
 )
-from apps.health_sync.services import parse_records, sync_records
+from apps.health_sync.services import (
+    parse_activity_records,
+    parse_records,
+    sync_activity_records,
+    sync_records,
+)
 
 MAX_JSON_BODY_BYTES = 64 * 1024
 PAIRING_ATTEMPTS_PER_IP = 20
@@ -171,6 +176,22 @@ def _validation_error_response(exc: ValueError) -> JsonResponse:
         "steps must be between 0 and 1000000",
         "observed_at must be an ISO-8601 timestamp with timezone",
         "observed_at cannot be in the future",
+        "records must contain at most 100 items",
+        "source_record_id must be a string of 1 to 255 characters",
+        "records must contain unique source_record_id values",
+        "source_modified_at must be an ISO-8601 timestamp with timezone",
+        "source_modified_at cannot be in the future",
+        "start_time must be an ISO-8601 timestamp with timezone",
+        "end_time must be an ISO-8601 timestamp with timezone",
+        "start_time must be before end_time",
+        "duration must not exceed 24 hours",
+        "activity cannot be in the future",
+        "type must be one of: walk, run, cycle, gym",
+        "active_kcals must be an integer",
+        "active_kcals must be between 0 and 100000",
+        "distance_km must be a finite number",
+        "distance_km must be greater than or equal to 0",
+        "distance_km must be less than or equal to 99999999.99",
     ):
         if str(exc) == message:
             return JsonResponse({"error": message}, status=400)
@@ -257,6 +278,36 @@ def upload_steps(request: HttpRequest) -> JsonResponse:
     except ValueError as exc:
         return _validation_error_response(exc)
     result = sync_records(device, records)
+    summary = result["summary"]
+    if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
+        device.mark_sync_success()
+    return JsonResponse(result)
+
+
+@csrf_exempt
+@require_POST
+def upload_activities(request: HttpRequest) -> JsonResponse:
+    """Validate and import a bounded batch of Garmin activity records."""
+    if _upload_ip_rate_limited(request):
+        response = JsonResponse(
+            {"error": "Too many upload attempts"}, status=429
+        )
+        response["Retry-After"] = str(UPLOAD_WINDOW_SECONDS)
+        return response
+    device = _device_from_request(request)
+    if device is None:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    if _device_upload_rate_limited(device):
+        response = JsonResponse(
+            {"error": "Too many upload attempts"}, status=429
+        )
+        response["Retry-After"] = str(UPLOAD_WINDOW_SECONDS)
+        return response
+    try:
+        records = parse_activity_records(_json_body(request))
+    except ValueError as exc:
+        return _validation_error_response(exc)
+    result = sync_activity_records(device, records)
     summary = result["summary"]
     if summary["created"] + summary["updated"] + summary["unchanged"] > 0:
         device.mark_sync_success()

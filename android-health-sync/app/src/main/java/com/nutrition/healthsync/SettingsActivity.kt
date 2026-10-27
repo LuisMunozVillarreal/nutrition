@@ -25,6 +25,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.snackbar.Snackbar
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
@@ -59,7 +60,7 @@ class SettingsActivity : ComponentActivity() {
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) { granted ->
-        val message = if (HealthConnectDataSource.READ_STEPS in granted) {
+        val message = if (HealthReadPermissions.canSyncAnything(granted)) {
             getString(R.string.message_steps_granted)
         } else {
             getString(R.string.message_steps_denied)
@@ -97,16 +98,14 @@ class SettingsActivity : ComponentActivity() {
 
         healthSettingsButton.setOnClickListener { openHealthConnect() }
         stepsPermissionButton.setOnClickListener {
-            requestPermissions(setOf(HealthConnectDataSource.READ_STEPS))
+            requestPermissions(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
         }
         backgroundPermissionButton.setOnClickListener {
             lifecycleScope.launch {
                 if (health.supportsBackgroundRead()) {
                     requestPermissions(
-                        setOf(
-                            HealthConnectDataSource.READ_STEPS,
+                        HealthConnectDataSource.REQUIRED_READ_PERMISSIONS +
                             HealthConnectDataSource.READ_IN_BACKGROUND,
-                        ),
                     )
                 } else {
                     showMessage(getString(R.string.message_background_unavailable))
@@ -137,7 +136,7 @@ class SettingsActivity : ComponentActivity() {
             val available = health.availability() == HealthConnectClient.SDK_AVAILABLE
             val permissions = if (available) health.grantedPermissions() else emptySet()
             val supportsBackground = available && health.supportsBackgroundRead()
-            val hasSteps = HealthConnectDataSource.READ_STEPS in permissions
+            val hasSteps = permissions.containsAll(HealthConnectDataSource.REQUIRED_READ_PERMISSIONS)
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
 
             stepsPermissionButton.isEnabled = !busy && available && !hasSteps

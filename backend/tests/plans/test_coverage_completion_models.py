@@ -13,7 +13,6 @@ from apps.plans.models import Day, Intake
 from apps.plans.models.intake import (
     IntakeCascadeQuerySet,
     _IntakeOwnerChanged,
-    intake_targets_for_cascade,
 )
 from apps.plans.signals.handlers import (
     _recalculate_intake_days,
@@ -36,30 +35,12 @@ def test_clear_markers_ignores_days_owned_by_another_lock_set():
     assert not hasattr(unmarked, "_plan_aggregate_locks")
 
 
-def test_intake_targets_for_unrelated_cascade_is_empty(mocker):
-    """Only day and week-plan cascades select intake rows."""
-    targets = SimpleNamespace(
-        model=SimpleNamespace(_meta=SimpleNamespace(label_lower="plans.other"))
-    )
-    manager = mocker.Mock()
-    using = manager.using.return_value
-    empty = using.none.return_value
-    mocker.patch("apps.plans.models.intake.apps.get_model").return_value = (
-        SimpleNamespace(objects=manager)
-    )
-
-    assert intake_targets_for_cascade(targets, "default") is empty
-    using.none.assert_called_once_with()
-
-
-def test_cascade_queryset_without_intakes_uses_normal_delete(mocker):
-    """Root deletion skips intake locking when no intakes can cascade."""
+def test_cascade_queryset_preserves_normal_delete_result(mocker):
+    """Root deletion keeps Django counts after the calendar coordinator."""
     queryset = IntakeCascadeQuerySet(model=Day, using="default")
-    targets = mocker.Mock()
-    targets.exists.return_value = False
-    mocker.patch(
-        "apps.plans.models.intake.intake_targets_for_cascade",
-        return_value=targets,
+    locks = mocker.patch(
+        "apps.plans.models.intake.calendar_deletion",
+        return_value=nullcontext(),
     )
     normal_delete = mocker.patch.object(
         models.QuerySet, "delete", return_value=(1, {"plans.Day": 1})
@@ -67,6 +48,7 @@ def test_cascade_queryset_without_intakes_uses_normal_delete(mocker):
 
     assert queryset.delete() == (1, {"plans.Day": 1})
     normal_delete.assert_called_once_with()
+    locks.assert_called_once_with(queryset, "default")
 
 
 def test_clear_write_locks_handles_present_and_absent_markers(mocker):

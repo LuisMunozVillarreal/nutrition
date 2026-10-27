@@ -17,6 +17,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.snackbar.Snackbar
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.sync.PeriodicSyncScheduler
 import com.nutrition.healthsync.sync.SyncCoordinator
 import com.nutrition.healthsync.storage.SyncReceipt
@@ -163,7 +164,7 @@ class MainActivity : ComponentActivity() {
             val available = health.availability() == HealthConnectClient.SDK_AVAILABLE
             val permissions = if (available) health.grantedPermissions() else emptySet()
             val paired = coordinator.pairing() != null
-            val hasSteps = HealthConnectDataSource.READ_STEPS in permissions
+            val hasSteps = HealthReadPermissions.canSyncAnything(permissions)
             val hasBackground = HealthConnectDataSource.READ_IN_BACKGROUND in permissions
 
             syncButton.isEnabled = !busy && available && hasSteps && paired
