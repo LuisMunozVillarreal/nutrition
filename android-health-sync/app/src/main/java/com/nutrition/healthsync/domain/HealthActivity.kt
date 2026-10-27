@@ -15,6 +15,7 @@ data class HealthActivity(
     val distanceKm: Double?,
     val startZoneOffset: ZoneOffset = ZoneOffset.UTC,
     val endZoneOffset: ZoneOffset = ZoneOffset.UTC,
+    val observedAt: Instant? = null,
 ) {
     init {
         require(sourceRecordId.isNotBlank()) { "The activity must have an identifier" }
@@ -42,6 +43,7 @@ data class HealthActivity(
         type = type,
         activeKcals = activeKcals,
         distanceKm = distanceKm,
+        observedAt = observedAt?.toString(),
     )
 
     companion object {

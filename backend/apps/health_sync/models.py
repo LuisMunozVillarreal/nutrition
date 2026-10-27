@@ -326,6 +326,9 @@ class ActivityImport(BaseModel):
     )
     source_record_id = models.CharField(max_length=255)
     source_modified_at = models.DateTimeField()
+    observed_at = models.DateTimeField(null=True)
+    start_time = models.DateTimeField(null=True)
+    end_time = models.DateTimeField(null=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:

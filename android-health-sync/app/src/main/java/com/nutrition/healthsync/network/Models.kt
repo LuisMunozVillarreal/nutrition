@@ -86,4 +86,5 @@ data class ActivityUploadRecord(
     val type: String,
     @SerialName("active_kcals") val activeKcals: Int,
     @SerialName("distance_km") val distanceKm: Double?,
+    @SerialName("observed_at") val observedAt: String? = null,
 )

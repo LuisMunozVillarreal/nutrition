@@ -81,7 +81,7 @@ Network contract:
   - JSON: `{"records":[{"date":"YYYY-MM-DD","steps":1234,"observed_at":"ISO-8601"}]}`
 - `POST {base}/api/health-sync/activities/`
   - Cabecera: `Authorization: Bearer ${DEVICE_TOKEN}`
-  - JSON: `{"records":[{"source_record_id":"…","source_modified_at":"ISO-8601","start_time":"ISO-8601","end_time":"ISO-8601","type":"run","active_kcals":420,"distance_km":7.25}]}`
+  - JSON: `{"records":[{"source_record_id":"…","source_modified_at":"ISO-8601","observed_at":"ISO-8601","start_time":"ISO-8601","end_time":"ISO-8601","type":"run","active_kcals":420,"distance_km":7.25}]}`
 
 No existe un hostname de despliegue integrado. La URL se introduce en tiempo de ejecución y se exige HTTPS; el manifiesto bloquea tráfico HTTP en texto claro.
 
@@ -90,7 +90,52 @@ No existe un hostname de despliegue integrado. La URL se introduce en tiempo de 
 - **Manual:** lee los últimos 30 días disponibles. Los pasos se agrupan por día local. Las sesiones Garmin se leen individualmente y sus calorías activas y distancia se agregan dentro del intervalo de la sesión y únicamente para el mismo origen Garmin. Si no hay sesiones Garmin reales, no se realiza una petición de actividades. Los pasos conservan su confirmación diaria, incluso para una lectura vacía.
 - **Periódica:** WorkManager ejecuta cada 12 horas y exige conectividad. Solo se programa si existen vinculación, soporte de lectura en segundo plano, el permiso opcional `READ_HEALTH_DATA_IN_BACKGROUND` y al menos un flujo legible: pasos, o el grupo completo de permisos de actividad. Si falta alguno de esos requisitos, el trabajo único se cancela.
 
-La aplicación filtra cada agregación al origen de la propia sesión Garmin, por lo que no mezcla copias procedentes de Strava o Samsung Health. No suma registros crudos manualmente. Para evitar atribuir las mismas calorías o distancia dos veces cuando Garmin presenta intervalos solapados, conserva un conjunto cronológico no solapado; también omite sesiones que excedan los límites admitidos por el servidor.
+La aplicación filtra cada agregación al origen de la propia sesión Garmin, por lo que no mezcla copias procedentes de Strava o Samsung Health. No suma registros crudos manualmente. Envía todas las sesiones válidas en orden cronológico; el servidor decide qué intervalos solapados conservar entre sincronizaciones. Las sesiones que excedan los límites del servidor se omiten.
+
+### Cross-sync ordering and overlap policy
+
+Deploy the backend migrations and code to every backend instance before distributing
+this client. An older backend ignores `observed_at` and does not enforce persistent
+overlap reservations. Old clients remain accepted by the updated backend, but need
+the new client to refresh delayed metrics on an unchanged session.
+
+`source_modified_at` remains the Health Connect session's modification time.
+`observed_at` is the start of the provider read, captured before session pagination
+and aggregation and preserved through all upload chunks. The server compares the
+session version first. An older session cannot overwrite a newer one even with a
+later observation. For equal session versions, only a strictly later observation
+can refresh calories or distance. Equal observations are idempotent. Without
+`observed_at`, the legacy strictly-newer-session rule applies. An accepted no-change
+read still advances its observation watermark. Manual edit/delete tombstones take
+precedence over both timestamps and remain inactive permanently.
+
+The first accepted interval reserves that interval for its user and Garmin source.
+A different overlapping ID is skipped, not substituted for the existing exercise.
+Adjacent half-open intervals are allowed. A correction to the same ID may move its
+interval only if it does not overlap another reservation. The original interval
+survives manual edits and deletions, so another envelope cannot restore the deleted
+workout. Standalone manual exercise and other providers do not participate.
+This conservative policy can retain a shorter session instead of a subsequently
+discovered enclosing session; it does not claim to recover Garmin's intended grouping.
+
+Uploads are independent upserts, not complete snapshots. Empty reads, omitted IDs,
+pagination boundaries, permission changes and partial/chunked uploads never authorize
+deletion. The client sends every valid envelope so persisted winners can still receive
+delayed metrics even when a newly discovered envelope sorts earlier.
+
+The nullable migrations preserve existing data. Historical linked imports without
+stored UTC intervals conservatively reserve their local date plus/minus three days
+until a same-session-version replay restores the exact interval or a fresh accepted
+update supplies it. This avoids guessing a lost offset and may temporarily skip
+unrelated nearby sessions. Historical deleted tombstones without an exercise or
+interval retain their ID protection; no interval can be recovered until the same
+session version is replayed. Existing duplicates are not deleted automatically.
+
+Observation ordering relies on the phone clock, not a Health Connect transactional
+snapshot or metric revision token. Clock rollback or skew across phones may delay an
+equal-session refresh; later reads converge once their timestamps advance. Provider
+session and metric reads are not atomic. Device-side Garmin publication and real-device
+Health Connect behavior still require acceptance testing.
 
 ## Privacidad y seguridad
 
