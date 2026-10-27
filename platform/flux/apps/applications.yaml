@@ -9,7 +9,7 @@ spec:
   prune: true
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: nutrition
   targetNamespace: nutrition-production
   postBuild:
     substituteFrom:
@@ -27,7 +27,7 @@ spec:
   prune: true
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: nutrition
   targetNamespace: nutrition-staging
   postBuild:
     substituteFrom:
