@@ -56,34 +56,22 @@ Check [these instructions](platform/README.md)
 
 This repository uses **Flux CD** to manage deployments and create dynamic preview environments for every branch.
 
-### 1. Prerequisites
-- A Kubernetes cluster (K3s recommended)
-- `flux` CLI installed locally
-- `kubectl` configured
+### 1. Prerequisites and application installation
 
-### 2. Bootstrap Flux
-Run the following command to install Flux components on your cluster:
+Use [the application installation guide](platform/README.md). Flux, Traefik and
+storage must already be installed. Their bootstrap and shared provider setup
+belong to [htpc-flux](https://github.com/LuisMunozVillarreal/htpc-flux), not this
+application repository. **Do not bootstrap Flux against Nutrition.**
 
-```bash
-flux bootstrap github \
-  --owner=LuisMunozVillarreal \
-  --repository=nutrition \
-  --branch=flux \
-  --path=platform/clusters/k3s \
-  --personal
-```
+The app-only entry point is `platform/flux`. It uses its own GitRepository
+`nutrition` and SSH Secret `nutrition-git`. Provision private `BASE_DOMAIN`
+through `flux-system/cluster-settings` and runtime Secrets outside Git.
 
-### 3. Cluster Configuration (Secrets)
-To keep sensitive domains and secrets out of Git, we use **Flux Variable Substitution**.
-You **MUST** create the following ConfigMap in the `flux-system` namespace:
+Existing clusters must first follow htpc-flux's staged migration instructions.
+The old root has pruning enabled; do not merge its deletion before the cutover
+freeze. The extraction branch skips CI deployment to respect that freeze.
 
-```bash
-# Replace 'example.com' with your actual base domain
-kubectl -n flux-system create configmap cluster-settings \
-  --from-literal=BASE_DOMAIN=example.com
-```
-
-### 4. How it Works
+### 2. How it works
 1.  **Push a Branch:** CircleCI builds the Docker images.
 2.  **Generate & Apply:** CI runs `.circleci/scripts/generate_flux_preview.py`. This script:
     - Generates a `GitRepository` and `Kustomization` manifest in memory.
@@ -92,7 +80,7 @@ kubectl -n flux-system create configmap cluster-settings \
 3.  **Flux Sync:** Flux detects the new resources, reconciles the PR branch's own Kubernetes manifests with the branch image tags and compatibility patches, substitutes `${BASE_DOMAIN}`, and creates a new Namespace (e.g., `nutrition-staging--my-branch`).
 4.  **Access:** The app is available at `https://staging--my-branch.example.com`.
 
-### 5. Cleanup
+### 3. Cleanup
 We support two methods for cleanup:
 1.  **Automatic (Recommended):** Deleting a branch in GitHub triggers a GitHub Action (`.github/workflows/cleanup-preview.yaml`) that runs the cleanup script.
 2.  **Manual:** Run the cleanup script locally:

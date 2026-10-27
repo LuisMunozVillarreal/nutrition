@@ -1,20 +1,159 @@
-# Platform (GitOps)
+# Nutrition application GitOps
 
-This directory contains the Infrastructure as Code (IaC) for the project, managed by **Flux CD**.
+This repository installs Nutrition only. Shared k3s, Flux bootstrap, Traefik
+installation and additional file-provider routes belong to
+[LuisMunozVillarreal/htpc-flux](https://github.com/LuisMunozVillarreal/htpc-flux).
 
-## Directory Structure
+## Preinstalled prerequisites
 
-### `clusters/k3s/`
-The entry point for Flux.
-- **`flux-system/`**: Flux components and synchronization logic.
-- **`apps.yaml`**: Main entry point for deploying applications.
+- Kubernetes with Flux controllers and source/kustomize CRDs already installed.
+  The migration retains Flux v2.7.5, not an incidental upgrade.
+- Traefik already installed with Kubernetes Ingress and CRD providers, the
+  `traefik.containo.us` Middleware CRDs used by the current app, `websecure`, and
+  the `letsencrypt` resolver. The shared repository retains chart 26.0.0 and
+  app v2.10.6. Do not install a second controller from this repository.
+- A default storage class, currently k3s `local-path`. Production uses the
+  existing 8Gi `nutrition-postgres-data` PVC. A PVC manifest is not a data backup.
+- `flux-system/cluster-settings` ConfigMap with a private `BASE_DOMAIN` value.
+- `flux-system/nutrition-git` SSH Secret with `identity`, `identity.pub` and
+  `known_hosts`, authorized to read this repository and preview branches.
+  The cluster-owned `flux-system` GitRepository and Secret are not app sources.
 
-### `k8s/`
-Kubernetes manifests structured using **Kustomize**.
-- **`base/`**: Common resources (Deployment, Service, Ingress) for Backend, Webapp, and Postgres.
-- **`overlays/`**
-    - **`staging`**: Configuration for Preview environments (dynamic namespace, secrets cloning).
-    - **`production`**: Configuration for the Production environment (stable domain, high availability).
+## Entry points and installation
+
+`k8s/base` and `k8s/overlays/{production,staging}` are the app workloads.
+`flux/source.yaml` creates GitRepository `nutrition` on main.
+`flux/apps` creates the application namespaces and the stable
+`nutrition-production` and `nutrition-staging` Flux Kustomizations.
+`flux/kustomization.yaml` combines these into a standalone app installation.
+
+For a new app installation on a prepared cluster, create the namespaces first:
+
+```sh
+kubectl apply -f platform/flux/apps/namespaces.yaml
+```
+
+Provision the following Secrets in **both** namespaces using private files or
+an existing secret store. Never put their values, deployment identifiers,
+kubeconfig, database dumps or backup data in Git.
+
+| Secret | Required keys |
+| --- | --- |
+| `nutrition-postgresql` | `postgresql-password` |
+| `nutrition-gemini-api-key` | `gemini-api-key` |
+| `nutrition-django-secret-key` | `secret-key` |
+| `nutrition-webapp-nextauth-secret` | `nextauth-secret` |
+| `nutrition-gcp-db-backup-credentials` | `nutrition-gcp-db-backup-credentials.json` |
+| `nutrition-health-sync-secrets` | `token-pepper`, `trusted-proxy-cidrs`; optional `token-pepper-fallbacks` |
+
+The active PostgreSQL Deployment does not consume the legacy Helm init-script
+Secret. Do not edit a tracked SQL file to hold a password. Backup credentials
+need external object-store access; staging restores from that store. A fresh
+production PVC is empty, not a restored database.
+
+Choose one owner for the app entry points:
+
+- With htpc-flux, its root owns GitRepository `nutrition` and Kustomization
+  `nutrition-apps`, whose path is `./platform/flux/apps`. Follow that repository's
+  activation runbook; do not also reconcile the combined entry from another root.
+- For an independently operated cluster with all prerequisites already met,
+  install only the source first with
+  `kubectl --context "$KUBE_CONTEXT" apply -f platform/flux/source.yaml`.
+  Wait for `nutrition` to be Ready at the approved main revision. Do not apply
+  the combined entry point to an empty cluster: absent image overrides would
+  allow the workload manifests' `latest` images to run.
+
+### Fresh-install image bootstrap
+
+This is an explicitly authorized operator procedure, not a CI deployment.
+Use Python 3, PyYAML and kubectl from the approved Nutrition checkout. Confirm
+`KUBE_CONTEXT` privately. Keep CI frozen and `nutrition-apps` suspended, if
+present. No other reconciler may create the children during this procedure.
+Provision the prerequisites and Secrets above before proceeding.
+
+Select already-published, approved backend and webapp images. Supply their full
+40-character lowercase commit SHA tags as `BACKEND_SHA` and `WEBAPP_SHA` through
+the operator environment. Verify registry provenance and that these SHA tags are
+immutable; the helper validates tag syntax, not registry contents. Never use
+`latest`, a branch tag, or republish different images under the approved SHA tags.
+
+```sh
+python3 platform/bootstrap.py create --context "$KUBE_CONTEXT"
+python3 platform/bootstrap.py seed --context "$KUBE_CONTEXT" \
+  --backend-sha "$BACKEND_SHA" --webapp-sha "$WEBAPP_SHA"
+```
+
+`create` refuses existing children and creates both with `spec.suspend: true`
+from their first API write. `seed` checks both are bootstrap-created and suspended,
+patches both image overrides, then reads back and verifies both children. Neither
+command resumes them. Existing installations must use the migration runbook,
+not this helper. The normal entry manifests deliberately omit both `spec.images`
+and `spec.suspend` to preserve CI image ownership and operator suspension during
+adoption; do not add permanent bootstrap defaults to those manifests.
+
+With htpc-flux, now enable the parent using its installation runbook while the
+children remain suspended. Verify adoption retained suspension and both image
+fields. On a standalone cluster no parent activation is needed. Then explicitly
+approve the first rollout and run:
+
+```sh
+python3 platform/bootstrap.py resume --context "$KUBE_CONTEXT" \
+  --backend-sha "$BACKEND_SHA" --webapp-sha "$WEBAPP_SHA"
+```
+
+`resume` verifies both children's exact approved overrides before any resume
+write, uses resource-version guards, then reads back the resulting state.
+Any failure requires private state inspection; creation or resume can partially
+succeed across the two resources. Keep CI frozen, do not delete/recreate children,
+and do not blindly retry or bypass verification after a partial failure.
+
+Verify Ready conditions, source revision and actual workload images before
+allowing normal CI deployments. Normal CI preflight intentionally rejects
+suspended children and cannot seed this bootstrap. After explicit resumption,
+CI continues patching the same `spec.images` SHA tags; no image automation or
+CI auto-resume is introduced.
+
+## Existing-cluster migration warning
+
+**Do not merge this extraction before the old root has been suspended and its
+pruning disabled.** The old root points at `platform/clusters/k3s` with
+`prune: true`. The staged procedure is in htpc-flux's `docs/migration.md`.
+Provision `nutrition-git` and switch existing main/preview sources before rotating
+the cluster Git credential. Preserve image tags, app suspension state and PVCs.
+No live migration or recovery drill is performed by this PR.
+
+## Preview and CI contract
+
+Preview GitRepositories still track their own PR branches. They now authenticate
+with `nutrition-git`, not the cluster bootstrap key. Existing previews must have
+their Secret reference migrated before the old key is replaced. Namespace-scoped
+preview RBAC, target namespaces, settings substitution and image selection are
+unchanged. Before unfreezing deployments, rebase or update every active preview
+branch so its `.circleci/scripts/generate_flux_preview.py` uses `nutrition-git`.
+Inspect the generator at each branch's exact deployment commit, not just main.
+Patching live sources alone is insufficient: an old branch can recreate the
+`flux-system` credential reference on its next deployment. Do not rerun historical
+pipelines whose checked-out generator uses `flux-system`; start a new pipeline
+from the verified updated commit instead. Keep superseded queued jobs cancelled.
+Keep `KUBECONFIG_DATA_BASE64` in CircleCI and the branch-cleanup GitHub
+Action's external secret store, not in either repository.
+
+The migration branch is published with `[skip ci]` to avoid an unauthorized live
+preview deployment. After operator approval and credential preparation, run the
+normal CI pipeline and verify terminal preview and E2E jobs before calling it
+ready for deployment.
+
+## Offline verification
+
+With Python 3, PyYAML, pytest, pytest-mock, click and kubectl installed:
+
+```sh
+python3 -m unittest discover -s platform/tests -v
+python3 -m pytest .circleci/scripts/ -q
+```
+
+The app contract renders both overlays and the standalone Flux entry without
+contacting the Kubernetes API. The preflight suite below is also stdlib-only.
 
 ## Main deployment preflight
 
