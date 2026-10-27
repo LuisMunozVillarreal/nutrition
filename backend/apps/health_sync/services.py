@@ -767,8 +767,9 @@ def update_manual_exercise(
     time: datetime.time,
     duration: datetime.timedelta | None,
     distance: Decimal | None,
+    target_day: Day | None = None,
 ) -> Exercise:
-    """Update an exercise and deactivate its import provenance under locks."""
+    """Update an exercise, allowing trusted admin callers to move its day."""
     using = router.db_for_write(Exercise)
     day_id = (
         Exercise.objects.using(using)
@@ -779,11 +780,17 @@ def update_manual_exercise(
     if day_id is None:
         raise ValueError("Exercise not found")
     with transaction.atomic(using=using):
-        lock_plan_owner(using=using, user_id=user.pk)
-        locks = lock_plan_aggregate_rows(using=using, day_ids=(day_id,))
+        owner_ids = {user.pk}
+        day_ids = {day_id}
+        if target_day is not None:
+            owner_ids.add(target_day.plan.user_id)
+            day_ids.add(target_day.pk)
+        for owner_id in sorted(owner_ids):
+            lock_plan_owner(using=using, user_id=owner_id)
+        locks = lock_plan_aggregate_rows(using=using, day_ids=day_ids)
         day = locks.days_by_pk.get(day_id)
         try:
-            if day is None:
+            if day is None or not day_ids.issubset(locks.days_by_pk):
                 raise ValueError("Exercise not found")
             try:
                 exercise = (
@@ -793,6 +800,9 @@ def update_manual_exercise(
                 )
             except Exercise.DoesNotExist as exc:
                 raise ValueError("Exercise not found") from exc
+            exercise.day = (
+                locks.days_by_pk[target_day.pk] if target_day else day
+            )
             exercise.time = time
             exercise.type = exercise_type
             exercise.kcals = kcals
@@ -801,6 +811,7 @@ def update_manual_exercise(
             exercise.save(
                 using=using,
                 update_fields=[
+                    "day",
                     "time",
                     "type",
                     "kcals",
@@ -812,6 +823,8 @@ def update_manual_exercise(
             ActivityImport.objects.using(using).filter(
                 exercise=exercise
             ).update(is_active=False, updated_at=timezone.now())
+            if exercise.day_id != day_id:
+                day.save(using=using)
             return exercise
         finally:
             locks.clear_markers()
