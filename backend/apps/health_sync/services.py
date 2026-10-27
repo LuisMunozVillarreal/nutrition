@@ -48,7 +48,6 @@ MAX_SOURCE_RECORD_ID_LENGTH = 255
 EXERCISE_TYPES = tuple(choice[0] for choice in Exercise.EXERCISE_CHOICES)
 
 
-
 @dataclass(frozen=True)
 class DailyStepRecord:
     """Validated daily aggregate supplied by Health Connect."""

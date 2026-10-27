@@ -17,20 +17,20 @@ data class HealthActivity(
     val endZoneOffset: ZoneOffset = ZoneOffset.UTC,
 ) {
     init {
-        require(sourceRecordId.isNotBlank()) { "La actividad debe tener un identificador" }
-        require(startTime < endTime) { "La actividad debe terminar después de empezar" }
+        require(sourceRecordId.isNotBlank()) { "The activity must have an identifier" }
+        require(startTime < endTime) { "The activity must end after it starts" }
         require(Duration.between(startTime, endTime) <= MAX_DURATION) {
-            "La actividad no puede durar más de 24 horas"
+            "The activity cannot last more than 24 hours"
         }
-        require(type in SUPPORTED_TYPES) { "El tipo de actividad no es compatible" }
+        require(type in SUPPORTED_TYPES) { "The activity type is unsupported" }
         require(activeKcals in 0..MAX_ACTIVE_KCALS) {
-            "Las calorías activas deben estar dentro del intervalo permitido"
+            "Active calories must be within the allowed range"
         }
         require(
             distanceKm == null ||
                 (distanceKm.isFinite() && distanceKm in 0.0..MAX_DISTANCE_KM),
         ) {
-            "La distancia debe estar dentro del intervalo permitido"
+            "Distance must be within the allowed range"
         }
     }
 
