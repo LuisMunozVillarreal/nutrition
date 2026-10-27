@@ -331,6 +331,12 @@ jobs:
           name: Run Helm chart contract tests
           working_directory: ~/project/backend
           command: make chart-contract-test
+      - kubernetes/install
+      - run:
+          name: Render standalone application GitOps contracts
+          command: |
+            python3 -m pip install PyYAML==6.0.3
+            python3 -m unittest discover -s platform/tests -v
 
   deploy-preview:
     working_directory: ~/project

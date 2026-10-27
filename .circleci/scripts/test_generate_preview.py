@@ -236,6 +236,9 @@ def test_main_dry_run(mock_check_output):
     assert "kind: Role" in result.output
     assert "kind: RoleBinding" in result.output
     assert "branch: feature/test" in result.output
+    documents = list(yaml.safe_load_all(result.output.split("\n", 1)[1]))
+    source = next(doc for doc in documents if doc["kind"] == "GitRepository")
+    assert source["spec"]["secretRef"]["name"] == "nutrition-git"
 
 
 def test_git_repository_tracks_the_pr_branch_not_main(mock_check_output):
