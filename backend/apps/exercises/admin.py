@@ -69,6 +69,14 @@ class ExerciseInlineAdmin(admin.ModelAdmin):
         if formset.model is not Exercise:
             super().save_formset(request, form, formset, change)
             return
+        # Nested-admin still visits child formsets after their Day inline was
+        # deleted. The calendar cascade already claimed these imports; never
+        # save or delete the now-stale child objects a second time.
+        if not Day.objects.filter(pk=formset.instance.pk).exists():
+            formset.new_objects = []
+            formset.changed_objects = []
+            formset.deleted_objects = []
+            return
         instances = formset.save(commit=False)
         for obj in formset.deleted_objects:
             delete_manual_exercise(obj.day.plan.user, obj.pk)

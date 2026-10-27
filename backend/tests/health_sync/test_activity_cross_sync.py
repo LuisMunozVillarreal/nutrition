@@ -149,6 +149,146 @@ def test_legacy_interval_is_reserved_until_equal_version_replay_restores_it(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("chunked", [False, True])
+def test_newer_legacy_sessions_recover_without_old_versions(
+    client, user_factory, day_factory, reverse, chunked
+):
+    """Recover two unknown historical intervals across retries and chunks."""
+    user = user_factory()
+    day_factory(plan__user=user, day=timezone.localdate())
+    token, _device = HealthSyncDevice.issue(user, "Phone")
+    first = record()
+    start = datetime.datetime.fromisoformat(first["start_time"])
+    second = {
+        **first,
+        "source_record_id": "second",
+        "start_time": (start + datetime.timedelta(hours=1)).isoformat(),
+        "end_time": (start + datetime.timedelta(minutes=90)).isoformat(),
+    }
+    assert upload(client, token, first, second)["summary"]["created"] == 2
+    ActivityImport.objects.update(start_time=None, end_time=None)
+    newer = [
+        {
+            **item,
+            "source_modified_at": timezone.now().isoformat(),
+            "active_kcals": 450,
+        }
+        for item in (first, second)
+    ]
+    if reverse:
+        newer.reverse()
+    batches = [[item] for item in newer] if chunked else [newer]
+    for batch in batches:
+        upload(client, token, *batch)
+    for batch in reversed(batches):
+        upload(client, token, *reversed(batch))
+    for batch in batches:
+        assert upload(client, token, *batch)["summary"]["unchanged"] == len(
+            batch
+        )
+    assert not ActivityImport.objects.filter(start_time=None).exists()
+    assert list(Exercise.objects.values_list("kcals", flat=True)) == [450, 450]
+    assert upload(client, token, first, second)["summary"]["unchanged"] == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "blocked",
+    ["stale", "inactive", "moved", "detached", "known", "other-owner"],
+)
+def test_legacy_recovery_does_not_weaken_reservations(
+    client, user_factory, day_factory, blocked
+):
+    """Only a live owned identity with unchanged local boundaries can hydrate."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    token, device = HealthSyncDevice.issue(user, "Phone")
+    original = record()
+    upload(client, token, original)
+    imported = ActivityImport.objects.get()
+    ActivityImport.objects.update(start_time=None, end_time=None)
+    start = datetime.datetime.fromisoformat(original["start_time"])
+    other_exercise = Exercise.objects.create(day=day, type="run", kcals=50)
+    ActivityImport.objects.create(
+        user=user,
+        device=device,
+        exercise=other_exercise,
+        source_record_id="unresolved",
+        source_modified_at=start,
+    )
+    newer = {
+        **original,
+        "source_modified_at": timezone.now().isoformat(),
+        "active_kcals": 450,
+    }
+    if blocked == "stale":
+        newer["source_modified_at"] = (
+            start - datetime.timedelta(days=2)
+        ).isoformat()
+    elif blocked == "inactive":
+        ActivityImport.objects.filter(pk=imported.pk).update(is_active=False)
+    elif blocked == "moved":
+        newer["end_time"] = (start + datetime.timedelta(hours=2)).isoformat()
+    elif blocked == "detached":
+        ActivityImport.objects.filter(pk=imported.pk).update(exercise=None)
+    elif blocked == "other-owner":
+        Exercise.objects.filter(pk=imported.exercise_id).update(
+            day=day_factory()
+        )
+    else:
+        ActivityImport.objects.filter(source_record_id="unresolved").update(
+            start_time=start, end_time=start + datetime.timedelta(hours=1)
+        )
+    before = list(ActivityImport.objects.order_by("pk").values())
+    upload(client, token, newer)
+    assert list(ActivityImport.objects.order_by("pk").values()) == before
+    assert Exercise.objects.get(pk=imported.exercise_id).kcals == 300
+
+
+@pytest.mark.django_db
+def test_partial_legacy_recovery_does_not_accept_data_or_release_unknowns(
+    client, user_factory, day_factory
+):
+    """Hydration alone cannot advance versions, edit workouts or admit new IDs."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    token, device = HealthSyncDevice.issue(user, "Phone")
+    original = record()
+    upload(client, token, original)
+    imported = ActivityImport.objects.get()
+    ActivityImport.objects.update(start_time=None, end_time=None)
+    ActivityImport.objects.create(
+        user=user,
+        device=device,
+        exercise=Exercise.objects.create(day=day, type="run", kcals=20),
+        source_record_id="omitted",
+        source_modified_at=imported.source_modified_at,
+    )
+    newer = {
+        **original,
+        "source_modified_at": timezone.now().isoformat(),
+        "active_kcals": 450,
+    }
+    assert upload(client, token, newer)["summary"]["skipped"] == 1
+    imported.refresh_from_db()
+    assert imported.start_time == datetime.datetime.fromisoformat(
+        original["start_time"]
+    )
+    assert imported.source_modified_at == datetime.datetime.fromisoformat(
+        original["source_modified_at"]
+    )
+    assert imported.exercise.kcals == 300
+    replacement = {**newer, "source_record_id": "new"}
+    assert upload(client, token, replacement)["summary"]["skipped"] == 1
+    assert (
+        ActivityImport.objects.get(source_record_id="omitted").start_time
+        is None
+    )
+    assert Exercise.objects.count() == 2
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("delete", [False, True])
 def test_manual_override_reserves_original_interval_and_ignores_observations(
     client, user_factory, day_factory, delete

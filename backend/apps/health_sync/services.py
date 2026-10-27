@@ -593,6 +593,52 @@ def _activity_is_stale(
     )
 
 
+def _recover_activity_interval(
+    import_row: ActivityImport, record: ActivityRecord, using: str
+) -> None:
+    """Recover missing offsets without accepting corrections or stale versions."""
+    if import_row.start_time is not None:
+        return
+    if record.source_modified_at != import_row.source_modified_at:
+        # Newer sessions can restore the historical interval only when its
+        # stored local boundaries still match. Never infer an offset for a
+        # moved/resized session or a manually overridden/deleted exercise.
+        if (
+            record.source_modified_at < import_row.source_modified_at
+            or not import_row.is_active
+            or import_row.exercise_id is None
+            or not Exercise.objects.using(using)
+            .filter(
+                pk=import_row.exercise_id,
+                day__plan__user_id=import_row.user_id,
+                day__day=record.date,
+                time=record.time,
+                duration=record.duration,
+            )
+            .exists()
+        ):
+            return
+        if (
+            ActivityImport.objects.using(using)
+            .filter(
+                user_id=import_row.user_id,
+                source=import_row.source,
+                start_time__lt=record.end_time,
+                end_time__gt=record.start_time,
+            )
+            .exclude(pk=import_row.pk)
+            .exists()
+        ):
+            return
+    # Caller holds owner then calendar/import locks. Persist only metadata;
+    # unknown neighbours still block corrections until their own replay. Each
+    # record resolves at most its own identity, so chunks and omissions cannot
+    # evict reservations. Freshness advances only with the normal upsert.
+    import_row.start_time = record.start_time
+    import_row.end_time = record.end_time
+    import_row.save(using=using, update_fields=["start_time", "end_time"])
+
+
 # pylint: disable=too-many-branches,too-many-statements
 def sync_activity_records(
     device: HealthSyncDevice,
@@ -675,19 +721,8 @@ def sync_activity_records(
                     )
                     .first()
                 )
-                if (
-                    import_row is not None
-                    and import_row.start_time is None
-                    and record.source_modified_at
-                    == import_row.source_modified_at
-                ):
-                    # A same-version replay can restore missing interval metadata,
-                    # including tombstones, without changing user data or freshness.
-                    import_row.start_time = record.start_time
-                    import_row.end_time = record.end_time
-                    import_row.save(
-                        using=using, update_fields=["start_time", "end_time"]
-                    )
+                if import_row is not None:
+                    _recover_activity_interval(import_row, record, using)
                 if import_row is not None and not import_row.is_active:
                     summary["unchanged"] += 1
                     results.append(
