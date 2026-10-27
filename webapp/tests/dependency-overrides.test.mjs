@@ -63,6 +63,41 @@ test.each(["nanoid", "diff", "js-yaml", "serialize-javascript", "eslint-plugin-r
   },
 );
 
+test("brace-expansion consumers resolve compatible GHSA-q2hr-2g5m-vwhr fixes", () => {
+  const lock = require("../package-lock.json");
+  const consumers = Object.entries(lock.packages).filter(
+    ([, metadata]) => metadata.dependencies?.["brace-expansion"],
+  );
+  assert.ok(consumers.length > 0, "the lockfile must contain brace-expansion consumers");
+  const patched = ">=1.1.21 <2 || >=2.1.7 <3 || >=3.0.9 <4 || >=5.0.12";
+
+  for (const [packagePath] of consumers) {
+    const consumerPath = new URL(`../${packagePath}/package.json`, import.meta.url);
+    const consumerRequire = createRequire(consumerPath);
+    const consumer = consumerRequire(consumerPath.pathname);
+    const declaredRange = consumer.dependencies["brace-expansion"];
+    const version = consumerRequire("brace-expansion/package.json").version;
+    assert.ok(
+      semver.satisfies(version, declaredRange),
+      `${consumer.name} requires brace-expansion@${declaredRange}, resolved ${version}`,
+    );
+    assert.ok(semver.satisfies(version, patched), `brace-expansion@${version} is vulnerable`);
+
+    const loaded = consumerRequire("brace-expansion");
+    const expand = loaded.expand ?? loaded;
+    assert.deepEqual(expand("{meal,snack}-{1..2}"), ["meal-1", "meal-2", "snack-1", "snack-2"]);
+    assert.deepEqual(expand("{a},b}"), ["a}", "b"]);
+    assert.deepEqual(expand("unclosed{meal,snack"), ["unclosed{meal,snack"]);
+
+    // Above the default rewrite budget, preserve the pattern literally instead
+    // of rescanning once per closing brace. Assert behavior, not wall-clock time.
+    const payload = "{a}" + "}".repeat(1024) + ",z}";
+    assert.deepEqual(expand(payload), [payload]);
+    const minimatch = consumerRequire("./");
+    assert.deepEqual(minimatch.braceExpand(payload), [payload]);
+  }
+});
+
 test("patched brace expansion remains compatible with every minimatch consumer", () => {
   const lock = require("../package-lock.json");
   const consumers = Object.entries(lock.packages).filter(
