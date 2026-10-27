@@ -70,7 +70,7 @@ class HealthConnectDataSource(private val context: Context) {
         lookbackDays: Long = DEFAULT_LOOKBACK_DAYS,
     ): List<HealthActivity> {
         require(lookbackDays in 1..DEFAULT_LOOKBACK_DAYS) {
-            "La ventana debe estar entre 1 y $DEFAULT_LOOKBACK_DAYS días"
+            "The lookback window must be between 1 and $DEFAULT_LOOKBACK_DAYS days"
         }
         val endExclusive = Instant.now()
         val start = endExclusive.minus(Duration.ofDays(lookbackDays))

@@ -30,7 +30,7 @@ object HealthSyncRequestFactory {
     }
 
     fun activities(baseUrl: String, token: String, payload: ActivitiesUploadRequest): Request {
-        require(token.isNotBlank()) { "Falta el token de vinculación" }
+        require(token.isNotBlank()) { "The pairing token is missing" }
         return Request.Builder()
             .url("$baseUrl/api/health-sync/activities/")
             .header("Authorization", "Bearer $token")
@@ -124,7 +124,7 @@ class HealthSyncApi(
             runCatching {
                 HealthSyncJson.codec.decodeFromString<ActivitiesUploadResponse>(body)
             }.getOrElse {
-                throw ApiException("La respuesta de sincronización no es válida", cause = it)
+                throw ApiException("The sync response is invalid", cause = it)
             }
         }
     }

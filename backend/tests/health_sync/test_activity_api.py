@@ -263,7 +263,7 @@ def test_newer_activity_date_change_moves_exercise_without_leaving_duplicate(
     today = timezone.localdate()
     tomorrow = today + datetime.timedelta(days=1)
     old_day = day_factory(plan__user=user, day=today)
-    new_day = day_factory(plan=old_day.plan, day=tomorrow)
+    new_day = day_factory(plan=old_day.plan, day=tomorrow, day_num=2)
     token, _device = HealthSyncDevice.issue(user, "Phone")
     original_modified = timezone.now()
 
@@ -307,7 +307,11 @@ def test_activity_upload_skips_missing_or_ambiguous_days(
         plan__user=other, day=timezone.localdate() - datetime.timedelta(days=1)
     )
     day_factory(plan__user=owner, day=timezone.localdate())
-    day_factory(plan__user=owner, day=timezone.localdate())
+    day_factory(
+        plan__user=owner,
+        plan__start_date=datetime.date(2023, 1, 16),
+        day=timezone.localdate(),
+    )
     token, device = HealthSyncDevice.issue(owner, "Phone")
 
     response = _upload(client, token, _record())
