@@ -2,6 +2,8 @@
 
 import datetime
 import json
+import math
+from decimal import Decimal
 from types import SimpleNamespace
 
 import jwt
@@ -107,6 +109,64 @@ def test_activity_upload_rejects_oversized_body(client, user_factory):
     )
     assert response.status_code == 400
     assert response.json() == {"error": "Request body is too large"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "distance",
+    [
+        pytest.param(1e100, id="huge-finite-float"),
+        pytest.param(10**100, id="huge-integer"),
+        pytest.param(100000000.0, id="above-maximum"),
+        pytest.param(99999999.995, id="rounding-cutoff"),
+        pytest.param(
+            math.nextafter(99999999.995, math.inf), id="above-rounding-cutoff"
+        ),
+    ],
+)
+def test_activity_upload_rejects_distance_overflow_without_writes(
+    client, user_factory, day_factory, distance
+):
+    """Reject oversized JSON numbers before writing any batch records."""
+    user = user_factory()
+    day_factory(plan__user=user, day=timezone.localdate())
+    token, device = HealthSyncDevice.issue(user, "Phone")
+    client.raise_request_exception = False
+
+    response = _upload(
+        client, token, _record(), _record("invalid", distance_km=distance)
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": "distance_km must be less than or equal to 99999999.99"
+    }
+    assert not Exercise.objects.exists()
+    assert not ActivityImport.objects.exists()
+    device.refresh_from_db()
+    assert device.last_success_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "distance",
+    [99999999.99, math.nextafter(99999999.995, -math.inf)],
+)
+def test_activity_upload_preserves_maximum_distance_rounding(
+    client, user_factory, day_factory, distance
+):
+    """Accept values that round down to the maximum representable distance."""
+    user = user_factory()
+    day = day_factory(plan__user=user, day=timezone.localdate())
+    token, _device = HealthSyncDevice.issue(user, "Phone")
+
+    response = _upload(client, token, _record(distance_km=distance))
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["created"] == 1
+    exercise = Exercise.objects.get(day=day)
+    assert exercise.distance == Decimal("99999999.99")
+    assert ActivityImport.objects.get(exercise=exercise).is_active is True
 
 
 @pytest.mark.django_db

@@ -426,13 +426,14 @@ def _parse_distance(raw_distance: Any) -> Decimal | None:
         raise ValueError("distance_km must be a finite number")
     if value < 0:
         raise ValueError("distance_km must be greater than or equal to 0")
-    value = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if value > MAX_ACTIVITY_DISTANCE:
+    # Check before quantizing: huge finite JSON numbers exceed Decimal precision.
+    # Preserve acceptance of values that round down to the maximum distance.
+    if value >= MAX_ACTIVITY_DISTANCE + Decimal("0.005"):
         raise ValueError(
             "distance_km must be less than or equal to "
             f"{MAX_ACTIVITY_DISTANCE}"
         )
-    return value
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def parse_activity_records(  # pylint: disable=too-many-branches
