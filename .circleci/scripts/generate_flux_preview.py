@@ -298,7 +298,7 @@ spec:
   ref:
     branch: {branch}
   secretRef:
-    name: flux-system
+    name: nutrition-git
 """
 
     # 4. Combine Manifests

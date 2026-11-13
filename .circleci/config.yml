@@ -121,7 +121,7 @@ commands:
               CURRENT_WEBAPP_TAG="$CIRCLE_SHA1"
             fi
 
-            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CURRENT_WEBAPP_TAG'"}]}}'
+            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --field-manager=flux-client-side-apply --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CURRENT_WEBAPP_TAG'"}]}}'
       - wait-for-flux-reconciliation:
           kustomization_name: << parameters.kustomization_name >>
           target_namespace: << parameters.target_namespace >>
@@ -129,7 +129,7 @@ commands:
           name: Patch webapp image after backend
           command: |
             set -Eeuo pipefail
-            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
+            kubectl patch kustomization << parameters.kustomization_name >> -n flux-system --field-manager=flux-client-side-apply --type='merge' -p='{"spec": {"images": [{"name": "luismunozvillarreal/nutrition-backend", "newTag": "'$CIRCLE_SHA1'"}, {"name": "luismunozvillarreal/nutrition-webapp", "newTag": "'$CIRCLE_SHA1'"}]}}'
       - wait-for-flux-reconciliation:
           kustomization_name: << parameters.kustomization_name >>
           target_namespace: << parameters.target_namespace >>
@@ -331,6 +331,12 @@ jobs:
           name: Run Helm chart contract tests
           working_directory: ~/project/backend
           command: make chart-contract-test
+      - kubernetes/install
+      - run:
+          name: Render standalone application GitOps contracts
+          command: |
+            python3 -m pip install PyYAML==6.0.3
+            python3 -m unittest discover -s platform/tests -v
 
   deploy-preview:
     working_directory: ~/project
