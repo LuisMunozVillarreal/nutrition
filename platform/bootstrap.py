@@ -18,6 +18,9 @@ import yaml
 APPS = ("nutrition-production", "nutrition-staging")
 RESOURCE = "kustomizations.kustomize.toolkit.fluxcd.io"
 MARKER = "nutrition-bootstrap"
+# Flux retains this manager during SSA adoption; default kubectl managers lose
+# omitted fields, including the suspension that prevents a premature rollout.
+FIELD_MANAGER = "flux-client-side-apply"
 
 
 class BootstrapError(Exception):
@@ -111,6 +114,7 @@ def create(context):
     kubectl(
         context,
         "create",
+        f"--field-manager={FIELD_MANAGER}",
         "-f",
         "-",
         "--request-timeout=30s",
@@ -149,6 +153,7 @@ def change(context, action, images):
             "-n",
             "flux-system",
             "--type=json",
+            f"--field-manager={FIELD_MANAGER}",
             "-p",
             json.dumps(operations),
             "--request-timeout=30s",

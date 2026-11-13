@@ -53,6 +53,7 @@ class BootstrapTests(unittest.TestCase):
             self.events.append(("get", args[2]))
             output = json.dumps(value) if value else ""
         elif verb == "create":
+            self.assertIn("--field-manager=flux-client-side-apply", args)
             body = json.loads(kwargs["input"])
             for item in body["items"]:
                 name = item["metadata"]["name"]
@@ -64,6 +65,7 @@ class BootstrapTests(unittest.TestCase):
                 self.events.append(("create", name))
             output = ""
         elif verb == "patch":
+            self.assertIn("--field-manager=flux-client-side-apply", args)
             name = args[2]
             resource = copy.deepcopy(self.resources[name])
             if self.concurrent_change:

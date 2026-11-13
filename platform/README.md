@@ -87,13 +87,19 @@ python3 platform/bootstrap.py seed --context "$KUBE_CONTEXT" \
 from their first API write. `seed` checks both are bootstrap-created and suspended,
 patches both image overrides, then reads back and verifies both children. Neither
 command resumes them. Existing installations must use the migration runbook,
-not this helper. The normal entry manifests deliberately omit both `spec.images`
-and `spec.suspend` to preserve CI image ownership and operator suspension during
-adoption; do not add permanent bootstrap defaults to those manifests.
+not this helper. Creation, seeding and resumption use the retained field manager
+`flux-client-side-apply`. With the pinned kustomize-controller, default kubectl
+managers can lose both fields during parent SSA adoption, allowing `latest` to
+reconcile before approval. Omitting fields from the parent is not sufficient.
+The normal entry manifests must still omit `spec.images` and `spec.suspend`;
+do not add permanent bootstrap defaults to those manifests.
 
 With htpc-flux, now enable the parent using its installation runbook while the
-children remain suspended. Verify adoption retained suspension and both image
-fields. On a standalone cluster no parent activation is needed. Then explicitly
+children remain suspended. Read back UIDs, suspension, both image overrides and
+`metadata.managedFields` with `kubectl get --show-managed-fields -o json`. Before
+and after parent reconciliation, verify `flux-client-side-apply` owns `f:images`
+and `f:suspend` under `fieldsV1.f:spec`. Repeat parent reconciliation and verify
+again. On a standalone cluster no parent activation is needed. Then explicitly
 approve the first rollout and run:
 
 ```sh
@@ -105,7 +111,12 @@ python3 platform/bootstrap.py resume --context "$KUBE_CONTEXT" \
 write, uses resource-version guards, then reads back the resulting state.
 Any failure requires private state inspection; creation or resume can partially
 succeed across the two resources. Keep CI frozen, do not delete/recreate children,
-and do not blindly retry or bypass verification after a partial failure.
+and do not blindly retry or bypass verification after a partial failure. If
+adoption drops fields, stop the parent, suspend children and contain any started
+workloads before recovery. A changed field-manager flag on a merge/JSON patch
+does not repair erased ownership. Follow htpc-flux's migration runbook for an
+explicit minimal server-side apply repair and repeated adoption checks; this
+fresh-install helper never repairs or adopts existing children.
 
 Verify Ready conditions, source revision and actual workload images before
 allowing normal CI deployments. Normal CI preflight intentionally rejects
@@ -154,6 +165,30 @@ python3 -m pytest .circleci/scripts/ -q
 
 The app contract renders both overlays and the standalone Flux entry without
 contacting the Kubernetes API. The preflight suite below is also stdlib-only.
+
+### Disposable real-Flux regression
+
+`platform/tests/real_flux_bootstrap.py` is opt-in and never runs in normal CI.
+Use only an explicitly authorized disposable cluster with the pinned Flux
+controllers and a credential-free, local HTTP Nutrition Git fixture on `main`.
+Supply its clean local Git tree, approved Git author/committer environment, an
+absolute identity-checking kubectl wrapper, context and independently verified
+`kube-system` UID:
+
+```sh
+python3 platform/tests/real_flux_bootstrap.py \
+  --context "$TEST_CONTEXT" --expected-cluster-uid "$TEST_CLUSTER_UID" \
+  --kubectl "$TEST_KUBECTL" --source-tree "$TEST_SOURCE_TREE" \
+  --confirm-disposable
+```
+
+It imports the actual helper, rebinding only child names and the fixture manifest
+location. Empty overlay fixtures cannot launch workloads, backups or restores.
+It checks creation, SHA seeding, repeated actual parent adoption, explicit resume,
+image/suspension/UID preservation and minimal SSA repair after erased ownership.
+No Kubernetes or Flux behavior is mocked. Test Kustomizations are deleted in
+cleanup; local synthetic Git fixture commits remain for inspection and are never
+pushed. This does not test application deployment, registry provenance or E2E.
 
 ## Main deployment preflight
 
