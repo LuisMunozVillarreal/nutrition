@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 def lock_plan_owner(*, using: str, user_id: int) -> "User":
     """Lock the stable owner row before resolving mutable plan membership.
 
+    NO KEY UPDATE serializes owner-locked writers and still blocks user deletion,
+    but allows unrelated inserts to check their owner foreign key. FOR UPDATE
+    would deadlock a calendar cascade waiting for stock held by a recipe creator
+    whose deferred owner foreign key is checked at commit.
+
     Args:
         using: Database alias on which to acquire the lock.
         user_id: Stable owner primary key.
@@ -23,7 +28,7 @@ def lock_plan_owner(*, using: str, user_id: int) -> "User":
     user_model = cast(type["User"], apps.get_model("users", "User"))
     return cast(
         "User",
-        user_model.objects.select_for_update(of=("self",))
+        user_model.objects.select_for_update(no_key=True, of=("self",))
         .using(using)
         .get(pk=user_id),
     )

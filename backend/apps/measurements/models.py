@@ -6,10 +6,16 @@ from typing import Any
 from django.db import models
 
 from apps.libs.basemodel import BaseModel
+from apps.plans.models.intake import (
+    IntakeCascadeDeletionMixin,
+    IntakeCascadeManager,
+)
 
 
-class Measurement(BaseModel):
+class Measurement(IntakeCascadeDeletionMixin, BaseModel):
     """Measuremnt class."""
+
+    objects = IntakeCascadeManager()
 
     user = models.ForeignKey(
         "users.User",

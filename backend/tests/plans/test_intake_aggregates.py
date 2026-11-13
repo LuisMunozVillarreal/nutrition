@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.db.models.query import QuerySet
 
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.users.models import User
 
 
 def _create_custom_intake(day, energy: str, protein: str = "0") -> Intake:
@@ -264,6 +265,10 @@ def test_day_queryset_cascade_prelocks_all_intake_hierarchies(
     ).delete()
 
     assert locked_rows == [
+        *(
+            (User, [owner])
+            for owner in sorted({day.plan.user_id for day in days})
+        ),
         (WeekPlan, sorted(day.plan_id for day in days)),
         (Day, [day.pk for day in days]),
         (Intake, sorted(row.pk for row in intakes)),
@@ -299,6 +304,7 @@ def test_day_instance_cascade_prelocks_all_intakes(mocker, day_factory):
     day.delete()
 
     assert locked_rows == [
+        (User, [day.plan.user_id]),
         (WeekPlan, [plan_id]),
         (Day, [day_id]),
         (Intake, intake_ids),
@@ -327,13 +333,22 @@ def test_week_plan_queryset_cascade_prelocks_all_intake_hierarchies(
 
     mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
 
+    all_day_ids = list(
+        Day.objects.filter(plan_id__in=[row.plan_id for row in days])
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
     WeekPlan.objects.filter(pk__in=[row.plan_id for row in days]).order_by(
         "-pk"
     ).delete()
 
     assert locked_rows == [
+        *(
+            (User, [owner])
+            for owner in sorted({day.plan.user_id for day in days})
+        ),
         (WeekPlan, sorted(day.plan_id for day in days)),
-        (Day, sorted(day.pk for day in days)),
+        (Day, all_day_ids),
         (Intake, sorted(row.pk for row in intakes)),
     ]
     assert not Intake.objects.filter(
@@ -367,11 +382,13 @@ def test_week_plan_instance_cascade_prelocks_all_intake_hierarchies(
 
     mocker.patch.object(QuerySet, "_fetch_all", new=record_locked_queryset)
 
+    all_day_ids = list(plan.days.order_by("pk").values_list("pk", flat=True))
     plan.delete()
 
     assert locked_rows == [
+        (User, [plan.user_id]),
         (WeekPlan, [plan_id]),
-        (Day, sorted((day.pk, other_day.pk))),
+        (Day, all_day_ids),
         (Intake, sorted(row.pk for row in intakes)),
     ]
 

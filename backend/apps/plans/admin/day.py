@@ -5,7 +5,11 @@ from django.contrib import admin
 from django.db import models
 from django.http import HttpRequest
 
-from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
+from apps.exercises.admin import (
+    DayStepsInlineBase,
+    ExerciseInlineAdmin,
+    ExerciseInlineBase,
+)
 from apps.libs.admin import progress_bar_field, round_field
 
 from ..models import Day
@@ -43,7 +47,7 @@ class DayStepsInline(  # type: ignore[misc]
 
 
 @admin.register(Day)
-class DayAdmin(admin.ModelAdmin):
+class DayAdmin(ExerciseInlineAdmin):
     """Day admin class."""
 
     inlines = [

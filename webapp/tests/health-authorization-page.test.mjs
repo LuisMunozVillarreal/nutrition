@@ -18,6 +18,8 @@ test('requires an explicit consent click and shows the signed-in account', async
   state.consent.mockRejectedValue(new Error('Unavailable'))
   render(React.createElement(Page))
   expect(screen.getByText(/user@example.com/)).toBeTruthy()
+  expect(screen.getByText(/daily step totals and Garmin exercise activities/)).toBeTruthy()
+  expect(screen.getByText(/active calories, duration, and distance/)).toBeTruthy()
   expect(state.consent).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Connect phone' }))
   await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not connect'))

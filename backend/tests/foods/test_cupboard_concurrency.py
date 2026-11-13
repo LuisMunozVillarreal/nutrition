@@ -13,7 +13,6 @@ from django.db import close_old_connections, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
-from apps.foods import cupboard_locks
 from apps.foods import deletion as food_deletion
 from apps.foods.models import (
     CupboardItem,
@@ -627,20 +626,22 @@ class IntakeCupboardGlobalOrderConcurrencyTests(TransactionTestCase):
                     food=serving,
                     meal=Intake.MEAL_LUNCH,
                 )
-        before_cupboard = threading.Barrier(2)
-        original_lock = cupboard_locks.lock_cupboard_items
+        # Same-owner cascades now serialize before reaching stock. A barrier
+        # at the cupboard step would wait for a peer blocked on the owner lock.
+        before_owner = threading.Barrier(2)
+        original_lock = intake_model.lock_plan_owner
 
-        def synchronize_before_cupboard(*args, **kwargs):
-            before_cupboard.wait(timeout=10)
+        def synchronize_before_owner(*args, **kwargs):
+            before_owner.wait(timeout=10)
             return original_lock(*args, **kwargs)
 
         def delete(model, row_id):
             model.objects.get(pk=row_id).delete()
 
         with patch.object(
-            cupboard_locks,
-            "lock_cupboard_items",
-            new=synchronize_before_cupboard,
+            intake_model,
+            "lock_plan_owner",
+            new=synchronize_before_owner,
         ):
             self._run_competing(
                 lambda: delete(type(roots[0]), roots[0].pk),

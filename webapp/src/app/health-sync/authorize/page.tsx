@@ -36,7 +36,7 @@ function Consent() {
     <section className="glass-card mx-auto max-w-lg rounded-xl p-6">
       <h1 className="text-xl font-semibold">Connect Nutrition for Android</h1>
       <p className="mt-4">Signed in as {session?.user?.email}.</p>
-      <p className="mt-2">Allow {authorization.device_name} to upload daily step totals to this Nutrition account?</p>
+      <p className="mt-2">Allow {authorization.device_name} to upload daily step totals and Garmin exercise activities, including active calories, duration, and distance, to this Nutrition account?</p>
       <p className="mt-2 text-sm text-slate-400">The app cannot access your password. It stays signed in for background sync until you disconnect it or its renewable credential expires after 180 days without renewal. Manage access in Devices.</p>
       <button className="btn btn-primary mt-6" type="button" disabled={busy} onClick={() => void connect()}>
         {busy ? 'Connecting…' : 'Connect phone'}
