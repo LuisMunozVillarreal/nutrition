@@ -1,6 +1,6 @@
 # Images and suspension belong to CI/operators, not this adopting parent.
 # Fresh installs must create suspended children via platform/bootstrap.py first.
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: nutrition-production
@@ -18,7 +18,7 @@ spec:
       - kind: ConfigMap
         name: cluster-settings
 ---
-apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: nutrition-staging

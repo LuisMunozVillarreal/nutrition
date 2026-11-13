@@ -3,7 +3,7 @@
 
 Run beside a clean, local Nutrition fixture Git tree served to the disposable
 cluster's flux-system/nutrition source on main. It appends empty overlays and a
-parent, commits locally (never pushes), and deletes only its random test objects.
+parent, commits locally (never pushes), and removes its random objects/fixtures.
 The real helper is imported unchanged; only APPS and its manifest location are
 rebound to isolated fixtures. No subprocess/API/controller behavior is mocked.
 """
@@ -13,6 +13,8 @@ import copy
 import importlib.util
 import json
 import os
+import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -26,7 +28,7 @@ MANAGER = "flux-client-side-apply"
 
 
 def main():
-    """Exercise create, seed, repeated parent adoption, resume and SSA repair."""
+    """Exercise bootstrap, normal CI image patches, adoption and SSA repair."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--context", required=True)
     parser.add_argument("--expected-cluster-uid", required=True)
@@ -91,6 +93,25 @@ def main():
         command(["git", "-C", str(repo), "branch", "--show-current"]).strip()
         == "main"
     )
+    config = yaml.safe_load(
+        (SCRIPT.parent.parent / ".circleci/config.yml").read_text()
+    )
+    steps = config["commands"]["rollout-compatible-images"]["steps"]
+    ci_patches = []
+    for step in steps:
+        run = step.get("run", {})
+        if run.get("name") in (
+            "Patch backend image first",
+            "Patch webapp image after backend",
+        ):
+            patches = [
+                line.strip()
+                for line in run["command"].splitlines()
+                if line.strip().startswith("kubectl patch kustomization ")
+            ]
+            assert len(patches) == 1
+            ci_patches.extend(patches)
+    assert len(ci_patches) == 2
 
     def wait_for(predicate):
         deadline = time.monotonic() + 180
@@ -208,11 +229,17 @@ def main():
             obj = get("kustomization", name)
             assert obj["metadata"]["uid"] == uids[name], "Child was recreated"
             assert (
-                obj["spec"].get("suspend") is suspended
+                obj["spec"].get("suspend", False) is suspended
             ), "Suspension lost during adoption"
             assert (
                 obj["spec"].get("images") == images
-            ), "Images lost during adoption"
+            ), "Images lost during adoption: " + json.dumps(
+                {
+                    "actual": obj["spec"].get("images"),
+                    "expected": images,
+                    "ownership": obj["metadata"].get("managedFields", []),
+                }
+            )
             owned = set()
             for field in obj["metadata"].get("managedFields", []):
                 if field["manager"] == MANAGER:
@@ -277,6 +304,98 @@ def main():
             print(
                 "PASS: explicit resume and subsequent parent reconciliation retain both image pairs"
             )
+            # Execute the actual CI patch lines, not a second implementation.
+            # Empty overlays deliberately avoid image pulls or app rollouts.
+            for tag in ("c" * 40, "d" * 40):
+                old_webapp_tag = images[1]["newTag"]
+                for stage, patch in enumerate(ci_patches):
+                    for name in module.APPS:
+                        line = patch.replace(
+                            "<< parameters.kustomization_name >>", name
+                        ).replace(
+                            "kubectl ",
+                            shlex.quote(str(args.kubectl))
+                            + " --context "
+                            + shlex.quote(args.context)
+                            + " ",
+                            1,
+                        )
+                        command(
+                            [
+                                "env",
+                                "CIRCLE_SHA1=" + tag,
+                                "CURRENT_WEBAPP_TAG=" + old_webapp_tag,
+                                "bash",
+                                "-Eeuo",
+                                "pipefail",
+                                "-c",
+                                line,
+                            ]
+                        )
+                    images[0]["newTag"] = tag
+                    if stage == 1:
+                        images[1]["newTag"] = tag
+                    check(False)
+                    for name in module.APPS:
+                        reconcile("kustomization", name)
+                    for _ in range(2):
+                        reconcile("kustomization", parent_name)
+                        check(False)
+                    # An unchanged parent may skip apply. A real Git metadata
+                    # change exercises manager cleanup on its next apply too.
+                    for child in children:
+                        child["metadata"].setdefault("annotations", {})[
+                            "regression.example.test/ci-stage"
+                        ] = (tag + "-" + str(stage))
+                    (repo / fixture_path / "children.yaml").write_text(
+                        yaml.safe_dump_all(children)
+                    )
+                    command(
+                        [
+                            "git",
+                            "-C",
+                            str(repo),
+                            "add",
+                            "--",
+                            str(fixture_path / "children.yaml"),
+                        ]
+                    )
+                    command(
+                        [
+                            "git",
+                            "-C",
+                            str(repo),
+                            "commit",
+                            "-m",
+                            "test: reconcile changed parent after CI image patch",
+                        ]
+                    )
+                    reconcile("gitrepository", "nutrition")
+                    revision = command(
+                        ["git", "-C", str(repo), "rev-parse", "HEAD"]
+                    ).strip()
+                    assert get("gitrepository", "nutrition")["status"][
+                        "artifact"
+                    ]["revision"].endswith(revision)
+                    for _ in range(2):
+                        reconcile("kustomization", parent_name)
+                        assert get("kustomization", parent_name)["status"][
+                            "lastAppliedRevision"
+                        ].endswith(revision)
+                        check(False)
+                    for name in module.APPS:
+                        assert get("kustomization", name)["metadata"][
+                            "annotations"
+                        ]["regression.example.test/ci-stage"] == (
+                            tag + "-" + str(stage)
+                        )
+                    print(
+                        "PASS: actual CI "
+                        + ("backend" if stage == 0 else "webapp")
+                        + " patch, tag="
+                        + tag
+                        + ", survives unchanged and changed parent reconciliations"
+                    )
             # Model the documented recovery case without touching app objects.
             kube(
                 "-n",
@@ -368,9 +487,33 @@ def main():
                 "--wait=true",
                 "--timeout=60s",
             )
-        print(
-            "Cleaned up isolated test Kustomizations; local fixture Git commit retained"
+        for name in (parent_name, *module.APPS):
+            assert not kube(
+                "-n",
+                "flux-system",
+                "get",
+                "kustomization",
+                name,
+                "--ignore-not-found",
+                "-o",
+                "name",
+            ).strip(), "Regression object survived cleanup"
+        for path in paths:
+            shutil.rmtree(repo / path)
+        command(["git", "-C", str(repo), "add", "--", *paths])
+        command(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "commit",
+                "-m",
+                "test: remove completed bootstrap ownership fixtures",
+            ]
         )
+        reconcile("gitrepository", "nutrition")
+        assert all(not (repo / path).exists() for path in paths)
+        print("Cleaned up and verified isolated test objects and Git fixtures")
 
 
 if __name__ == "__main__":

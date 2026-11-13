@@ -8,7 +8,9 @@ were unused by the active Flux deployment and have been removed.
 Shared Traefik installation and its additional providers now live in
 [LuisMunozVillarreal/htpc-flux](https://github.com/LuisMunozVillarreal/htpc-flux).
 Its pinned HelmRelease replaces `helmfile.d/00-traefik.yaml` after read-only
-structure/value parity checks. Real settings and secrets remain outside Git.
+structure/value parity checks. Actual non-secret deployment settings live in the
+private htpc-flux repository, never in Nutrition. Secrets and runtime state remain
+external to Git in both repositories.
 
 Existing clusters must complete htpc-flux's `docs/migration.md` cutover before
 merging the old cluster-tree deletion. Do not apply a Helmfile, install CRDs

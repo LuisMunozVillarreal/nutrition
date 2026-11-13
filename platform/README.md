@@ -186,9 +186,19 @@ It imports the actual helper, rebinding only child names and the fixture manifes
 location. Empty overlay fixtures cannot launch workloads, backups or restores.
 It checks creation, SHA seeding, repeated actual parent adoption, explicit resume,
 image/suspension/UID preservation and minimal SSA repair after erased ownership.
-No Kubernetes or Flux behavior is mocked. Test Kustomizations are deleted in
-cleanup; local synthetic Git fixture commits remain for inspection and are never
-pushed. This does not test application deployment, registry provenance or E2E.
+It also executes both image-patch commands from `.circleci/config.yml` for two
+successive synthetic releases. Each backend-first and webapp stage must survive
+repeated unchanged parent reconciliation and a Git-driven parent metadata change.
+An unchanged parent can skip apply, so that check alone does not prove that CI
+image ownership survives Flux's manager cleanup. Both CI patches must use the
+retained `flux-client-side-apply` manager, just like bootstrap writes. The adopting
+children use the stable `v1` API: the disposable test also exposed ownership loss
+after active reconciliation with the legacy `v1beta2` manifests, even with the
+retained manager. Changing only the manager was not enough for that lifecycle.
+No Kubernetes or Flux behavior is mocked. Cleanup deletes and verifies absence
+of test Kustomizations and removes this run's fixture files in a local Git commit.
+Synthetic commit history remains for inspection and is never pushed. This does
+not test application deployment, registry provenance or E2E.
 
 ## Main deployment preflight
 

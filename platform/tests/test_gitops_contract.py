@@ -33,26 +33,40 @@ class GitOpsContracts(unittest.TestCase):
             {"nutrition-production", "nutrition-staging"},
         )
         for app in apps:
+            self.assertEqual(
+                app["apiVersion"], "kustomize.toolkit.fluxcd.io/v1"
+            )
             spec = app["spec"]
             self.assertEqual(spec["sourceRef"]["name"], "nutrition")
             self.assertNotIn("images", spec, "CI owns image tags")
-            self.assertNotIn("suspend", spec, "preserve operator suspension during adoption")
+            self.assertNotIn(
+                "suspend", spec, "preserve operator suspension during adoption"
+            )
             self.assertEqual(
                 spec["postBuild"]["substituteFrom"][0]["name"],
                 "cluster-settings",
             )
         self.assertEqual(
-            {d["metadata"]["name"] for d in documents if d["kind"] == "Namespace"},
+            {
+                d["metadata"]["name"]
+                for d in documents
+                if d["kind"] == "Namespace"
+            },
             {"nutrition-production", "nutrition-staging"},
         )
 
     def test_documented_bootstrap_and_preview_cutover(self):
         """The operator entry point cannot bypass the image/credential gates."""
         text = " ".join((ROOT / "platform/README.md").read_text().split())
-        steps = [text.index(token) for token in (
-            "platform/bootstrap.py create", "platform/bootstrap.py seed",
-            "platform/bootstrap.py resume", "allowing normal CI deployments",
-        )]
+        steps = [
+            text.index(token)
+            for token in (
+                "platform/bootstrap.py create",
+                "platform/bootstrap.py seed",
+                "platform/bootstrap.py resume",
+                "allowing normal CI deployments",
+            )
+        ]
         self.assertEqual(steps, sorted(steps))
         self.assertIn("rebase or update every active preview branch", text)
         self.assertIn("Do not rerun historical pipelines", text)
@@ -62,14 +76,21 @@ class GitOpsContracts(unittest.TestCase):
         """Both overlays retain app storage and the ingress middleware."""
         for environment in ("production", "staging"):
             output = subprocess.check_output(
-                ["kubectl", "kustomize", str(ROOT / "platform/k8s/overlays" / environment)],
+                [
+                    "kubectl",
+                    "kustomize",
+                    str(ROOT / "platform/k8s/overlays" / environment),
+                ],
                 text=True,
             )
             documents = list(yaml.safe_load_all(output))
             kinds = {d["kind"] for d in documents}
             self.assertIn("PersistentVolumeClaim", kinds)
             self.assertIn("Middleware", kinds)
-            self.assertFalse(kinds & {"HelmRelease", "HelmRepository", "CustomResourceDefinition"})
+            self.assertFalse(
+                kinds
+                & {"HelmRelease", "HelmRepository", "CustomResourceDefinition"}
+            )
 
 
 if __name__ == "__main__":
