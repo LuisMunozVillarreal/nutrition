@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { graphqlRequest, gql } from '@/lib/graphql'
+import ProductSearch from '@/components/ProductSearch'
 import {
   captureVideoFrame,
   createBarcodeDetector,
@@ -312,6 +313,7 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
 
   const restart = () => {
     lookupGenerationRef.current += 1
+    setSearching(false)
     setLookup(null)
     setError(null)
     setManual(false)
@@ -367,6 +369,23 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
           </p>
         )}
         </section>
+      )}
+
+      {!productMode && (
+        <ProductSearch
+          onSearchStart={() => {
+            lookupGenerationRef.current += 1
+            setSearching(false)
+            setManual(true)
+          }}
+          onSelect={(product) => {
+            const params = new URLSearchParams(intakeDetails)
+            if (intakeDayId) params.set('dayId', intakeDayId)
+            else if (intakeDayDate !== null) params.set('dayDate', intakeDayDate)
+            params.set('productId', product.id)
+            navigate(`/intakes/new?${params}`)
+          }}
+        />
       )}
 
       <section data-testid="scanner-panel">
@@ -511,6 +530,9 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {searching ? 'Looking up...' : 'Look up'}
+          </button>
+          <button type="button" onClick={restart} className="ml-4 text-slate-600 underline">
+            Use camera
           </button>
         </form>
       )}
