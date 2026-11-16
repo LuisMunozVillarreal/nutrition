@@ -25,6 +25,7 @@ from apps.foods.models.units import (
     UNIT_SERVING,
     units_are_compatible,
 )
+from apps.foods.off_reconciliation import reconcile_off_product
 from apps.foods.open_food_facts import (
     OpenFoodFactsProduct,
     equivalent_gtins,
@@ -453,9 +454,9 @@ class FoodQuery:
     ) -> FoodProductBarcodeLookupType:
         """Look up a food product by barcode, falling back to OFF.
 
-        Local products take precedence. Unknown barcodes are looked up on
-        Open Food Facts and returned as a non-persisted draft so the user
-        can review it before creating a product.
+        Local products take precedence. After OFF responds, reuse an
+        unambiguous exact catalog match and fill its missing barcode for
+        staff callers only. Otherwise return a non-persisted draft for review.
 
         Args:
             info (Info): GraphQL execution info.
@@ -500,6 +501,12 @@ class FoodQuery:
         if off_product is None:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
+            )
+        product = reconcile_off_product(off_product, may_update=user.is_staff)
+        if product is not None:
+            return FoodProductBarcodeLookupType(
+                product=FoodProductType.from_model(product),
+                open_food_facts=None,
             )
         return FoodProductBarcodeLookupType(
             product=None,

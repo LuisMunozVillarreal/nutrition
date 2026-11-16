@@ -99,7 +99,7 @@ let mountedView
 
 async function mount() {
   const { default: Page } = await import('../src/app/scan/page.tsx')
-  mountedView = render(React.createElement(Page))
+  await act(async () => { mountedView = render(React.createElement(Page)) })
   return mountedView.container
 }
 
@@ -147,7 +147,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
+test.each(['frequent', 'existing', 'draft', 'manual', 'search'].flatMap((path) =>
   ['dayId', 'dayDate', 'today', 'continuation'].map((dayKey) => [path, dayKey]),
 ))('food-first %s journey opens the details form with %s', async (path, dayKey) => {
   const { default: IntakePage } = await import('../src/app/intakes/new/page.tsx')
@@ -164,6 +164,7 @@ test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
   graphqlImpl = async (operation) => {
     if (operation.includes('IntakeContext')) return { intakeDays: [{ id: '7', day: '2026-10-01' }], foodProduct: product, intakeFood: scanSearchParams.has('servingId') ? food : null }
     if (operation.includes('MostUsedFoods')) return { mostUsedFoods: [food] }
+    if (operation.includes('SearchProducts')) return { foodProducts: [product] }
     if (operation.includes('FoodProductByBarcode')) return { foodProductByBarcode: {
       product: path === 'existing' ? product : null,
       openFoodFacts: path === 'draft' ? {
@@ -181,6 +182,11 @@ test.each(['frequent', 'existing', 'draft', 'manual'].flatMap((path) =>
   assert.equal(container.querySelector('#dayDate'), null)
   if (path === 'frequent') {
     await act(async () => { buttonByText(container, 'Oats').click() })
+  } else if (path === 'search') {
+    const input = mountedView.queryByRole('searchbox', { name: 'Search products' })
+    assert.ok(input, 'The meal scanner must offer product search')
+    await act(async () => { fireEvent.change(input, { target: { value: 'oats' } }) })
+    await act(async () => { buttonByText(container, 'Select Oats').click() })
   } else {
     await act(async () => { buttonByText(container, 'Enter a barcode manually').click() })
     fireEvent.change(container.querySelector('#barcode-input'), { target: { value: '123' } })
@@ -299,6 +305,76 @@ test.each([
       energyKcal: 250, proteinG: 0, fatG: 0, carbsG: 0,
     })
   }
+})
+
+test.each(['camera', 'manual'])('starting product search cancels a pending %s lookup for regular users', async (source) => {
+  session = { user: { isStaff: false } }
+  scanSearchParams = new URLSearchParams({ mode: 'intake', dayDate: '', intakeMeal: '', intakeNumServings: 'bad' })
+  supported = source === 'camera'
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  let finish
+  scanResult = new Promise((resolve) => { if (source === 'camera') finish = resolve })
+  graphqlImpl = async (operation) => {
+    if (operation.includes('MostUsedFoods')) return { mostUsedFoods: [] }
+    if (operation.includes('SearchProducts')) return { foodProducts: [{ id: 'p/2', name: 'Milk', brand: 'Farm', size: 1, sizeUnit: 'l' }] }
+    return new Promise((resolve) => { finish = resolve })
+  }
+  const container = await mount()
+  await act(async () => {})
+  if (source === 'manual') {
+    await act(async () => { buttonByText(container, 'Enter a barcode manually').click() })
+    fireEvent.change(container.querySelector('#barcode-input'), { target: { value: '123' } })
+    await act(async () => { fireEvent.submit(container.querySelector('form')) })
+  }
+  const input = mountedView.getByRole('searchbox', { name: 'Search products' })
+  await act(async () => { fireEvent.focus(input) })
+  if (source === 'camera') {
+    assert.equal(scanSignals[0].aborted, true, 'Searching must stop camera detection')
+    assert.deepEqual(stopCalls, [cameraResult])
+  }
+  await act(async () => {
+    finish(source === 'camera' ? '123' : { foodProductByBarcode: { product: { id: 'wrong' }, openFoodFacts: null } })
+  })
+  assert.equal(push.mock.calls.length, 0, 'Late barcode lookup must not interrupt search')
+  await act(async () => { fireEvent.change(input, { target: { value: 'farm' } }) })
+  await act(async () => { buttonByText(container, 'Select Farm Milk').click() })
+  const destination = new URL(push.mock.calls.at(-1)[0])
+  assert.equal(destination.pathname, '/intakes/new')
+  assert.deepEqual(Object.fromEntries(destination.searchParams), { productId: 'p/2', dayDate: '', intakeMeal: '', intakeNumServings: 'bad' })
+  assert.equal(graphqlCalls.some(([operation]) => operation.includes('mutation')), false)
+})
+
+test('meal search lets users resume camera scanning without leaving the page', async () => {
+  supported = true
+  detector = {}
+  cameraResult = { getTracks: () => [] }
+  scanResult = new Promise(() => {})
+  const container = await mount()
+  await settle(() => assert.equal(scanSignals.length, 1))
+  await act(async () => { fireEvent.focus(mountedView.getByRole('searchbox')) })
+  const resume = buttonByText(container, 'Use camera')
+  assert.ok(resume, 'Search must not strand the user in manual barcode entry')
+  await act(async () => { resume.click() })
+  await settle(() => assert.equal(scanSignals.length, 2))
+  assert.equal(scanSignals[1].aborted, false)
+  assert.match(container.textContent, /Point the camera at a product barcode/)
+})
+
+test('resuming an unavailable camera clears a pending manual lookup', async () => {
+  const container = await mount()
+  await act(async () => { buttonByText(container, 'Enter a barcode manually').click() })
+  let finish
+  graphqlImpl = async () => new Promise((resolve) => { finish = resolve })
+  fireEvent.change(container.querySelector('#barcode-input'), { target: { value: '123' } })
+  await act(async () => { fireEvent.submit(container.querySelector('form')) })
+  assert.equal(buttonByText(container, 'Looking up').disabled, true)
+  await act(async () => { buttonByText(container, 'Use camera').click() })
+  await act(async () => { buttonByText(container, 'Enter a barcode manually').click() })
+  assert.ok(buttonByText(container, 'Look up'), 'Cancelled lookup must not leave manual entry busy')
+  assert.equal(buttonByText(container, 'Look up').disabled, false)
+  await act(async () => { finish({ foodProductByBarcode: { product: { id: 'late' }, openFoodFacts: null } }) })
+  assert.equal(push.mock.calls.length, 0)
 })
 
 test('meal entry titles the existing chooser without changing the standalone scanner title', async () => {

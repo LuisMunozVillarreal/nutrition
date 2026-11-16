@@ -3,24 +3,9 @@
 import { useEffect, useState } from 'react'
 
 import { useSession } from 'next-auth/react'
-import { graphqlRequest, gql } from '@/lib/graphql'
+import { graphqlRequest } from '@/lib/graphql'
+import { filterProducts, PRODUCTS_QUERY, type FoodProduct } from '@/lib/productSearch'
 import DataTable, { Column } from '@/components/DataTable'
-
-const PRODUCTS_QUERY = gql`
-  query {
-    foodProducts {
-      id name brand size sizeUnit
-    }
-  }
-`
-
-interface FoodProduct {
-  id: string
-  name: string
-  brand: string | null
-  size: number
-  sizeUnit: string
-}
 
 const columns: Column<FoodProduct>[] = [
   { key: 'brand', label: 'Brand', accessor: (r) => r.brand || '—' },
@@ -30,6 +15,7 @@ const columns: Column<FoodProduct>[] = [
 
 export default function ProductsPage() {
   const [data, setData] = useState<FoodProduct[]>([])
+  const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const { data: session } = useSession()
   const isStaff = session?.user?.isStaff === true
@@ -53,14 +39,25 @@ export default function ProductsPage() {
           Food Products
         </h1>
       </div>
+      <div className="mb-4">
+        <label htmlFor="product-search" className="mb-1 block text-sm font-medium">Search products</label>
+        <input
+          id="product-search"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Name or brand"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2"
+        />
+      </div>
       <DataTable
         columns={columns}
-        data={data}
+        data={filterProducts(data, query)}
         loading={loading}
         rowHref={isStaff ? (r) => `/products/${r.id}` : undefined}
         addHref={isStaff ? '/products/new' : undefined}
         addLabel="New Product"
-        emptyMessage="No food products available yet."
+        emptyMessage={query.trim() ? 'No products match your search.' : 'No food products available yet.'}
       />
     </div>
   )
