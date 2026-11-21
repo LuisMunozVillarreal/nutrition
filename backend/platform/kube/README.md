@@ -1,16 +1,10 @@
-# Kubernetes Infrastructure for the API
+# Legacy API chart
 
-## Installation & Upgrade
+Do not install this chart as a second copy of the API. Current production,
+staging and previews use the application manifests documented in
+[the platform installation guide](../../../platform/README.md).
+Shared Flux and Traefik infrastructure belongs to the separate htpc-flux repo.
 
-> :warning: DO NOT INSTALL OR UPDATE THIS CHART SEPARATELY
-
-Check [this](../../../platform/kube/README.md) to find out how to install and
-upgrade this app.
-
-
-# Update heml chart dependencies
-
-Running the following command will generate the lock file, if it doesn't exist;
-and will update the chart dependencies
-
-    helm dependency update
+This chart is retained for compatibility and the existing chart-contract tests.
+For chart-only dependency development, `helm dependency update` regenerates its
+lock file. It is not an instruction to change the production deployment.

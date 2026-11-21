@@ -326,6 +326,26 @@ class ContractTests(unittest.TestCase):
             actual, {name: set(keys) for name, keys in CONTRACT.items()}
         )
 
+    def test_ci_image_patches_retain_ownership_through_flux_adoption(
+        self,
+    ) -> None:
+        """Both rollout stages must avoid Flux's kubectl-manager cleanup."""
+        config = (ROOT / ".circleci/config.yml").read_text()
+        rollout = config.split("  rollout-compatible-images:\n", 1)[1].split(
+            "\n  validate:", 1
+        )[0]
+        patches = [
+            line.strip()
+            for line in rollout.splitlines()
+            if line.strip().startswith("kubectl patch kustomization ")
+        ]
+        self.assertEqual(len(patches), 2)
+        for command in patches:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "--field-manager=flux-client-side-apply", command
+                )
+
     def test_ci_preflight_precedes_backend_patch_and_runs_tests(self) -> None:
         """Run contract tests in CI and preflight before patching the backend."""
         config = (ROOT / ".circleci/config.yml").read_text()

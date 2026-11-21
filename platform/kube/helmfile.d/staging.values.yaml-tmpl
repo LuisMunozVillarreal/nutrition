@@ -1,4 +1,0 @@
-environment: staging
-namespace: nutrition-staging
-domain: staging.<domain>
-debug: True
