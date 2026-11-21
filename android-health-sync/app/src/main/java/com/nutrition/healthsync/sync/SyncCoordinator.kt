@@ -12,10 +12,12 @@ import kotlinx.coroutines.sync.withLock
 import androidx.core.content.edit
 import com.nutrition.healthsync.domain.EndpointConfig
 import com.nutrition.healthsync.health.HealthConnectDataSource
+import com.nutrition.healthsync.health.HealthReadPermissions
 import com.nutrition.healthsync.network.ApiException
 import com.nutrition.healthsync.network.HealthSyncApi
 import com.nutrition.healthsync.network.StepUploadRecord
 import com.nutrition.healthsync.network.StepsUploadResponse
+import com.nutrition.healthsync.network.StepsUploadSummary
 import com.nutrition.healthsync.storage.Pairing
 import com.nutrition.healthsync.storage.SecurePairingStore
 import com.nutrition.healthsync.storage.SyncReceipt
@@ -125,23 +127,28 @@ class SyncCoordinator(context: Context) {
         if (pairing.signInRequired) throw SyncException("Sign in again to connect this device")
         if (!health.isAvailable()) throw SyncException("Health Connect is unavailable")
         val granted = health.grantedPermissions()
-        if (HealthConnectDataSource.READ_STEPS !in granted) {
-            throw SyncException("Allow step access first")
+        if (!HealthReadPermissions.canSyncAnything(granted)) {
+            throw SyncException("Allow access to steps or Garmin activities first")
         }
         if (requireBackgroundPermission && HealthConnectDataSource.READ_IN_BACKGROUND !in granted) {
             throw SyncException("Background health-data access is missing")
         }
 
         val observedAt = Instant.now()
-        val records = health.readDailySteps().map { it.toUploadRecord(observedAt) }
-        val response = try {
+        val records = if (HealthReadPermissions.canReadSteps(granted)) {
+            health.readDailySteps().map { it.toUploadRecord(observedAt) }
+        } else null
+        val activities = if (HealthReadPermissions.canReadActivities(granted)) {
+            health.readGarminActivities().map { it.toUploadRecord() }
+        } else emptyList()
+        suspend fun <T> upload(block: suspend (Pairing) -> T): T = try {
             pairing = renewal().active()
             try {
-                api.uploadSteps(pairing.baseUrl, pairing.token, records)
+                block(pairing)
             } catch (error: ApiException) {
                 if (error.statusCode != 401 || pairing.refreshToken == null) throw error
                 pairing = renewal().active(force = true)
-                api.uploadSteps(pairing.baseUrl, pairing.token, records)
+                block(pairing)
             }
         } catch (error: ApiException) {
             if (error.statusCode == 401) {
@@ -159,29 +166,41 @@ class SyncCoordinator(context: Context) {
             }
             throw error
         }
-        val receipt = runCatching {
-            buildSyncReceipt(records, response, Instant.now())
-        }.getOrElse { error ->
-            throw SyncException("The server returned an inconsistent sync receipt", error)
+        val summaries = mutableListOf<StepsUploadSummary>()
+        if (records != null) {
+            val response = upload { active ->
+                api.uploadSteps(active.baseUrl, active.token, records)
+            }
+            val receipt = runCatching {
+                buildSyncReceipt(records, response, Instant.now())
+            }.getOrElse { error ->
+                throw SyncException("The server returned an inconsistent sync receipt", error)
+            }
+            try {
+                pairingStore.save(
+                    pairing.copy(
+                        lastReceipt = receipt,
+                    ),
+                )
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                throw SyncException(
+                    "Steps reached Nutrition, but this device could not save the sync receipt",
+                    error,
+                )
+            }
+            summaries.add(response.summary)
         }
-        try {
-            pairingStore.save(
-                pairing.copy(
-                    lastReceipt = receipt,
-                ),
-            )
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            throw SyncException(
-                "Steps reached Nutrition, but this device could not save the sync receipt",
-                error,
-            )
+        activities.chunked(MAX_ACTIVITIES_PER_UPLOAD).forEach { batch ->
+            summaries.add(upload { active ->
+                api.uploadActivities(active.baseUrl, active.token, batch).summary
+            })
         }
         statusStore.edit {
-            putString(KEY_LAST_SYNC, receipt.acknowledgedAt)
-            putInt(KEY_LAST_COUNT, response.summary.processed)
+            putString(KEY_LAST_SYNC, observedAt.toString())
+            putInt(KEY_LAST_COUNT, summaries.sumOf { it.processed })
         }
-        SyncResult(response.summary.processed, response.summary.skipped, observedAt)
+        SyncResult(summaries.sumOf { it.processed }, summaries.sumOf { it.skipped }, observedAt)
     }
 
     fun savedServerAddress(): String? = pairingStore.load()?.baseUrl
@@ -211,6 +230,7 @@ class SyncCoordinator(context: Context) {
         const val STATUS_PREFERENCES = "health_sync_status"
         const val KEY_LAST_SYNC = "last_sync"
         const val KEY_LAST_COUNT = "last_count"
+        const val MAX_ACTIVITIES_PER_UPLOAD = 100
     }
 }
 

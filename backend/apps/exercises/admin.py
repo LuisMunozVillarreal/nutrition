@@ -1,17 +1,88 @@
 """exercises app admin config module."""
 
-# Permission hooks retain Django's callback signatures even though every path
-# deliberately returns False.
+# Admin hooks retain Django's callback signatures even when arguments are unused.
 # pylint: disable=missing-param-doc,missing-return-doc,unused-argument
 
 from typing import Any
 
 from django.contrib import admin
+from django.db import models, router, transaction
 from django.http import HttpRequest
 
+from apps.health_sync.services import (
+    delete_manual_exercise,
+    update_manual_exercise,
+)
 from apps.libs.admin import round_field
+from apps.plans.locks import lock_plan_owner
+from apps.plans.models import Day
 
 from .models import DaySteps, Exercise
+
+
+def _save_exercise(obj: Exercise) -> None:
+    """Persist one admin form without a second model save after the service."""
+    if obj._state.adding:  # pylint: disable=protected-access
+        obj.save()
+    else:
+        original = Exercise.objects.select_related("day__plan__user").get(
+            pk=obj.pk
+        )
+        update_manual_exercise(
+            original.day.plan.user,
+            obj.pk,
+            exercise_type=obj.type,
+            kcals=obj.kcals,
+            time=obj.time,
+            duration=obj.duration,
+            distance=obj.distance,
+            target_day=obj.day,
+        )
+
+
+class ExerciseInlineAdmin(admin.ModelAdmin):
+    """Route exercise formsets through the same manual-write services."""
+
+    def save_model(
+        self, request: HttpRequest, obj: Any, form: Any, change: bool
+    ) -> None:
+        """Lock owners before the parent save and its exercise formsets."""
+        using = router.db_for_write(self.model)
+        owner_field = "plan__user_id" if self.model is Day else "user_id"
+        owner_ids = {obj.plan.user_id if self.model is Day else obj.user_id}
+        # Django's changeform transaction keeps these locks through save_related.
+        with transaction.atomic(using=using):
+            if change:
+                owner_ids.update(
+                    self.model.objects.using(using)
+                    .filter(pk=obj.pk)
+                    .values_list(owner_field, flat=True)
+                )
+            for owner_id in sorted(owner_ids):
+                lock_plan_owner(using=using, user_id=owner_id)
+            super().save_model(request, obj, form, change)
+
+    def save_formset(
+        self, request: HttpRequest, form: Any, formset: Any, change: bool
+    ) -> None:
+        """Retain normal inline handling for every unrelated model."""
+        if formset.model is not Exercise:
+            super().save_formset(request, form, formset, change)
+            return
+        # Nested-admin still visits child formsets after their Day inline was
+        # deleted. The calendar cascade already claimed these imports; never
+        # save or delete the now-stale child objects a second time.
+        if not Day.objects.filter(pk=formset.instance.pk).exists():
+            formset.new_objects = []
+            formset.changed_objects = []
+            formset.deleted_objects = []
+            return
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            delete_manual_exercise(obj.day.plan.user, obj.pk)
+        for obj in instances:
+            _save_exercise(obj)
+        formset.save_m2m()
 
 
 @admin.register(Exercise)
@@ -26,6 +97,32 @@ class ExerciseAdmin(admin.ModelAdmin):
         "duration",
         round_field("distance"),
     ]
+
+    def save_model(
+        self, request: HttpRequest, obj: Exercise, form: Any, change: bool
+    ) -> None:
+        """Preserve manual edits against subsequent provider replays."""
+        _save_exercise(obj)
+
+    def delete_model(self, request: HttpRequest, obj: Exercise) -> None:
+        """Detach provenance atomically with the exercise deletion."""
+        delete_manual_exercise(obj.day.plan.user, obj.pk)
+
+    def delete_queryset(
+        self, request: HttpRequest, queryset: models.QuerySet[Exercise]
+    ) -> None:
+        """Lock every owner before deleting a batch through the service."""
+        using = queryset.db
+        with transaction.atomic(using=using):
+            owner_ids = sorted(
+                set(queryset.values_list("day__plan__user_id", flat=True))
+            )
+            for owner_id in owner_ids:
+                lock_plan_owner(using=using, user_id=owner_id)
+            for exercise in queryset.select_related(
+                "day__plan__user"
+            ).order_by("pk"):
+                self.delete_model(request, exercise)
 
 
 @admin.register(DaySteps)

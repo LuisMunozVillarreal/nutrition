@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Nutrition</string>
-    <string name="overview_title">Steps</string>
-    <string name="overview_subtitle">Samsung Health via Health Connect</string>
+    <string name="overview_title">Steps and activities</string>
+    <string name="overview_subtitle">Samsung Health and Garmin via Health Connect</string>
     <string name="device_not_connected">DEVICE NOT CONNECTED</string>
     <string name="status_checking">Checking…</string>
     <string name="status_ready">Ready to sync</string>
-    <string name="status_needs_steps">Allow access to steps</string>
+    <string name="status_needs_steps">Allow access to steps or Garmin activities</string>
     <string name="status_needs_pairing">Connect your Nutrition account</string>
     <string name="status_health_unavailable">Health Connect is unavailable</string>
     <string name="health_connected">Health Connect connected</string>
@@ -15,7 +15,7 @@
     <string name="server_not_connected">Nutrition account not connected</string>
     <string name="background_enabled">Automatic sync enabled</string>
     <string name="background_disabled">Automatic sync not enabled</string>
-    <string name="button_sync_now">Sync steps</string>
+    <string name="button_sync_now">Sync health data</string>
     <string name="last_sync_title">Last sync</string>
     <string name="last_sync_never">Not synced yet</string>
     <string name="sync_receipt_title">Daily totals sent in last upload</string>
@@ -38,7 +38,7 @@
     <string name="device_name_label">Device name</string>
     <string name="button_pair">Sign in with Nutrition</string>
     <string name="button_health_settings">Open Health Connect</string>
-    <string name="button_steps_permission">Allow step access</string>
+    <string name="button_steps_permission">Allow steps and activities</string>
     <string name="button_background_permission">Enable automatic sync</string>
     <string name="button_unpair">Disconnect account</string>
 
@@ -47,17 +47,17 @@
     <string name="unpair_title">Disconnect this device?</string>
     <string name="unpair_message">This revokes access on the server and stops automatic sync. An internet connection is required. Sign in again to reconnect.</string>
     <string name="privacy_title">Privacy and permissions</string>
-    <string name="privacy_message">Nutrition currently reads only daily step totals from Health Connect. It sends the date, step total, and observation time; it does not send individual events or other health data. Background access is optional. Sign-in opens your system browser. Short-lived access and renewable credentials are encrypted with Android Keystore, excluded from backups, and renewed silently for sync. You can revoke access in Health Connect or disconnect this device from Health data setup.</string>
-    <string name="about_message">Nutrition connects Health Connect to your Nutrition account. This version syncs daily step totals, with support for more health data planned.\n\n%1$s</string>
-    <string name="message_steps_granted">Step access allowed</string>
-    <string name="message_steps_denied">Step access was not allowed</string>
+    <string name="privacy_message">Nutrition reads daily step totals and Garmin exercise sessions from Health Connect. It sends the date, step total, and observation time, plus each Garmin session identifier, modification time, start and end times with source offsets, type, active calories, and distance. It does not send individual step events, routes, heart rate, or basal calories. Step access works without activity permissions. Background access is optional. Sign-in opens your system browser. Short-lived access and renewable credentials are encrypted with Android Keystore, excluded from backups, and renewed silently for sync. You can revoke access in Health Connect or disconnect this device from Health data setup.</string>
+    <string name="about_message">Nutrition connects Health Connect to your Nutrition account. This version syncs daily step totals and Garmin activities with active calories, duration, and distance.\n\n%1$s</string>
+    <string name="message_steps_granted">Health data access allowed</string>
+    <string name="message_steps_denied">Allow steps or all Garmin activity permissions to sync</string>
     <string name="message_background_unavailable">This device does not support background health-data access</string>
     <string name="message_unpaired">Device disconnected</string>
 
     <string name="message_paired">Device connected</string>
     <string name="message_sync_failed">Sync could not be completed</string>
-    <string name="message_no_steps">No daily step totals to send</string>
-    <string name="message_sync_complete">Sync complete · Days processed: %1$d</string>
+    <string name="message_no_steps">No health records to send</string>
+    <string name="message_sync_complete">Sync complete · Records processed: %1$d</string>
     <string name="message_sync_complete_skipped">Sync complete · Processed: %1$d · Skipped: %2$d</string>
     <string name="message_health_screen_missing">Could not open Health Connect</string>
 </resources>

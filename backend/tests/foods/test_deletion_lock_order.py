@@ -19,6 +19,7 @@ from apps.foods.models import (
     Serving,
 )
 from apps.plans.models import Day, Intake, WeekPlan
+from apps.users.models import User
 
 
 def test_serving_delete_locks_day_before_cupboard(
@@ -372,6 +373,7 @@ def test_day_cascade_prelocks_every_cupboard_item_before_collection(
     day.delete()
 
     assert locked_rows == [
+        (User, [day.plan.user_id]),
         (WeekPlan, [plan_id]),
         (Day, [day_id]),
         (Intake, sorted(intake.pk for intake in intakes)),

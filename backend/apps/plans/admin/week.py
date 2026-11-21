@@ -14,7 +14,11 @@ from nested_admin import (  # type: ignore[import]
     NestedTabularInline,
 )
 
-from apps.exercises.admin import DayStepsInlineBase, ExerciseInlineBase
+from apps.exercises.admin import (
+    DayStepsInlineBase,
+    ExerciseInlineAdmin,
+    ExerciseInlineBase,
+)
 from apps.libs.utils import round_no_trailing_zeros
 from apps.measurements.models import Measurement
 
@@ -55,7 +59,7 @@ class DayInline(NestedTabularInline):
 
 
 @admin.register(WeekPlan)
-class WeekPlanAdmin(NestedModelAdmin):
+class WeekPlanAdmin(ExerciseInlineAdmin, NestedModelAdmin):
     """WeekPLan admin class."""
 
     autocomplete_fields = [
