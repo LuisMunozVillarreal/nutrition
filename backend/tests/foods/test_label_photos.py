@@ -1,5 +1,6 @@
 """Label photo extraction contract tests."""
 
+import asyncio
 import base64
 import json
 from io import BytesIO
@@ -31,7 +32,18 @@ def test_requires_authentication():
     assert extract([]).errors[0].message == "Authentication required"
 
 
-USER = SimpleNamespace(pk=17, is_authenticated=True)
+def test_nonstaff_rejected_before_decode_and_quota(mocker, provider):
+    """Deny a signed-in non-staff caller before touching photos or quota."""
+    decode = mocker.patch("apps.foods.schema.decode_photos")
+    admit = mocker.patch("apps.foods.label_photos._admit")
+    user = SimpleNamespace(pk=18, is_authenticated=True, is_staff=False)
+    assert extract([], user).errors[0].message == "Staff access required"
+    decode.assert_not_called()
+    admit.assert_not_called()
+    provider.assert_not_called()
+
+
+USER = SimpleNamespace(pk=17, is_authenticated=True, is_staff=True)
 PREFIX = "data:image/jpeg;base64,"
 
 
@@ -92,6 +104,15 @@ def provider(mocker):
     return mocker.patch("google.genai.Client")
 
 
+@pytest.fixture
+def call(provider, mocker):
+    """Expose the async generation call without making a network request."""
+    client = provider.return_value.__enter__.return_value
+    models = client.aio.__aenter__.return_value.models
+    models.generate_content = mocker.AsyncMock()
+    return models.generate_content
+
+
 def padded_jpeg(length):
     """Add legal JPEG comment segments to reach the requested byte size."""
     blob = jpeg()
@@ -104,7 +125,7 @@ def padded_jpeg(length):
 
 @pytest.mark.django_db
 def test_four_photos_at_combined_limit_through_graphql(
-    client, django_user_model, provider, settings
+    client, django_user_model, provider, call, settings
 ):
     """Fit the largest supported envelope through Django without raising its limit."""
     # Given four JPEGs and one structured provider response for a prepared serving
@@ -113,17 +134,18 @@ def test_four_photos_at_combined_limit_through_graphql(
         password="***",
         date_of_birth="2000-01-01",
         height=170,
+        is_staff=True,
     )
     client.force_login(user)
     settings.GEMINI_LABEL_MODEL = "test-label-model"
     blobs = [padded_jpeg(n) for n in (1048576, 262144, 131072, 131072)]
-    call = provider.return_value.__enter__.return_value.models.generate_content
     call.return_value.text = json.dumps(
         {
             "name": "  Soup  ",
             "barcode": "03017620422003",
             "basis": "250 ml",
             "package": "1 L",
+            "packageMatchesBasisState": True,
             "numServings": "4",
             "notes": "As prepared with water",
             "energyKcal": "85 kcal",
@@ -161,7 +183,7 @@ def test_four_photos_at_combined_limit_through_graphql(
     }
     call.assert_called_once()
     options = provider.call_args.kwargs["http_options"]
-    assert 0 < options.timeout <= 30000 and options.retry_options.attempts == 1
+    assert 0 < options.timeout <= 20000 and options.retry_options.attempts == 1
     args = call.call_args.kwargs
     assert args["model"] == "test-label-model"
     assert [part.inline_data.data for part in args["contents"].parts] == blobs
@@ -171,10 +193,9 @@ def test_four_photos_at_combined_limit_through_graphql(
 
 
 @pytest.mark.parametrize("mode", ["upstream", "empty", "malformed", "array"])
-def test_provider_errors_are_private(provider, mode, caplog):
+def test_provider_errors_are_private(call, mode, caplog):
     """Never reflect provider exceptions or unparseable output."""
     # Given an exception that could echo a request, or an invalid reply
-    call = provider.return_value.__enter__.return_value.models.generate_content
     if mode == "upstream":
         call.side_effect = RuntimeError("private-provider-content")
     else:
@@ -188,6 +209,28 @@ def test_provider_errors_are_private(provider, mode, caplog):
     # Then expose only a stable local error
     assert result.errors[0].message == "Label extraction unavailable"
     assert "private-provider-content" not in caplog.text
+
+
+def test_provider_deadline_cancels_request(call, monkeypatch):
+    """Cancel a stalled provider call instead of waiting for the worker to die."""
+    monkeypatch.setattr("apps.foods.label_photos.PROVIDER_SECONDS", 0.02)
+    cancelled = False
+
+    async def stall(**_kwargs):
+        nonlocal cancelled
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    call.side_effect = stall
+    assert (
+        extract([url(jpeg())], USER).errors[0].message
+        == "Label extraction unavailable"
+    )
+    assert cancelled
+    call.assert_awaited_once()
 
 
 def test_graphql_coercion_does_not_log_variable_values(caplog):
@@ -216,11 +259,10 @@ def isolated_quota(settings):
 
 
 @pytest.mark.parametrize("scope", ["user", "global", "offline"])
-def test_quota_bounds_calls(provider, scope, mocker):
+def test_quota_bounds_calls(call, scope, mocker):
     """Enforce per-user and shared limits and fail closed on cache outages."""
     # Given valid data and either repeated users, distinct users, or an outage
     photos = [url(jpeg())]
-    call = provider.return_value.__enter__.return_value.models.generate_content
     call.return_value.text = "{}"
     limit = {"user": 6, "global": 30, "offline": 0}[scope]
     if scope == "offline":
@@ -230,7 +272,9 @@ def test_quota_bounds_calls(provider, scope, mocker):
     # When another request arrives in the same window
     for index in range(limit + 1):
         user = SimpleNamespace(
-            pk=index if scope == "global" else 1, is_authenticated=True
+            pk=index if scope == "global" else 1,
+            is_authenticated=True,
+            is_staff=True,
         )
         result = extract(photos, user)
         if index < limit:
@@ -274,6 +318,33 @@ def test_quota_bounds_calls(provider, scope, mocker):
         ),
         (
             {
+                "basis": "100 g",
+                "package": "1,000 g",
+                "packageMatchesBasisState": True,
+                "numServings": "2,000",
+                "saltG": "1,000 mg",
+                "energyKcal": "1.200 kcal",
+                "proteinG": "1,250.00 mg",
+                "fatG": "1.500,00 mg",
+                "fibreG": "0,120 g",
+            },
+            {
+                "size": None,
+                "sizeUnit": None,
+                "numServings": None,
+                "saltG": None,
+                "energyKcal": None,
+                "proteinG": "1.25",
+                "fatG": "1.5",
+                "fibreG": "0.12",
+            },
+        ),
+        (
+            {"basis": "1,000 g", "energyKcal": "15 kcal"},
+            {"nutritionalInfoSize": None, "energyKcal": None},
+        ),
+        (
+            {
                 "basis": "100",
                 "proteinG": "4 g",
                 "package": "0 kg",
@@ -304,15 +375,33 @@ def test_quota_bounds_calls(provider, scope, mocker):
             },
         ),
         (
-            {"basis": "100 ml", "package": "20 g"},
+            {
+                "basis": "100 g",
+                "package": "80 g",
+                "notes": "Per 100 g as prepared with water",
+                "energyKcal": "70 kcal",
+            },
+            {
+                "size": None,
+                "sizeUnit": None,
+                "nutritionalInfoSize": "100",
+                "energyKcal": "70",
+                "notes": "Per 100 g as prepared with water. Label package: 80 g.",
+            },
+        ),
+        (
+            {
+                "basis": "100 ml",
+                "package": "20 g",
+                "packageMatchesBasisState": True,
+            },
             {"size": None, "sizeUnit": None, "notes": "Label package: 20 g."},
         ),
     ],
 )
-def test_preserves_only_representable_facts(provider, facts, expected):
+def test_preserves_only_representable_facts(call, facts, expected):
     """Keep a labelled basis; never invent equivalent weights or nutrients."""
     # Given one column, some fields may not fit the form
-    call = provider.return_value.__enter__.return_value.models.generate_content
     call.return_value.text = json.dumps(facts)
     # When the returned JSON is normalized
     result = extract([url(jpeg())], USER)

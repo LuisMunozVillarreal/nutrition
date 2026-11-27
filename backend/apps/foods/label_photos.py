@@ -1,5 +1,6 @@
 """Extract an unsaved food product draft from bounded, inline JPEGs."""
 
+import asyncio
 import base64
 import json
 import re
@@ -20,6 +21,7 @@ PREFIX = "data:image/jpeg;base64,"
 MAX_BYTES = 1024 * 1024
 # Leave room for base64 and GraphQL under Django's 2.5 MiB body limit.
 MAX_BATCH_BYTES = 3 * MAX_BYTES // 2
+PROVIDER_SECONDS = 20  # Leave headroom under the 30-second worker timeout.
 MAX_PIXELS = 8_000_000
 INVALID = "Invalid label photos"
 
@@ -88,8 +90,11 @@ FIELDS = (
 )
 SCHEMA = {
     "type": "object",
-    "properties": {key: {"type": ["string", "null"]} for key in FIELDS},
-    "required": list(FIELDS),
+    "properties": {
+        **{key: {"type": ["string", "null"]} for key in FIELDS},
+        "packageMatchesBasisState": {"type": ["boolean", "null"]},
+    },
+    "required": [*FIELDS, "packageMatchesBasisState"],
     "additionalProperties": False,
 }
 INSTRUCTION = """\
@@ -102,10 +107,15 @@ numServings is the explicit servings per package, not a calculated count. For
 basis use the printed quantity AND unit for a single nutrition column. Prefer
 an explicit as-sold column, then per 100 g/ml, otherwise use the labelled
 serving amount (1 serving if no mass/volume is given). Never mix columns,
-serving and package, dry and prepared, or convert mass to volume. Put printed
+serving and package, dry and prepared, or convert mass to volume. Set
+packageMatchesBasisState=true only if the label establishes that net content
+and the nutrition column describe the same state. For a prepared column this
+requires a printed package yield for that exact preparation; do not use dry
+net weight. Return false for a mismatch and null if uncertain. Put printed
 preparation qualifiers and directions for that column in notes (including
-added liquid, dilution, cooked/drained/as prepared). Copy nutrient amounts
-with their original units: kcal only for energy, not kJ or %RI; salt not
+added liquid, dilution, cooked/drained/as prepared). Keep original digit
+grouping and decimal separators. Copy nutrient amounts with original units:
+kcal only for energy, not kJ or %RI; salt not
 sodium, fibre not carbs. Keep less-than signs, do not change trace into zero.
 Return null for anything not on the label.
 """
@@ -118,17 +128,35 @@ def _text(raw: Any, limit: int = 255) -> str | None:
     return None
 
 
+def _printed_decimal(number: str) -> Decimal | None:
+    """Accept a number only when both separator conventions agree or one fits."""
+    candidates = set()
+    for group, decimal in ((",", "."), (".", ",")):
+        thousands, point = re.escape(group), re.escape(decimal)
+        if re.fullmatch(
+            rf"(?:[0-9]+|[1-9][0-9]{{0,2}}(?:{thousands}[0-9]{{3}})+)"
+            rf"(?:{point}[0-9]{{1,8}})?",
+            number,
+        ):
+            candidates.add(
+                Decimal(number.replace(group, "").replace(decimal, "."))
+            )
+    return candidates.pop() if len(candidates) == 1 else None
+
+
 def _amount(
     raw: Any, units: set[str], places: int
 ) -> tuple[str | None, str | None]:
     """Parse a simple printed quantity exactly, respecting form precision."""
     match = re.fullmatch(
-        r"([0-9]{1,10}(?:[.,][0-9]{1,8})?)\s*([a-z ]*)",
+        r"([0-9][0-9.,]{0,21})\s*([a-z ]*)",
         (_text(raw) or "").lower(),
     )
     if not match:
         return None, None
-    amount = Decimal(match[1].replace(",", "."))
+    amount = _printed_decimal(match[1])
+    if amount is None:
+        return None, None
     unit = {"fl oz": "floz", "cup": "c"}.get(match[2], match[2])
     if unit not in units:
         return None, None
@@ -153,7 +181,10 @@ def _draft(raw: dict[str, Any]) -> dict[str, str | None]:
     if (
         size_unit
         and basis_unit
-        and not units_are_compatible(size_unit, basis_unit)
+        and (
+            raw.get("packageMatchesBasisState") is not True
+            or not units_are_compatible(size_unit, basis_unit)
+        )
     ):
         package_note = f"Label package: {size} {size_unit}."
         notes = (
@@ -192,28 +223,17 @@ def _admit(user_id: int) -> None:
             raise ValueError("Label extraction limit reached")
 
 
-def extract_label(images: list[bytes], user_id: int) -> str:
-    """Send one bounded inline request and return form JSON.
-
-    Args:
-        images: Validated JPEG byte strings for one product.
-        user_id: Authenticated caller for quota admission.
-
-    Returns:
-        JSON object for the new-product form.
-
-    Raises:
-        ValueError: If extraction fails or the caller exceeds a quota.
-    """
-    _admit(user_id)
-    try:
-        with genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            http_options=types.HttpOptions(
-                timeout=30000, retry_options=types.HttpRetryOptions(attempts=1)
-            ),
-        ) as client:
-            reply = client.models.generate_content(
+async def _read_label(images: list[bytes]) -> str:
+    """Bound the whole provider request, not just individual socket reads."""
+    with genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        http_options=types.HttpOptions(
+            timeout=int(PROVIDER_SECONDS * 1000),
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    ) as client:
+        async with asyncio.timeout(PROVIDER_SECONDS), client.aio as provider:
+            reply = await provider.models.generate_content(
                 model=settings.GEMINI_LABEL_MODEL,
                 contents=types.Content(
                     role="user",
@@ -231,7 +251,25 @@ def extract_label(images: list[bytes], user_id: int) -> str:
                     max_output_tokens=2048,
                 ),
             )
-        raw = json.loads(reply.text or "")
+            return reply.text or ""
+
+
+def extract_label(images: list[bytes], user_id: int) -> str:
+    """Send one bounded inline request and return form JSON.
+
+    Args:
+        images: Validated JPEG byte strings for one product.
+        user_id: Authenticated caller for quota admission.
+
+    Returns:
+        JSON object for the new-product form.
+
+    Raises:
+        ValueError: If extraction fails or the caller exceeds a quota.
+    """
+    _admit(user_id)
+    try:
+        raw = json.loads(asyncio.run(_read_label(images)))
         if not isinstance(raw, dict):
             raise ValueError("Invalid label response")
     except Exception:  # Provider exceptions can contain the inline request.

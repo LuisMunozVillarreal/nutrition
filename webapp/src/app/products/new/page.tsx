@@ -70,6 +70,11 @@ const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
   'carbsG',
 ]
 
+const NUTRITION_COLUMN: Array<keyof ProductFormState> = [
+  'nutritionalInfoSize', 'nutritionalInfoUnit', ...REQUIRED_MAIN_NUTRIENTS,
+  'saturatedFatG', 'sugarsG', 'fibreG', 'saltG',
+]
+
 const REQUIRED_LABEL_FIELDS = {
   name: 'Name', size: 'Package size', sizeUnit: 'Size unit', numServings: 'Number of servings',
   nutritionalInfoSize: 'Info size base', nutritionalInfoUnit: 'Info unit base',
@@ -78,13 +83,25 @@ const REQUIRED_LABEL_FIELDS = {
 
 const BARCODE_CHECK = gql`
   query CheckLabelBarcode($barcode: String!) {
-    foodProductByBarcode(barcode: $barcode) { product { name } }
+    foodProductByBarcode(barcode: $barcode, localOnly: true) { product { name } }
   }
 `
 
 interface ProductSearchParams {
   get(name: string): string | null
   toString(): string
+}
+
+// Match the catalog's GTIN lengths, GS1 check digit and UPC padding rules.
+function normalizedGtin(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const digits = value.trim()
+  if (!/^(?:[0-9]{8}|[0-9]{12,14})$/.test(digits)) return null
+  let sum = 0
+  for (let i = 1; i <= digits.length; i++) {
+    sum += Number(digits[digits.length - i]) * (i % 2 ? 1 : 3)
+  }
+  return sum % 10 === 0 ? digits.replace(/^0{1,2}(?=\d{12,}$)/, '') : null
 }
 
 function initialForm(searchParams: ProductSearchParams): ProductFormState {
@@ -123,20 +140,27 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
     .filter(([key]) => !form[key as keyof ProductFormState].trim())
     .map(([, label]) => label)
 
-  function review(nextPhotos: string[], draft: Record<string, unknown>) {
-    setForm(prev => {
-      const next = { ...prev }
-      for (const key of Object.keys(next) as Array<keyof ProductFormState>) {
-        if (edited.current.has(key) || searchParams.get(key) !== null) continue
-        const value = draft[key]
-        next[key] = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
-      }
-      if (next.sizeUnit && !isCompatibleUnitPair(next.sizeUnit, next.nutritionalInfoUnit)) {
-        if (edited.current.has('nutritionalInfoUnit')) next.sizeUnit = ''
-        else next.nutritionalInfoUnit = ''
-      }
-      return next
-    })
+  function review(nextPhotos: string[], draft: Record<string, unknown>, confirmedKeep: boolean) {
+    const retained = (key: keyof ProductFormState) => edited.current.has(key) || searchParams.get(key) !== null
+    const extracted = normalizedGtin(draft.barcode)
+    const retainedBarcodes = [searchParams.get('barcode'), retained('barcode') ? form.barcode : null]
+    if (extracted && retainedBarcodes.map(normalizedGtin).some(code => code && code !== extracted)) {
+      return 'barcode-conflict'
+    }
+    const keepColumn = NUTRITION_COLUMN.some(retained)
+    if (keepColumn && !confirmedKeep && NUTRITION_COLUMN.some(key => draft[key] != null)) {
+      return 'nutrition-conflict'
+    }
+    const next = { ...form }
+    for (const key of Object.keys(next) as Array<keyof ProductFormState>) {
+      if (retained(key) || (keepColumn && NUTRITION_COLUMN.includes(key))) continue
+      const value = draft[key]
+      next[key] = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+    }
+    if (next.sizeUnit && next.nutritionalInfoUnit && !isCompatibleUnitPair(next.sizeUnit, next.nutritionalInfoUnit)) {
+      return 'unit-conflict'
+    }
+    setForm(next)
     setPhotos(nextPhotos)
     setPicking(false)
   }

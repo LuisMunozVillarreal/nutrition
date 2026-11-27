@@ -160,6 +160,38 @@ class TestFoodProductBarcodeLookup:
         assert lookup["openFoodFacts"] is None
         assert off.call_count == 0
 
+    def test_local_only_lookup_checks_equivalent_gtin_without_off(
+        self, mocker
+    ):
+        """Return a local match or an empty result without touching OFF."""
+        user = _create_user("lookup@example.com")
+        fetch = mocker.patch("apps.foods.schema.fetch_open_food_facts_product")
+        query = """query($barcode: String!) {
+            foodProductByBarcode(barcode: $barcode, localOnly: true) {
+                product { name } openFoodFacts { name }
+            }
+        }"""
+        for name in (None, "Oats"):
+            if name:
+                FoodProduct.objects.create(
+                    name=name,
+                    barcode=BARCODE,
+                    size=100,
+                    size_unit="g",
+                    num_servings=1,
+                )
+            result = schema.execute_sync(
+                query,
+                variable_values={"barcode": "0" + BARCODE},
+                context_value=self._context(mocker, user),
+            )
+            assert result.errors is None
+            assert result.data["foodProductByBarcode"] == {
+                "product": {"name": name} if name else None,
+                "openFoodFacts": None,
+            }
+        fetch.assert_not_called()
+
     def test_lookup_returns_local_product_servings(
         self, mocker, requests_mock
     ):
