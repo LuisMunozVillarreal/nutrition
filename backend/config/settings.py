@@ -345,6 +345,7 @@ STORAGES = {
 
 # Gemini
 GEMINI_API_KEY = ENV("GEMINI_API_KEY")
+GEMINI_LABEL_MODEL = ENV("GEMINI_LABEL_MODEL", default="gemini-3.1-flash-lite")
 
 
 # Open Food Facts

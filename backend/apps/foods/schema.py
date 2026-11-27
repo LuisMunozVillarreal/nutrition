@@ -11,6 +11,7 @@ from django.db import models, transaction
 from django.db.models import Prefetch
 from strawberry.types import Info
 
+from apps.foods.label_photos import decode_photos, extract_label
 from apps.foods.models import (
     CupboardItem,
     Food,
@@ -41,17 +42,19 @@ from apps.libs.graphql import (
     validated_non_negative_decimal,
     validated_positive_decimal,
 )
+from apps.users.models import User
 
 # pylint: disable=too-few-public-methods,too-many-lines
 
 
-def _require_staff_user(info: Info) -> None:
+def _require_staff_user(info: Info) -> User:
     """Require an authenticated staff user for shared catalog writes."""
     user = get_request_user(info.context)
     if user is None or not user.is_authenticated:
         raise PermissionError("Authentication required")
     if not user.is_staff:
         raise PermissionError("Staff access required")
+    return user
 
 
 def _validated_unit(value: str, field_name: str) -> str:
@@ -449,7 +452,7 @@ class FoodQuery:
 
     @strawberry.field
     def food_product_by_barcode(
-        self, info: Info, barcode: str
+        self, info: Info, barcode: str, local_only: bool | None = False
     ) -> FoodProductBarcodeLookupType:
         """Look up a food product by barcode, falling back to OFF.
 
@@ -460,6 +463,7 @@ class FoodQuery:
         Args:
             info (Info): GraphQL execution info.
             barcode (str): scanned product barcode.
+            local_only: Match non-GTIN identifiers exactly and never query OFF.
 
         Returns:
             FoodProductBarcodeLookupType: local product, OFF draft, or
@@ -471,15 +475,15 @@ class FoodQuery:
                 product=None, open_food_facts=None
             )
 
-        normalized_barcode = normalize_gtin(barcode)
-        if normalized_barcode is None:
+        candidates = equivalent_gtins(barcode)
+        if not candidates and local_only and barcode.strip():
+            candidates = (barcode,)
+        if not candidates:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
             )
 
-        queryset = FoodProduct.objects.filter(
-            barcode__in=equivalent_gtins(normalized_barcode)
-        )
+        queryset = FoodProduct.objects.filter(barcode__in=candidates)
         if "servings" in _requested_field_names(info):
             queryset = queryset.prefetch_related(
                 Prefetch(
@@ -496,7 +500,11 @@ class FoodQuery:
                 open_food_facts=None,
             )
 
-        off_product = fetch_open_food_facts_product(normalized_barcode)
+        off_product = (
+            None
+            if local_only
+            else fetch_open_food_facts_product(candidates[0])
+        )
         if off_product is None:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
@@ -535,8 +543,36 @@ def _canonical_product_barcode(barcode: str | None) -> str | None:
 
 
 @strawberry.type
+class ProductLabelDraft:
+    """Unsaved product form fields, with null for unknown label values."""
+
+    draft_json: str
+
+
+@strawberry.type
 class FoodMutation:
     """Food mutations."""
+
+    @strawberry.mutation
+    def extract_product_label(
+        self, info: Info, photos: list[str]
+    ) -> ProductLabelDraft:
+        """Extract a draft without creating or updating a product.
+
+        Args:
+            info: Request context.
+            photos: Inline JPEG data URLs for one product.
+
+        Returns:
+            ProductLabelDraft: JSON for user review.
+
+        Raises:
+            PermissionError: If the caller is not authenticated staff.
+        """
+        user = _require_staff_user(info)
+        return ProductLabelDraft(
+            draft_json=extract_label(decode_photos(photos), user.pk)
+        )
 
     @strawberry.mutation
     @transaction.atomic

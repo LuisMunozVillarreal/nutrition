@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test, vi } from 'vitest'
-import React, { act } from 'react'
+import React from 'react'
 import { JSDOM } from 'jsdom'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -497,6 +497,24 @@ test('product scanner returns an unknown barcode to the product form without mea
     push.mock.calls.at(-1)[0],
     '/products/new?barcode=123&fromBarcodeScan=1',
   )
+})
+
+test('missing barcode offers label photos with meal context', async () => {
+  scanSearchParams = new URLSearchParams('mode=intake&dayId=7&intakeMeal=lunch&intakeNumServings=2')
+  supported = true
+  detector = {}
+  cameraResult = {}
+  scanResult = '00123'
+  graphqlImpl = async () => ({ foodProductByBarcode: { product: null, openFoodFacts: null } })
+  const container = await mount()
+  await settle(() => assert.ok(buttonByText(container, 'Create from label photos')))
+  await act(async () => buttonByText(container, 'Create from label photos').click())
+  const url = new URL(push.mock.calls.at(-1)[0])
+  assert.equal(url.pathname, '/products/new')
+  assert.deepEqual(Object.fromEntries(url.searchParams), {
+    barcode: '00123', fromBarcodeScan: '1', fromMealLog: '1', intakeDayId: '7',
+    intakeMeal: 'lunch', intakeNumServings: '2', labelPhotos: '1',
+  })
 })
 
 test('meal scanner ignores most-used foods that resolve after unmount', async () => {

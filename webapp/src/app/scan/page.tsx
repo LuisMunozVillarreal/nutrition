@@ -298,9 +298,10 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
     [intakeDayId, intakeDayDate, intakeDetails, navigate, productMode],
   )
 
-  const createFromBarcode = useCallback((barcode: string) => {
+  const createFromBarcode = useCallback((barcode: string, labelPhotos = false) => {
     const params = new URLSearchParams(intakeDetails)
     params.set('barcode', barcode)
+    if (labelPhotos) params.set('labelPhotos', '1')
     params.set('fromBarcodeScan', '1')
     if (!productMode) {
       params.set('fromMealLog', '1')
@@ -432,13 +433,18 @@ function ScanPageContent({ intakeMode, productMode, intakeDayId, intakeDayDate, 
                   No product found for barcode {lookup.barcode}.
                 </p>
                 {isStaff ? (
-                  <button
-                    type="button"
-                    onClick={() => createFromBarcode(lookup.barcode)}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-                  >
-                    Review and create product
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => createFromBarcode(lookup.barcode)}
+                      className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
+                    >
+                      Review and create product
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => createFromBarcode(lookup.barcode, true)}>
+                      Create from label photos
+                    </button>
+                  </div>
                 ) : (
                   <p className="text-slate-600">
                     A staff user must review and create this product.
