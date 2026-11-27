@@ -2,7 +2,7 @@
 
 import { Suspense, useRef, useState } from 'react'
 import Image from 'next/image'
-import LabelPhotoPicker from './LabelPhotoPicker'
+import LabelPhotoPicker, { type MeasurementChoice } from './LabelPhotoPicker'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
@@ -70,7 +70,8 @@ const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
   'carbsG',
 ]
 
-const NUTRITION_COLUMN: Array<keyof ProductFormState> = [
+const MEASUREMENT_FIELDS: Array<keyof ProductFormState> = [
+  'size', 'sizeUnit', 'numServings', 'notes',
   'nutritionalInfoSize', 'nutritionalInfoUnit', ...REQUIRED_MAIN_NUTRIENTS,
   'saturatedFatG', 'sugarsG', 'fibreG', 'saltG',
 ]
@@ -140,20 +141,19 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
     .filter(([key]) => !form[key as keyof ProductFormState].trim())
     .map(([, label]) => label)
 
-  function review(nextPhotos: string[], draft: Record<string, unknown>, confirmedKeep: boolean) {
+  function review(nextPhotos: string[], draft: Record<string, unknown>, choice?: MeasurementChoice) {
     const retained = (key: keyof ProductFormState) => edited.current.has(key) || searchParams.get(key) !== null
     const extracted = normalizedGtin(draft.barcode)
     const retainedBarcodes = [searchParams.get('barcode'), retained('barcode') ? form.barcode : null]
     if (extracted && retainedBarcodes.map(normalizedGtin).some(code => code && code !== extracted)) {
       return 'barcode-conflict'
     }
-    const keepColumn = NUTRITION_COLUMN.some(retained)
-    if (keepColumn && !confirmedKeep && NUTRITION_COLUMN.some(key => draft[key] != null)) {
-      return 'nutrition-conflict'
+    if (!choice && MEASUREMENT_FIELDS.some(retained)) {
+      return 'measurement-conflict'
     }
     const next = { ...form }
     for (const key of Object.keys(next) as Array<keyof ProductFormState>) {
-      if (retained(key) || (keepColumn && NUTRITION_COLUMN.includes(key))) continue
+      if (MEASUREMENT_FIELDS.includes(key) ? choice === 'keep' : retained(key)) continue
       const value = draft[key]
       next[key] = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
     }

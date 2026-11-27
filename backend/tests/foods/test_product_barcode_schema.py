@@ -192,6 +192,36 @@ class TestFoodProductBarcodeLookup:
             }
         fetch.assert_not_called()
 
+    def test_local_only_matches_non_gtin_exactly(self, mocker):
+        """Keep leading zeros significant and non-GTIN lookups local."""
+        user = _create_user("local-identifier@example.com")
+        FoodProduct.objects.create(name="Oats", barcode="0045")
+        fetch = mocker.patch("apps.foods.schema.fetch_open_food_facts_product")
+
+        result = schema.execute_sync(
+            """{
+                exact: foodProductByBarcode(barcode: "0045", localOnly: true) {
+                    product { barcode } openFoodFacts { name }
+                }
+                miss: foodProductByBarcode(barcode: "45", localOnly: true) {
+                    product { barcode } openFoodFacts { name }
+                }
+                defaultLookup: foodProductByBarcode(barcode: "0045") {
+                    product { barcode } openFoodFacts { name }
+                }
+            }""",
+            context_value=self._context(mocker, user),
+        )
+
+        assert result.errors is None
+        empty = {"product": None, "openFoodFacts": None}
+        assert result.data == {
+            "exact": {"product": {"barcode": "0045"}, "openFoodFacts": None},
+            "miss": empty,
+            "defaultLookup": empty,
+        }
+        fetch.assert_not_called()
+
     def test_lookup_returns_local_product_servings(
         self, mocker, requests_mock
     ):

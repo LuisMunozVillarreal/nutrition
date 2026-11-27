@@ -101,7 +101,77 @@ test('four detailed photos fit the batch request without cropping', async () => 
 
 const complete = { name: 'Tea', size: 10, sizeUnit: 'g', numServings: 1, nutritionalInfoSize: 100, nutritionalInfoUnit: 'g', energyKcal: 0, proteinG: 0, carbsG: 0, fatG: 0, saltG: 0.02 }
 
-test.each(['nutritionalInfoSize', 'proteinG'])('a retained %s keeps its entire nutrition column only by explicit choice', async key => {
+async function readDraft(view, draft) {
+  choose(view)
+  request.mockResolvedValueOnce(label(draft))
+  await click(view, 'Read labels')
+}
+
+async function savedProduct(view) {
+  request.mockResolvedValueOnce({ createFoodProduct: { id: 'tea' } })
+  await click(view, 'Save')
+  assert.match(request.mock.lastCall[0], /mutation CreateFoodProduct/)
+  return request.mock.lastCall[1]
+}
+
+test('prepared nutrition cannot be saved with the prefilled dry package size', async () => {
+  camera()
+  params = new URLSearchParams('labelPhotos=1&size=80&sizeUnit=g&numServings=1')
+  const view = render(React.createElement(Page))
+  const field = key => view.getByTestId('field-' + key)
+  const notes = 'Per 100 g as prepared with water. Label package: 80 g.'
+  await readDraft(view, { ...complete, size: null, sizeUnit: null, numServings: null, energyKcal: 70, notes })
+  assert.equal(view.getByRole('button', { name: 'Save' }).disabled, true)
+  await click(view, 'Replace with photo measurements')
+  for (const key of ['size', 'sizeUnit', 'numServings']) assert.equal(field(key).value, '')
+  await click(view, 'Save')
+  assert.equal(request.mock.calls.length, 1)
+  for (const [key, value] of Object.entries({ size: '320', sizeUnit: 'g', numServings: '2' })) {
+    fireEvent.change(field(key), { target: { value } })
+  }
+  const product = await savedProduct(view)
+  assert.equal(product.size, 320)
+  assert.equal(product.sizeUnit, 'g')
+  assert.equal(product.numServings, 2)
+  assert.equal(product.energyKcal, 70)
+  assert.equal(product.notes, notes)
+})
+
+test.each([
+  ['Keep my measurements', 500, 'g'],
+  ['Replace with photo measurements', 0.5, 'kg'],
+])('%s saves a whole package amount and unit', async (choice, size, sizeUnit) => {
+  camera()
+  params = new URLSearchParams('labelPhotos=1')
+  const view = render(React.createElement(Page))
+  await readDraft(view, complete)
+  fireEvent.change(view.getByTestId('field-size'), { target: { value: '500' } })
+  await click(view, 'Read new photos')
+  await readDraft(view, { ...complete, size: 0.5, sizeUnit: 'kg' })
+  assert.equal(view.getByRole('button', { name: 'Save' }).disabled, true)
+  await click(view, choice)
+  const product = await savedProduct(view)
+  assert.equal(product.size, size)
+  assert.equal(product.sizeUnit, sizeUnit)
+})
+
+test('retaining manual nutrition saves no photo preparation notes or servings', async () => {
+  camera()
+  params = new URLSearchParams('labelPhotos=1')
+  const view = render(React.createElement(Page))
+  for (const [key, value] of Object.entries({ energyKcal: '350', proteinG: '10', carbsG: '65', fatG: '5' })) {
+    fireEvent.change(view.getByTestId('field-' + key), { target: { value } })
+  }
+  await readDraft(view, { ...complete, notes: 'As prepared with milk', numServings: 3 })
+  await click(view, 'Keep my measurements')
+  assert.deepEqual(await savedProduct(view), {
+    name: 'Tea', brand: null, barcode: null, notes: '', size: 100, sizeUnit: 'g', numServings: 1,
+    nutritionalInfoSize: 100, nutritionalInfoUnit: 'g', energyKcal: 350, proteinG: 10, carbsG: 65,
+    fatG: 5, saturatedFatG: null, sugarsG: null, fibreG: null, saltG: null,
+  })
+})
+
+test.each(['nutritionalInfoSize', 'proteinG'])('a retained %s keeps its entire measurement set only by explicit choice', async key => {
   camera()
   params = new URLSearchParams('labelPhotos=1')
   const view = render(React.createElement(Page))
@@ -116,10 +186,10 @@ test.each(['nutritionalInfoSize', 'proteinG'])('a retained %s keeps its entire n
   await click(view, 'Read labels')
   fireEvent.change(field(key), { target: { value: '30' } })
   await act(async () => pending.resolve(label({ ...complete, name: 'New tea', nutritionalInfoSize: 50, energyKcal: 45, saltG: null })))
-  assert.match(view.getByRole('alert').textContent, /nutrition column/i)
+  assert.match(view.getByRole('alert').textContent, /replace them all/i)
   assert.equal(field('name').value, 'Tea')
   assert.equal(view.getByRole('button', { name: 'Save' }).disabled, true)
-  await click(view, 'Keep my nutrition column')
+  await click(view, 'Keep my measurements')
   assert.equal(field('name').value, 'New tea')
   assert.equal(field(key).value, '30')
   assert.equal(field('energyKcal').value, '15')
@@ -313,7 +383,7 @@ test('a retry keeps the reviewed basis unit when the new package unit conflicts'
   choose(view)
   request.mockResolvedValueOnce(label({ sizeUnit: 'ml' }))
   await click(view, 'Read labels')
-  assert.match(view.getByRole('alert').textContent, /package unit.*nutrition unit/i)
+  await click(view, 'Keep my measurements')
   assert.equal(view.getByTestId('field-nutritionalInfoUnit').value, 'kg')
   assert.equal(view.getByTestId('field-sizeUnit').value, '')
 })

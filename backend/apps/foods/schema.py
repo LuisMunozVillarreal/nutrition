@@ -463,7 +463,7 @@ class FoodQuery:
         Args:
             info (Info): GraphQL execution info.
             barcode (str): scanned product barcode.
-            local_only: If true, skip OFF even when no local product matches.
+            local_only: Match non-GTIN identifiers exactly and never query OFF.
 
         Returns:
             FoodProductBarcodeLookupType: local product, OFF draft, or
@@ -475,15 +475,15 @@ class FoodQuery:
                 product=None, open_food_facts=None
             )
 
-        normalized_barcode = normalize_gtin(barcode)
-        if normalized_barcode is None:
+        candidates = equivalent_gtins(barcode)
+        if not candidates and local_only and barcode.strip():
+            candidates = (barcode,)
+        if not candidates:
             return FoodProductBarcodeLookupType(
                 product=None, open_food_facts=None
             )
 
-        queryset = FoodProduct.objects.filter(
-            barcode__in=equivalent_gtins(normalized_barcode)
-        )
+        queryset = FoodProduct.objects.filter(barcode__in=candidates)
         if "servings" in _requested_field_names(info):
             queryset = queryset.prefetch_related(
                 Prefetch(
@@ -503,7 +503,7 @@ class FoodQuery:
         off_product = (
             None
             if local_only
-            else fetch_open_food_facts_product(normalized_barcode)
+            else fetch_open_food_facts_product(candidates[0])
         )
         if off_product is None:
             return FoodProductBarcodeLookupType(
