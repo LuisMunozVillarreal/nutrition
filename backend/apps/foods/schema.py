@@ -11,6 +11,7 @@ from django.db import models, transaction
 from django.db.models import Prefetch
 from strawberry.types import Info
 
+from apps.foods.label_photos import decode_photos, extract_label
 from apps.foods.models import (
     CupboardItem,
     Food,
@@ -535,8 +536,38 @@ def _canonical_product_barcode(barcode: str | None) -> str | None:
 
 
 @strawberry.type
+class ProductLabelDraft:
+    """Unsaved product form fields, with null for unknown label values."""
+
+    draft_json: str
+
+
+@strawberry.type
 class FoodMutation:
     """Food mutations."""
+
+    @strawberry.mutation
+    def extract_product_label(
+        self, info: Info, photos: list[str]
+    ) -> ProductLabelDraft:
+        """Extract a draft without creating or updating a product.
+
+        Args:
+            info: Request context.
+            photos: Inline JPEG data URLs for one product.
+
+        Returns:
+            ProductLabelDraft: JSON for user review.
+
+        Raises:
+            PermissionError: If the caller is anonymous.
+        """
+        user = get_request_user(info.context)
+        if user is None:
+            raise PermissionError("Authentication required")
+        return ProductLabelDraft(
+            draft_json=extract_label(decode_photos(photos), user.pk)
+        )
 
     @strawberry.mutation
     @transaction.atomic

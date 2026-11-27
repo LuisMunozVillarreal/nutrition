@@ -2,6 +2,7 @@
 
 # pylint: disable=too-few-public-methods
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -9,7 +10,8 @@ import jwt
 import strawberry
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
-from strawberry.types import Info
+from graphql import GraphQLError
+from strawberry.types import ExecutionContext, Info
 
 from apps.exercises.schema import ExerciseMutation, ExerciseQuery
 from apps.foods.schema import (
@@ -279,4 +281,23 @@ class Mutation(
         raise ValueError("Invalid credentials")
 
 
-schema = strawberry.Schema(query=Query, mutation=Mutation)
+class PrivateSchema(strawberry.Schema):
+    """Exclude operation text and variable values from application logs."""
+
+    def process_errors(
+        self,
+        errors: list[GraphQLError],
+        execution_context: ExecutionContext | None = None,
+    ) -> None:
+        """Log only the count; coercion errors can embed private uploads.
+
+        Args:
+            errors: Errors returned to the requesting client.
+            execution_context: Strawberry operation context.
+        """
+        logging.getLogger("strawberry.execution").error(
+            "GraphQL request failed (%d errors)", len(errors)
+        )
+
+
+schema = PrivateSchema(query=Query, mutation=Mutation)

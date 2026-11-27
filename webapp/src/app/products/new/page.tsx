@@ -1,6 +1,8 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useRef, useState } from 'react'
+import Image from 'next/image'
+import LabelPhotoPicker from './LabelPhotoPicker'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { graphqlRequest, gql } from '@/lib/graphql'
@@ -68,6 +70,18 @@ const REQUIRED_MAIN_NUTRIENTS: Array<keyof ProductFormState> = [
   'carbsG',
 ]
 
+const REQUIRED_LABEL_FIELDS = {
+  name: 'Name', size: 'Package size', sizeUnit: 'Size unit', numServings: 'Number of servings',
+  nutritionalInfoSize: 'Info size base', nutritionalInfoUnit: 'Info unit base',
+  energyKcal: 'Energy', proteinG: 'Protein', fatG: 'Fat', carbsG: 'Carbs',
+} as const
+
+const BARCODE_CHECK = gql`
+  query CheckLabelBarcode($barcode: String!) {
+    foodProductByBarcode(barcode: $barcode) { product { name } }
+  }
+`
+
 interface ProductSearchParams {
   get(name: string): string | null
   toString(): string
@@ -100,16 +114,46 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
   const [form, setForm] = useState(() => initialForm(searchParams))
   const [saving, setSaving] = useState(false)
 
+  const [picking, setPicking] = useState(searchParams.get('labelPhotos') === '1')
+  const [photos, setPhotos] = useState<string[]>([])
+  const edited = useRef(new Set<string>())
+  const reviewing = photos.length > 0
+  const nutrientStep = reviewing ? '0.01' : '0.1'
+  const missing = Object.entries(REQUIRED_LABEL_FIELDS)
+    .filter(([key]) => !form[key as keyof ProductFormState].trim())
+    .map(([, label]) => label)
+
+  function review(nextPhotos: string[], draft: Record<string, unknown>) {
+    setForm(prev => {
+      const next = { ...prev }
+      for (const key of Object.keys(next) as Array<keyof ProductFormState>) {
+        if (edited.current.has(key) || searchParams.get(key) !== null) continue
+        const value = draft[key]
+        next[key] = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+      }
+      if (next.sizeUnit && !isCompatibleUnitPair(next.sizeUnit, next.nutritionalInfoUnit)) {
+        if (edited.current.has('nutritionalInfoUnit')) next.sizeUnit = ''
+        else next.nutritionalInfoUnit = ''
+      }
+      return next
+    })
+    setPhotos(nextPhotos)
+    setPicking(false)
+  }
+
   const handleChange = (name: string, value: string) => {
+    edited.current.add(name)
     setForm(prev => {
       if (name === 'sizeUnit' && !isCompatibleUnitPair(value, prev.nutritionalInfoUnit)) {
-        return { ...prev, sizeUnit: value, nutritionalInfoUnit: value }
+        return { ...prev, sizeUnit: value, nutritionalInfoUnit: reviewing ? '' : value }
       }
       return { ...prev, [name]: value }
     })
   }
 
   const handleSave = async () => {
+    if (picking) throw new Error('Finish reading labels or cancel photos before saving.')
+    if (reviewing && missing.length) throw new Error(`Complete required fields: ${missing.join(', ')}`)
     const size = Number(form.size)
     if (!form.size.trim() || !Number.isFinite(size) || size <= 0) {
       throw new Error('Enter a valid package size before saving')
@@ -119,6 +163,10 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
     }
     setSaving(true)
     try {
+      if (reviewing && form.barcode.trim()) {
+        const { foodProductByBarcode } = await graphqlRequest<{ foodProductByBarcode: { product: { name: string } | null } }>(BARCODE_CHECK, { barcode: form.barcode.trim() })
+        if (foodProductByBarcode.product) throw new Error(`This barcode already belongs to ${foodProductByBarcode.product.name}. No product was created.`)
+      }
       const result = await graphqlRequest<{ createFoodProduct: { id: string } }>(CREATE_MUTATION, {
         name: form.name,
         brand: form.brand || null,
@@ -154,11 +202,18 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
   }
 
   return (
+    <div className={reviewing ? 'grid gap-6 lg:grid-cols-[minmax(16rem,1fr)_2fr]' : ''}>
+      {reviewing && <aside aria-label="Source label photos" className="space-y-3">
+        <h2 className="font-semibold">Source label photos</h2>
+        {photos.map((src, index) => <Image key={index} unoptimized src={src} width={1000} height={1000}
+          className="w-full h-auto" alt={`Label photo ${index + 1}`} />)}
+      </aside>}
     <EntityForm
       title="New Food Product"
       backHref="/products"
       onSave={handleSave}
       saving={saving}
+      disabled={picking}
       fieldsets={[
         {
           title: 'General',
@@ -170,7 +225,15 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
                   className="btn btn-secondary inline-flex"
                 >
                   Scan Product
-                </Link>
+                </Link>{' '}
+                {picking ? <LabelPhotoPicker onReview={review} onCancel={() => setPicking(false)} /> : (
+                  <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => setPicking(true)}>
+                    {reviewing ? 'Read new photos' : 'Create from label photos'}
+                  </button>
+                )}
+                {reviewing && <p role="status" className="mt-3">{missing.length
+                  ? `Complete required fields: ${missing.join(', ')}.`
+                  : 'Check these values against the labels, then select Save.'}</p>}
               </div>
               <FormField label="Brand" name="brand" value={form.brand} onChange={handleChange} />
               <FormField label="Name" name="name" value={form.name} onChange={handleChange} required />
@@ -190,7 +253,7 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
           content: (
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Info Size Base" name="nutritionalInfoSize" type="number" step="0.1" value={form.nutritionalInfoSize} onChange={handleChange} required helpText="e.g. 100" />
-              <SelectField label="Info Unit Base" name="nutritionalInfoUnit" value={form.nutritionalInfoUnit} onChange={handleChange} options={compatibleUnits(form.sizeUnit)} required helpText="e.g. g" />
+              <SelectField label="Info Unit Base" name="nutritionalInfoUnit" value={form.nutritionalInfoUnit} onChange={handleChange} options={reviewing && !form.sizeUnit ? UNIT_CHOICES : compatibleUnits(form.sizeUnit)} required helpText="e.g. g" />
             </div>
           ),
         },
@@ -198,10 +261,10 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
           title: 'Main Nutrients (Per Info Base)',
           content: (
             <>
-              <FormField label="Energy (kcal)" name="energyKcal" type="number" step="0.1" min="0" value={form.energyKcal} onChange={handleChange} required />
-              <FormField label="Protein (g)" name="proteinG" type="number" step="0.1" min="0" value={form.proteinG} onChange={handleChange} required />
-              <FormField label="Fat (g)" name="fatG" type="number" step="0.1" min="0" value={form.fatG} onChange={handleChange} required />
-              <FormField label="Carbs (g)" name="carbsG" type="number" step="0.1" min="0" value={form.carbsG} onChange={handleChange} required />
+              <FormField label="Energy (kcal)" name="energyKcal" type="number" step={nutrientStep} min="0" value={form.energyKcal} onChange={handleChange} required />
+              <FormField label="Protein (g)" name="proteinG" type="number" step={nutrientStep} min="0" value={form.proteinG} onChange={handleChange} required />
+              <FormField label="Fat (g)" name="fatG" type="number" step={nutrientStep} min="0" value={form.fatG} onChange={handleChange} required />
+              <FormField label="Carbs (g)" name="carbsG" type="number" step={nutrientStep} min="0" value={form.carbsG} onChange={handleChange} required />
             </>
           ),
         },
@@ -209,15 +272,16 @@ function NewProductForm({ searchParams }: { searchParams: ProductSearchParams })
           title: 'Extra Nutrients (Per Info Base)',
           content: (
             <>
-              <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step="0.1" min="0" value={form.saturatedFatG} onChange={handleChange} />
-              <FormField label="Sugars (g)" name="sugarsG" type="number" step="0.1" min="0" value={form.sugarsG} onChange={handleChange} />
-              <FormField label="Fibre (g)" name="fibreG" type="number" step="0.1" min="0" value={form.fibreG} onChange={handleChange} />
-              <FormField label="Salt (g)" name="saltG" type="number" step="0.1" min="0" value={form.saltG} onChange={handleChange} />
+              <FormField label="Saturated Fat (g)" name="saturatedFatG" type="number" step={nutrientStep} min="0" value={form.saturatedFatG} onChange={handleChange} />
+              <FormField label="Sugars (g)" name="sugarsG" type="number" step={nutrientStep} min="0" value={form.sugarsG} onChange={handleChange} />
+              <FormField label="Fibre (g)" name="fibreG" type="number" step={nutrientStep} min="0" value={form.fibreG} onChange={handleChange} />
+              <FormField label="Salt (g)" name="saltG" type="number" step={nutrientStep} min="0" value={form.saltG} onChange={handleChange} />
             </>
           ),
         },
       ]}
     />
+    </div>
   )
 }
 
